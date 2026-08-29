@@ -7,6 +7,12 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — P4: chain verification use case (T9)
+- **Why:** implement the full `Ledger` application service use cases (`append`, `sign_root`, `verify_chain`) supporting root signing and fail-closed chain verification against the external witness (decisions #7, #15, #19).
+- **Done:** created `src/api/audit/service.py` (`LedgerService` orchestrating repo, signers, and witness) and test suite `src/api/tests/test_audit_verify.py` implementing test T9 (the live demo script: intact 25-event chain with 2 signed checkpoints verifies clean; 1-byte payload mutation at seq 7 breaks verification at seq 7; hash corruption at seq 15 breaks at seq 15; invalid root sig fails; divergent external witness fails; missing witness fails).
+- **Decision:** none new (implements #7, #15, #19).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — P3: root signers + external witness
 - **Why:** implement cryptographic root signing via Cloud KMS `EC_SIGN_ED25519` (non-exportable HSM key) and local Ed25519 for dev, accompanied by external root witness storage in versioned GCS buckets (decisions #7, #11, #15).
 - **Done:** created `src/api/audit/signer_kms.py` (KMS `asymmetricSign` adapter with lazy imports), `src/api/audit/signer_local.py` (Ed25519 local keypair/PEM signer), `src/api/audit/witness_gcs.py` (GCS versioned bucket witness adapter with `if_generation_match=0`), `src/api/audit/witness_memory.py` (in-memory witness fake with tamper/deletion hooks), and tests in `src/api/tests/test_audit_signers.py` (unit sign/verify, corruption detection, immutability + `@pytest.mark.gcp` integration tests).
