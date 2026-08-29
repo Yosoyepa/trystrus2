@@ -98,7 +98,7 @@ def node_perceive(conn, run: dict) -> str:
     run["state"]["ontology_text"] = limits.clamp_text(ontology_mod.render(onto))
     run["state"]["memory"] = summary
     run["state"]["memory_text"] = memory.render(summary)
-    limits.guard_llm_call(conn, run["agent_id"])
+    limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
     run["state"]["criteria"] = llm.parse_request(
         run["state"]["request"] + (" " + " ".join(run["state"]["guidance"])
                                    if run["state"]["guidance"] else ""))
@@ -112,7 +112,7 @@ def node_perceive(conn, run: dict) -> str:
 def node_search(conn, run: dict) -> str:
     """MCP tools. Read-only, cost nothing, commit nothing."""
     criteria = run["state"].get("criteria") or {}
-    limits.guard_merchant_call(conn, run["agent_id"])
+    limits.guard_merchant_call(conn, run["agent_id"], run["mandate_jti"])
     offers = merchant.search_offers(
         conn, origin=criteria.get("origin"), destination=criteria.get("destination"),
         date=criteria.get("date"), category=criteria.get("category"))
@@ -132,7 +132,7 @@ def node_search(conn, run: dict) -> str:
 def node_propose(conn, run: dict) -> str:
     """The only node with a model in it (S1)."""
     state = run["state"]
-    limits.guard_llm_call(conn, run["agent_id"])
+    limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
     proposal = llm.propose(
         request=state["request"], offers=state["offers"],
         ontology_text=state.get("ontology_text", ""),

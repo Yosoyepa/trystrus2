@@ -157,38 +157,42 @@ def day_window() -> str:
 # ── single flight ────────────────────────────────────────────────────────────
 @contextmanager
 def single_flight(conn, name: str, ttl_s: int | None = None) -> Iterator[bool]:
-    """Only one holder at a time. Yields False if someone else holds it.
+    """Only one holder at a time, across processes and machines.
 
     Cron overlap is the classic way a one-minute job becomes a thundering herd:
-    a tick that takes 90 s under a one-minute schedule means two, then three,
-    then a stampede.  The lock expires on its own so a crashed holder does not
-    wedge the system forever.
+    a tick that takes ninety seconds under a one-minute schedule means two, then
+    three, then a stampede. The second holder **skips** rather than queueing —
+    a queued backlog is the stampede with extra steps.
+
+    Postgres advisory locks replace the lock table this used to keep. They need
+    no TTL because the lock dies with the session, so a crashed holder releases
+    immediately instead of wedging the system until a timeout expires. They are
+    also re-entrant *within* a session, which is why this opens a connection of
+    its own: two calls must be two sessions, or a process would happily grant
+    itself a lock it already holds.
+
+    `ttl_s` is accepted and ignored, so existing callers keep working.
     """
-    ttl = ttl_s or QUOTA.tick_lock_ttl_s
-    holder = new_id("lock")
-    now = _dt.datetime.now(_dt.timezone.utc)
-    expires = (now + _dt.timedelta(seconds=ttl)).isoformat()
+    from . import db
+
+    holder = db.connect()
     acquired = False
-    conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT expires_at FROM locks WHERE name=?", (name,)).fetchone()
-        if row is None:
-            conn.execute("INSERT INTO locks(name,holder,acquired_at,expires_at) "
-                         "VALUES(?,?,?,?)", (name, holder, now.isoformat(), expires))
-            acquired = True
-        elif _dt.datetime.fromisoformat(row["expires_at"]) < now:
-            conn.execute("UPDATE locks SET holder=?, acquired_at=?, expires_at=? "
-                         "WHERE name=?", (holder, now.isoformat(), expires, name))
-            acquired = True
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    try:
+        acquired = bool(holder.execute(
+            "SELECT pg_try_advisory_lock(hashtext(?)) AS ok", (name,)
+        ).fetchone()["ok"])
         yield acquired
     finally:
         if acquired:
-            conn.execute("DELETE FROM locks WHERE name=? AND holder=?", (name, holder))
+            holder.execute("SELECT pg_advisory_unlock(hashtext(?))", (name,))
+        holder.close()
+
+
+def held_locks(conn) -> list[dict]:
+    """What the control tower shows: advisory locks this database is holding."""
+    return conn.execute(
+        "SELECT objid AS lock_id, pid, granted FROM pg_locks "
+        "WHERE locktype='advisory' ORDER BY objid").fetchall()
 
 
 # ── the specific guards, each named after what it stops ──────────────────────
@@ -214,13 +218,25 @@ def guard_watch_count(conn, mandate_jti: str) -> None:
                             f"{total} active watches system-wide")
 
 
-def guard_merchant_call(conn, agent_id: str) -> None:
+def guard_merchant_call(conn, agent_id: str, mandate_jti: str | None = None) -> None:
+    """Two buckets, both of which must have room.
+
+    Keying only on the agent left a hole: whoever can mint agent ids gets a
+    fresh budget with each one. The mandate is the thing an attacker cannot
+    mint -- it is signed by a human -- so it carries the second ceiling.
+    """
     take(conn, f"merchant:{agent_id}", rate=QUOTA.merchant_calls_per_s,
          burst=QUOTA.merchant_burst)
+    if mandate_jti:
+        take(conn, f"merchant:mandate:{mandate_jti}",
+             rate=QUOTA.merchant_calls_per_s, burst=QUOTA.merchant_burst)
 
 
-def guard_llm_call(conn, agent_id: str) -> None:
+def guard_llm_call(conn, agent_id: str, mandate_jti: str | None = None) -> None:
     take(conn, f"llm:{agent_id}", rate=QUOTA.llm_calls_per_s, burst=QUOTA.llm_burst)
+    if mandate_jti:
+        take(conn, f"llm:mandate:{mandate_jti}", rate=QUOTA.llm_calls_per_s,
+             burst=QUOTA.llm_burst)
     bump(conn, "llm:calls", day_window(), cap=QUOTA.llm_calls_per_day)
 
 
@@ -260,5 +276,5 @@ def snapshot(conn) -> dict:
             "ORDER BY key").fetchall()],
         "counters": [dict(r) for r in conn.execute(
             "SELECT key, window_key AS window, value FROM counters ORDER BY key, window_key").fetchall()],
-        "locks": [dict(r) for r in conn.execute("SELECT * FROM locks").fetchall()],
+        "locks": [dict(r) for r in held_locks(conn)],
     }

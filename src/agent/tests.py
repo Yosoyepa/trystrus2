@@ -11,7 +11,7 @@ import time
 from typing import Callable
 
 from . import (audit, chat, db, escalation, graph, jsonlogic, kernel, limits,
-               mandate as mandate_mod, registry, watcher)
+               mandate as mandate_mod, registry, relay, watcher)
 from .crypto import jws
 from .crypto.keys import load_or_create
 from .mocks import merchant, rail
@@ -556,6 +556,89 @@ def _n4():
             assert third is True, "lock not released"
     finally:
         a.close(); b.close()
+
+
+@case("N2", "two relay workers drain one outbox; nothing is delivered twice")
+def _n2():
+    import threading
+    conn, ctx = fresh()
+    for i in range(40):
+        audit.append(conn, "test.relayable", {"i": i}, mandate_jti=ctx["mandate_jti"])
+
+    seen: list[str] = []
+    guard = threading.Lock()
+
+    class Recorder:
+        name = "recorder"
+
+        def on_event(self, event):
+            with guard:
+                seen.append(event["event_id"])
+
+    relay.SUBSCRIBERS.clear()
+    relay.register(Recorder())
+    try:
+        results = []
+
+        def worker():
+            c = db.connect()
+            try:
+                for _ in range(6):
+                    results.append(relay.drain(c, batch=7))
+            finally:
+                c.close()
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for th in threads: th.start()
+        for th in threads: th.join()
+    finally:
+        relay.SUBSCRIBERS.clear()
+
+    assert len(seen) == len(set(seen)), \
+        f"{len(seen) - len(set(seen))} events delivered more than once"
+    left = relay.pending(conn)
+    assert left["waiting"] == 0, left
+    assert len(seen) == left["delivered"], (len(seen), left)
+
+
+@case("N3", "two watcher workers split one watch set; none is claimed twice")
+def _n3():
+    import threading
+    import dataclasses
+    conn, ctx = fresh()
+    original = limits.QUOTA
+    limits.QUOTA = dataclasses.replace(original, max_watches_per_mandate=40)
+    for i in range(19):                     # 20 with the one the seed creates
+        watcher.create_watch(
+            conn, agent_id=ctx["agent_id"], mandate_jti=ctx["mandate_jti"],
+            query={"destination": "COR"},
+            threshold={"<=": [{"var": "offer.price"}, 1]},   # never fires
+            interval_s=30, created_by=ctx["people"]["marta"])
+    limits.QUOTA = original
+    conn.execute("UPDATE watches SET last_checked_at=NULL")
+
+    claimed: list[str] = []
+    guard = threading.Lock()
+
+    def worker():
+        c = db.connect()
+        try:
+            for _ in range(6):
+                rows = watcher._claim_due(c, 4)
+                with guard:
+                    claimed.extend(r["id"] for r in rows)
+        finally:
+            c.close()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for th in threads: th.start()
+    for th in threads: th.join()
+
+    assert len(claimed) == len(set(claimed)), \
+        f"{len(claimed) - len(set(claimed))} watches claimed by both workers"
+    total = conn.execute("SELECT COUNT(*) c FROM watches WHERE status='active'"
+                         ).fetchone()["c"]
+    assert len(set(claimed)) == total, (len(set(claimed)), total)
 
 
 def main() -> int:

@@ -190,10 +190,9 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE TABLE IF NOT EXISTS rate_buckets (
   key TEXT PRIMARY KEY, tokens DOUBLE PRECISION NOT NULL, updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS locks (
-  name TEXT PRIMARY KEY, holder TEXT NOT NULL,
-  acquired_at TEXT NOT NULL, expires_at TEXT NOT NULL
-);
+-- (the `locks` table is retired: single-flight uses Postgres advisory locks,
+--  which need no TTL because the lock dies with the session — a crashed holder
+--  releases immediately instead of wedging the system until a timeout expires)
 CREATE TABLE IF NOT EXISTS counters (
   key TEXT NOT NULL, window_key TEXT NOT NULL, value DOUBLE PRECISION NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL, PRIMARY KEY (key, window_key)
@@ -209,7 +208,7 @@ CREATE INDEX IF NOT EXISTS ix_watches_due ON watches(status, last_checked_at);
 CREATE INDEX IF NOT EXISTS ix_purchases_mandate ON purchases(mandate_jti, status);
 """
 
-TABLES = ["chat_messages", "outbox", "counters", "rate_buckets", "locks",
+TABLES = ["chat_messages", "outbox", "counters", "rate_buckets", "locks",  # locks kept in the drop list for old databases
           "checkpoints", "chains",
           "agent_runs", "escalations", "purchases", "purchase_intents",
           "idempotency_keys", "watches", "offers", "payment_instruments",

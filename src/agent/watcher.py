@@ -66,19 +66,23 @@ def list_watches(conn, status: str | None = None) -> list[dict]:
     return [dict(r) for r in conn.execute(sql + " ORDER BY created_at", args).fetchall()]
 
 
-def _due(conn) -> list[Any]:
-    rows = conn.execute("SELECT * FROM watches WHERE status='active'").fetchall()
-    due = []
-    for row in rows:
-        if not row["last_checked_at"]:
-            due.append(row)
-            continue
-        # coarse but honest: compare ISO strings via epoch
-        import datetime as dt
-        last = dt.datetime.fromisoformat(row["last_checked_at"])
-        if (dt.datetime.now(dt.timezone.utc) - last).total_seconds() >= row["interval_s"]:
-            due.append(row)
-    return due
+def _claim_due(conn, limit: int) -> list[Any]:
+    """Claim the watches that are due, atomically.
+
+    The UPDATE ... FROM (SELECT ... FOR UPDATE SKIP LOCKED) idiom is what lets
+    several watcher processes run against one database: each claims a disjoint
+    slice and stamps it in the same statement, so two workers never poll the
+    same watch in the same window. Doing this in Python instead would mean
+    every worker checking every watch and racing on the purchase.
+    """
+    return conn.execute(
+        "UPDATE watches SET last_checked_at = now()::text WHERE id IN ("
+        "  SELECT id FROM watches WHERE status='active' AND ("
+        "    last_checked_at IS NULL OR"
+        "    last_checked_at::timestamptz + (interval_s * interval '1 second') <= now()"
+        "  ) ORDER BY last_checked_at NULLS FIRST"
+        "  FOR UPDATE SKIP LOCKED LIMIT ?"
+        ") RETURNING *", (limit,)).fetchall()
 
 
 def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
@@ -89,7 +93,7 @@ def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
     if row["status"] != "active" and not force:
         return {"watch_id": watch_id, "status": row["status"], "checked": False}
 
-    limits.guard_merchant_call(conn, row["agent_id"])   # same budget as the agent
+    limits.guard_merchant_call(conn, row["agent_id"], row["mandate_jti"])
     query = json.loads(row["query"])
     threshold = json.loads(row["threshold"])
     offers = merchant.search_offers(
@@ -156,9 +160,10 @@ def tick(conn) -> dict[str, Any]:
             # A previous tick is still running. Overlapping cron jobs are how a
             # one-minute schedule turns into a stampede; we skip, we do not queue.
             return {"at": now_iso(), "skipped": "another tick holds the lock",
-                    "escalations_expired": 0, "watches_checked": 0, "fired": []}
+                    "escalations_expired": 0, "watches_checked": 0, "fired": [],
+                    "events_relayed": 0}
         expired = escalation.sweep(conn)
-        due = _due(conn)[: limits.QUOTA.max_watches_per_tick]
+        due = _claim_due(conn, limits.QUOTA.max_watches_per_tick)
         results = []
         for row in due:
             try:
@@ -168,10 +173,13 @@ def tick(conn) -> dict[str, Any]:
                              {"watch_id": row["id"], "reason_code": exc.code,
                               "detail": exc.detail}, agent_id=row["agent_id"])
                 results.append({"watch_id": row["id"], "throttled": exc.code})
+        from . import relay
+        delivery = relay.drain(conn)
         return {"at": now_iso(), "escalations_expired": len(expired),
                 "watches_checked": len(results),
                 "throttled": [r for r in results if r.get("throttled")],
-                "fired": [r for r in results if r.get("matched")]}
+                "fired": [r for r in results if r.get("matched")],
+                "events_relayed": delivery["delivered"]}
 
 
 def run_forever(conn, *, every_s: int = 30, max_ticks: int | None = None) -> None:

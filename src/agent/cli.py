@@ -6,7 +6,7 @@ import sys
 from typing import Any
 
 from . import (audit, chat, db, escalation, graph, jsonlogic, limits,
-               mandate as mandate_mod, memory, registry, watcher)
+               mandate as mandate_mod, memory, registry, relay, watcher)
 from .config import LLM_MODEL, PRODUCT_DOMAIN, PRODUCT_NAME
 from .mocks import merchant
 
@@ -278,6 +278,22 @@ def cmd_resolve(args) -> None:
     _print(result)
 
 
+def cmd_relay(args) -> None:
+    conn = _conn()
+    relay.default_subscribers()
+    print("subscribers:", ", ".join(relay.SUBSCRIBERS) or "(none)")
+    _print(relay.pending(conn))
+    _print(relay.drain(conn, batch=args.batch))
+
+
+def cmd_relay_daemon(args) -> None:
+    conn = _conn()
+    relay.default_subscribers()
+    print(f"relaying every {args.every}s — Ctrl-C to stop. "
+          f"Run several; SKIP LOCKED shards them.")
+    relay.run_forever(conn, every_s=args.every, max_passes=args.passes)
+
+
 def cmd_limits(args) -> None:
     conn = _conn()
     snap = limits.snapshot(conn)
@@ -370,6 +386,10 @@ def main(argv: list[str] | None = None) -> None:
     p = add("resolve", cmd_resolve, "approve or reject an escalation")
     p.add_argument("escalation_id"); p.add_argument("decision", choices=["approve", "reject"])
     p.add_argument("--by", default="Marta"); p.add_argument("--sticky", action="store_true")
+    p = add("relay", cmd_relay, "drain the outbox once (external delivery)")
+    p.add_argument("--batch", type=int, default=50)
+    p = add("relay-daemon", cmd_relay_daemon, "keep draining; run several at once")
+    p.add_argument("--every", type=float, default=1.0); p.add_argument("--passes", type=int)
     add("limits", cmd_limits, "guardrails: quotas, rate buckets, counters, locks")
     add("protocols", cmd_protocols, "how TryTrust maps onto AP2, ACP and friends")
 
