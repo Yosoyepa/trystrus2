@@ -8,6 +8,35 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 20:05 — identity core: keys, state machine, passkey ceremony, registry
+- **Why:** G1 is the gate I lead and the one judges attack live. Everything else
+  in the lane (checkout, revocation, escalations) reads this state.
+- **Decision:** none new — implements [`0021`](../decisions/0021-webauthn-credentials-table.md)
+  and the AP2 shape from [`0023`](../decisions/0023-ap2-current-mandate-model.md).
+- **Contracts touched:** none. Implements `MandateRegistry` from `schemas.md` §3
+  exactly as frozen.
+- **Tests:** **T8 green** (82 cases — every one of the 36 (from,to) pairs against
+  a spec table written independently of the implementation, so the two can be
+  compared rather than assumed). Registry 12, passkey 11. **168 total.**
+- **Open questions:**
+  - **Dev 4 — `rp_id` is config, and it matters to you.** Passkeys are refused on
+    `*.run.app` (Public Suffix List, ADR-018). Dev default is `localhost`;
+    staging needs the real domain in `AVAL_RP_ID` *and* `AVAL_RP_ORIGIN`, or the
+    ceremony fails with an error that looks like a code bug and is not.
+  - **Dev 2 — `build_claims` and `sign` are deliberately separate.** The passkey
+    challenge is the canonical hash of the claims, so they must be final before
+    the gesture; but signing before the human agrees would produce a valid
+    mandate nobody authorized. The ceremony goes between the two calls.
+  - **Everyone — the mandate hash is order-independent.** A mandate rebuilt from
+    the DB hashes the same as the one Marta signed, because both go through
+    `canonical_json`. If you ever build claims by hand, use `MandateClaims`,
+    not a dict.
+  - **Sticky mini-mandates never outlive their parent** (`derive` clamps `exp`).
+    Approving an escalation narrows authority; it must not extend delegation in
+    time.
+
+---
+
 ## 2026-08-29 19:20 — fixtures, local Postgres, and a fixture-driven verify mock
 - **Why:** M0's exit criterion is a test that actually consumes the canonical
   fixtures and approves/rejects them correctly. Also: my checkout cannot be
