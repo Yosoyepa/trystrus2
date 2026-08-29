@@ -318,6 +318,55 @@ def cmd_limits(args) -> None:
             print(f"  {l['name']:<20}{l['holder']:<26}expires {l['expires_at']}")
 
 
+def cmd_mcp_check(args) -> None:
+    """Does a merchant's MCP server honour the frozen contract?"""
+    from .ports.mcp_client import McpMerchant
+    info = McpMerchant(args.url).inspect()
+    print(f"server   {info['url']}")
+    print(BAR)
+    for tool in info["tools"]:
+        print(f"  {tool['name']:<20}{tool['description'][:46]}")
+    print(BAR)
+    print(f"  missing from the contract : {info['missing'] or 'none'}")
+    print(f"  offered but not used      : {info['unexpected'] or 'none'}")
+    print(f"  names that suggest money  : {info['suspicious'] or 'none'}")
+    print(f"\n  contract holds: {info['contract_ok']}")
+    if not info["contract_ok"]:
+        raise SystemExit(1)
+
+
+def cmd_mcp_demo(args) -> None:
+    """Buy through a real MCP server, then try an injected listing."""
+    from .ports.mcp_client import McpMerchant
+    conn = _conn()
+    agent_id, mandate_jti = _default_session(conn)
+    m = McpMerchant(args.url)
+
+    print("1. search over MCP")
+    offers = m.search_offers(conn, destination=args.destination, category="flights",
+                             agent_id=agent_id, mandate_jti=mandate_jti)
+    for o in offers[:4]:
+        print(f"   {o['offer_id']:<16}{o['price']:>8} {o['currency']}  {o['title']}")
+    if not offers:
+        raise SystemExit("   the merchant returned nothing to buy")
+
+    print("\n2. buy the cheapest, through the gate")
+    result = m.request_purchase(conn, offer_id=offers[0]["offer_id"],
+                                mandate_jti=mandate_jti)
+    print(f"   {result['status'].upper()} {result.get('reason_code') or ''}")
+    if result.get("receipt"):
+        print(f"   {result['receipt']['title']} at {result['receipt']['amount']}")
+
+    if args.injected:
+        print(f"\n3. now obey the injected listing {args.injected}")
+        bad = m.request_purchase(conn, offer_id=args.injected, mandate_jti=mandate_jti)
+        print(f"   {bad['status'].upper()}: {bad.get('reason_code')} — "
+              f"{bad.get('detail', '')}")
+        if bad["status"] == "captured":
+            raise SystemExit("   an injected listing was PAID. Stop the demo.")
+        print("   the model can be fooled; the gate cannot.")
+
+
 def cmd_protocols(args) -> None:
     from .protocols.review import summary
     print(summary())
@@ -391,6 +440,12 @@ def main(argv: list[str] | None = None) -> None:
     p = add("relay-daemon", cmd_relay_daemon, "keep draining; run several at once")
     p.add_argument("--every", type=float, default=1.0); p.add_argument("--passes", type=int)
     add("limits", cmd_limits, "guardrails: quotas, rate buckets, counters, locks")
+    p = add("mcp-check", cmd_mcp_check, "does a merchant's MCP honour the contract?")
+    p.add_argument("--url", default=None)
+    p = add("mcp-demo", cmd_mcp_demo, "buy through a real MCP server")
+    p.add_argument("--url", default=None)
+    p.add_argument("--destination", default="COR")
+    p.add_argument("--injected", default="ofr_inj_1")
     add("protocols", cmd_protocols, "how TryTrust maps onto AP2, ACP and friends")
 
     args = parser.parse_args(argv)

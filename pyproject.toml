@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=44.0",
     "pyyaml>=6.0",
     "httpx>=0.28",
+    "mcp>=1.2",
 ]
 
 [project.optional-dependencies]
