@@ -114,6 +114,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cbor2" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -138,6 +139,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cbor2", specifier = ">=6.1.4" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
 ]

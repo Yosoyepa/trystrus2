@@ -8,6 +8,41 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 21:10 — the identity HTTP surface; mandates live end to end
+- **Why:** the services existed but nothing was reachable. Dev 4 cannot build a
+  console against a Python class, and M1 needs a real SD-JWT over the wire.
+- **Decision:** none new. One **additive** interface note below.
+- **Contracts touched:** `schemas.md` §3 gains **`AsyncPaymentRail`** — a
+  sibling of `PaymentRail`, same names/semantics/returns, awaited. The frozen
+  `PaymentRail` is untouched. Reason: §3 was written when the rail was assumed
+  in-process; it is now an HTTP call (0024) and the kernel is async, so a
+  blocking call would stall the event loop for every other request — including
+  the verify a live purchase is waiting on.
+- **Tests:** 192 green. 15 repository tests against **real Postgres** (SQLite
+  cannot express the guarded UPDATE, and that UPDATE *is* the state machine),
+  including concurrent revoke-vs-revoke and activate-vs-revoke. 9 HTTP tests
+  drive the **real passkey ceremony** with a software authenticator.
+- **Open questions:**
+  - **Dev 4 — the endpoints you can build against now:**
+    `GET /.well-known/jwks.json`, `POST /passkeys/register/{begin,complete}`,
+    `POST /mandates`, `GET /mandates?user_id=`, `GET /mandates/{id}`,
+    `POST /mandates/{id}/passkey/assert`, `POST /mandates/{id}/revoke`.
+    Run it: `uv run uvicorn api.main:app --app-dir src --port 8001`.
+  - **Dev 4 — `POST /mandates` returns 412 if the user has no passkey.** That
+    is deliberate: an agent cannot complete a WebAuthn ceremony, so consent has
+    nowhere to come from. Register the passkey first in your flow.
+  - **Dev 2 — revocation commits before the rail call, on purpose.** Order is
+    gesture → (state + event, one transaction) → commit → delete rail token.
+    The moment that commit lands, your verify starts refusing. A rail failure
+    is logged and never rolls the revocation back: the mandate is dead either
+    way. If you see an orphaned token in `payment_instruments`, that is the
+    reconciliation path, not a bug in revocation.
+  - **Dev 2 — I never write `reserved_amount`, `spent_total` or
+    `txn_count_period`.** They are on my table but they are yours (§6
+    convention); the ORM model marks them. Say if you want them moved.
+
+---
+
 ## 2026-08-29 20:05 — identity core: keys, state machine, passkey ceremony, registry
 - **Why:** G1 is the gate I lead and the one judges attack live. Everything else
   in the lane (checkout, revocation, escalations) reads this state.

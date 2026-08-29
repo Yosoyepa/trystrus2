@@ -75,6 +75,39 @@ class PaymentRail(Protocol):
 
 
 @runtime_checkable
+class AsyncPaymentRail(Protocol):
+    """Async sibling of `PaymentRail`. **Additive — the frozen Protocol above
+    is unchanged.**
+
+    `schemas.md` §3 froze `PaymentRail` with synchronous signatures, written
+    when the rail was assumed to be an in-process adapter. It is now an HTTP
+    call to a separate service (decision 0024), and the kernel is async: a
+    blocking call there would stall the event loop for every other request,
+    including the verify that a live purchase is waiting on.
+
+    Same method names, same semantics, same return types — only awaited. A
+    sync caller can still implement or consume `PaymentRail`; nothing that
+    depends on the frozen shape breaks.
+    """
+
+    async def create_setup_token(self, mandate_id: str) -> SetupToken: ...
+
+    async def exchange_payment_token(self, setup_token_id: str) -> str: ...
+
+    async def delete_payment_token(self, token_id: str) -> None: ...
+
+    async def capture(self, *, token_id: str, amount: Decimal, currency: str,
+                      idempotency_key: str, intent_ref: str) -> Receipt: ...
+
+    async def open_dispute(self, capture_id: str,
+                           reason: str = "UNAUTHORISED") -> DisputeRef: ...
+
+    def verify_webhook(self, headers: dict, body: bytes) -> WebhookEvent | None:
+        """Signature checking is pure computation — no I/O, stays sync."""
+        ...
+
+
+@runtime_checkable
 class MandateRegistry(Protocol):
     """[Dev 3] SD-JWT issuance and verification."""
 
