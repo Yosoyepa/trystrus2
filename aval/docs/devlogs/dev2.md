@@ -7,6 +7,12 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — P1: pure chain algebra (hashing + validation)
+- **Why:** implement deterministic, append-only hash chain computations and pure validation rules without any I/O dependencies (decisions #7, #19).
+- **Done:** created `src/api/audit/models.py` (`AuditEvent`, `ChainResult`, `RootCheckpoint`), `src/api/audit/hashing.py` (canonical JSON serialization with key ordering, no floats, UTC normalization, `compute_event_hash`, `compute_root_hash`), `src/api/audit/chain.py` (`validate_event`, `validate_chain`), and tests in `src/api/tests/test_audit_hashing.py` (12 unit tests covering determinism, sensitivity, payload mutations, hash corruptions, sequence gaps).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — parallel phase brief issued: evidence & distribution (ledger + outbox)
 - **Why:** a second coder can run in parallel with the decision-core brief
   without sharing a single code file — the ledger and the outbox relay are
