@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture and data flows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --paper:#FBFAF8;
+    --card:#FFFFFF;
+    --ink:#15171D;
+    --body:#3A3F4B;
+    --dim:#767E90;
+    --line:#DCDCE4;
+    --line-soft:#EAEAF0;
+    --accent:#2748E8;
+    --accent-wash:#EDF0FE;
+    --allow:#0E7A55;
+    --allow-wash:#E7F4EE;
+    --deny:#BE2F2C;
+    --deny-wash:#FBEDEC;
+    --hold:#9C6100;
+    --hold-wash:#FCF3E2;
+
+    --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+    --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#0D0F14;
+      --card:#141821;
+      --ink:#EDEFF5;
+      --body:#C3C9D6;
+      --dim:#8B94A8;
+      --line:#28303E;
+      --line-soft:#1C232E;
+      --accent:#7A93FF;
+      --accent-wash:#182144;
+      --allow:#4BC48F;
+      --allow-wash:#0E2A20;
+      --deny:#F2726E;
+      --deny-wash:#2C1416;
+      --hold:#E0A64A;
+      --hold-wash:#2A1F0B;
+    }
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--paper);color:var(--body);
+    font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 24px 80px}
+
+  h1{
+    font-family:var(--display);font-weight:800;color:var(--ink);
+    font-size:clamp(28px,4.5vw,42px);letter-spacing:-.025em;line-height:1.05;
+    margin:10px 0 14px;text-wrap:balance;
+  }
+  h2{
+    font-family:var(--display);font-weight:700;color:var(--ink);
+    font-size:clamp(21px,3vw,27px);letter-spacing:-.018em;line-height:1.2;margin:0 0 6px;
+  }
+  h3{font-family:var(--display);font-weight:700;color:var(--ink);font-size:16px;letter-spacing:-.01em;margin:0 0 10px}
+  p{margin:0 0 14px;max-width:70ch}
+
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--dim);
+  }
+  .lede{font-size:18px;color:var(--body);max-width:66ch}
+
+  section{margin-top:56px;padding-top:36px;border-top:1px solid var(--line-soft)}
+  section.first{border-top:0;padding-top:0}
+  .sec-head{margin-bottom:22px}
+
+  figure{
+    margin:26px 0 0;background:var(--card);border:1px solid var(--line);
+    border-radius:8px;padding:22px 20px 16px;
+  }
+  .fig-scroll{overflow-x:auto}
+  svg{display:block;max-width:100%;height:auto;min-width:640px}
+  figcaption{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);
+    font-size:14px;color:var(--dim);line-height:1.55;max-width:78ch;
+  }
+  figcaption b{color:var(--body);font-weight:600}
+
+  /* svg type */
+  .s-box{fill:var(--card);stroke:var(--line);stroke-width:1.5}
+  .s-zone{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:5 4}
+  .s-accent{fill:var(--accent-wash);stroke:var(--accent);stroke-width:2}
+  .s-allow{fill:var(--allow-wash);stroke:var(--allow);stroke-width:1.5}
+  .s-deny{fill:var(--deny-wash);stroke:var(--deny);stroke-width:1.5}
+  .s-hold{fill:var(--hold-wash);stroke:var(--hold);stroke-width:1.5}
+  .t{font-family:var(--mono);font-size:12px;fill:var(--ink)}
+  .t-sm{font-family:var(--mono);font-size:10.5px;fill:var(--dim)}
+  .t-lbl{font-family:var(--mono);font-size:10px;fill:var(--dim);letter-spacing:.05em}
+  .t-zone{font-family:var(--mono);font-size:10px;fill:var(--dim);letter-spacing:.14em}
+  .t-acc{fill:var(--accent)}
+  .t-hold{fill:var(--hold)}
+  .t-deny{fill:var(--deny)}
+  .t-allow{fill:var(--allow)}
+  .ln{stroke:var(--body);stroke-width:1.5;fill:none}
+  .ln-dash{stroke:var(--body);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+  .ln-thin{stroke:var(--dim);stroke-width:1.2;fill:none;stroke-dasharray:3 4}
+  .ln-acc{stroke:var(--accent);stroke-width:2;fill:none}
+  .ln-hold{stroke:var(--hold);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+  .ln-deny{stroke:var(--deny);stroke-width:1.5;fill:none}
+  .ln-life{stroke:var(--line);stroke-width:1.2;fill:none;stroke-dasharray:3 5}
+
+  /* step list */
+  ol.steps{list-style:none;counter-reset:s;margin:22px 0 0;padding:0;display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  ol.steps li{
+    counter-increment:s;background:var(--card);padding:11px 16px 11px 46px;position:relative;
+    font-size:15px;line-height:1.5;color:var(--body);
+  }
+  ol.steps li::before{
+    content:counter(s);position:absolute;left:16px;top:11px;
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+  }
+  ol.steps li b{color:var(--ink);font-weight:600}
+  ol.steps code{font-family:var(--mono);font-size:13px;background:var(--accent-wash);color:var(--accent);padding:1px 5px;border-radius:3px}
+
+  /* definitions */
+  .defs{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:18px}
+  .def{background:var(--card);padding:13px 16px;display:grid;grid-template-columns:190px 1fr;gap:20px;align-items:baseline}
+  .def dt{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+  .def dd{margin:0;font-size:15px;line-height:1.5;color:var(--body)}
+  .def dd em{font-style:normal;color:var(--dim)}
+  @media(max-width:660px){.def{grid-template-columns:1fr;gap:3px}}
+
+  .group-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);margin:30px 0 0;
+  }
+
+  .note{
+    background:var(--accent-wash);border-left:3px solid var(--accent);
+    padding:14px 18px;margin-top:24px;font-size:15px;line-height:1.55;color:var(--body);
+    border-radius:0 5px 5px 0;
+  }
+  .note b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">NextWave 2026 · The buyer who isn't human</div>
+  <h1>Architecture and data flows</h1>
+  <p class="lede">The whiteboard, drawn properly. One system picture, one happy path, and the order the checks run in. Definitions are at the bottom.</p>
+</header>
+
+<!-- ================= PROBLEM ================= -->
+<section class="first" style="margin-top:44px">
+  <div class="sec-head">
+    <div class="eyebrow">The problem</div>
+    <h2>Nobody trusts a transaction made by an agent</h2>
+  </div>
+  <p>A person tells an agent to buy something and the agent buys it. The merchant cannot check that the person agreed, and the person cannot prove afterwards what they agreed to. So merchants either block agents and lose real sales, or let them through as people and absorb the fraud.</p>
+  <p>The missing piece is a permission that can be written down, checked by a stranger, and taken away.</p>
+</section>
+
+<!-- ================= FIG 1 ================= -->
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Figure 1</div>
+    <h2>The system</h2>
+  </div>
+  <p>The claim this drawing makes: the agent can look and propose, but only the rules engine can spend. There is no arrow from the agent to the merchant's payment API, and that absence is the design.</p>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1140 620" role="img" aria-label="System architecture: buyer channels cross an auth boundary into the platform, where a BFF hands work to an agent that proposes purchases to a rules engine; only the rules engine calls the merchant payment API; a log feeds a control tower.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- BUYER -->
+      <text class="t-zone" x="30" y="62">BUYER</text>
+      <rect class="s-box" x="30" y="80" width="140" height="48" rx="4"/>
+      <text class="t" x="100" y="109" text-anchor="middle">Slack</text>
+      <rect class="s-box" x="30" y="144" width="140" height="48" rx="4"/>
+      <text class="t" x="100" y="173" text-anchor="middle">Web</text>
+      <rect class="s-box" x="30" y="208" width="140" height="48" rx="4"/>
+      <text class="t" x="100" y="237" text-anchor="middle">Telegram</text>
+
+      <line class="ln" x1="170" y1="104" x2="200" y2="104"/>
+      <line class="ln" x1="170" y1="168" x2="200" y2="168"/>
+      <line class="ln" x1="170" y1="232" x2="200" y2="232"/>
+      <line class="ln" x1="200" y1="104" x2="200" y2="232"/>
+
+      <!-- AUTH BOUNDARY -->
+      <line class="s-zone" x1="228" y1="56" x2="228" y2="410"/>
+      <text class="t-zone" x="228" y="44" text-anchor="middle">AUTH</text>
+
+      <!-- request / confirm -->
+      <g style="color:var(--body)">
+        <line class="ln" x1="200" y1="120" x2="272" y2="120" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="236" y="113" text-anchor="middle">request</text>
+      <g style="color:var(--hold)">
+        <line class="ln-hold" x1="276" y1="142" x2="204" y2="142" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl t-hold" x="240" y="156" text-anchor="middle">confirm?</text>
+
+      <!-- PLATFORM ZONE -->
+      <rect class="s-zone" x="255" y="56" width="545" height="352" rx="6"/>
+      <text class="t-zone" x="268" y="76">PLATFORM · VPC</text>
+
+      <rect class="s-box" x="280" y="100" width="110" height="56" rx="4"/>
+      <text class="t" x="335" y="133" text-anchor="middle">BFF</text>
+
+      <rect class="s-box" x="450" y="100" width="140" height="56" rx="4"/>
+      <text class="t" x="520" y="133" text-anchor="middle">Agent</text>
+
+      <rect class="s-accent" x="450" y="200" width="140" height="82" rx="4"/>
+      <text class="t t-acc" x="520" y="226" text-anchor="middle">Rules</text>
+      <text class="t t-acc" x="520" y="244" text-anchor="middle">engine</text>
+      <text class="t-lbl t-acc" x="520" y="268" text-anchor="middle">no model here</text>
+
+      <rect class="s-box" x="640" y="209" width="145" height="64" rx="4"/>
+      <text class="t" x="712" y="236" text-anchor="middle">Mandates +</text>
+      <text class="t" x="712" y="254" text-anchor="middle">transactions</text>
+
+      <rect class="s-box" x="280" y="320" width="160" height="50" rx="4"/>
+      <text class="t" x="360" y="350" text-anchor="middle">Queue</text>
+
+      <rect class="s-box" x="480" y="320" width="295" height="50" rx="4"/>
+      <text class="t" x="627" y="350" text-anchor="middle">Append-only log</text>
+
+      <!-- BFF -> Agent -->
+      <g style="color:var(--body)">
+        <line class="ln" x1="392" y1="128" x2="446" y2="128" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="419" y="120" text-anchor="middle">task</text>
+
+      <!-- Agent -> Rules -->
+      <g style="color:var(--accent)">
+        <line class="ln-acc" x1="520" y1="158" x2="520" y2="196" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl t-acc" x="530" y="172">proposes</text>
+      <text class="t-lbl t-acc" x="530" y="185">purchase</text>
+
+      <!-- Rules -> Store -->
+      <g style="color:var(--body)">
+        <line class="ln" x1="592" y1="241" x2="636" y2="241" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="614" y="233" text-anchor="middle">reads</text>
+
+      <!-- Rules -> BFF (escalation) -->
+      <g style="color:var(--hold)">
+        <path class="ln-hold" d="M 450 241 L 412 241 L 412 142 L 394 142" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl t-hold" x="406" y="186" text-anchor="end">outside</text>
+      <text class="t-lbl t-hold" x="406" y="199" text-anchor="end">mandate</text>
+
+      <!-- Agent -> MCP -->
+      <g style="color:var(--body)">
+        <path class="ln" d="M 592 118 L 830 118 L 830 151 L 872 151" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="700" y="110" text-anchor="middle">search, price</text>
+
+      <!-- Rules -> Merchant API -->
+      <g style="color:var(--accent)">
+        <path class="ln-acc" d="M 545 284 L 545 306 L 830 306 L 830 226 L 872 226" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl t-acc" x="700" y="298" text-anchor="middle">pay, with proof of mandate</text>
+
+      <!-- decisions -> queue -> log -->
+      <g style="color:var(--dim)">
+        <path class="ln-thin" d="M 480 284 L 480 300 L 400 300 L 400 316" marker-end="url(#a1)"/>
+        <line class="ln-thin" x1="442" y1="345" x2="476" y2="345" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="443" y="294" text-anchor="middle">events</text>
+
+      <!-- MERCHANT -->
+      <rect class="s-zone" x="855" y="86" width="250" height="214" rx="6"/>
+      <text class="t-zone" x="868" y="106">MERCHANT · VUELAYA</text>
+      <rect class="s-box" x="880" y="125" width="200" height="52" rx="4"/>
+      <text class="t" x="980" y="156" text-anchor="middle">MCP server</text>
+      <rect class="s-box" x="880" y="200" width="200" height="52" rx="4"/>
+      <text class="t" x="980" y="231" text-anchor="middle">Payment API</text>
+
+      <!-- CONTROL TOWER -->
+      <rect class="s-accent" x="425" y="520" width="680" height="72" rx="6"/>
+      <text class="t t-acc" x="765" y="549" text-anchor="middle" style="font-size:13px;font-weight:700">CONTROL TOWER</text>
+      <text class="t-sm" x="765" y="570" text-anchor="middle">who authorized it · which rule allowed it · what the merchant returned</text>
+
+      <g style="color:var(--dim)">
+        <line class="ln-thin" x1="627" y1="372" x2="627" y2="516" marker-end="url(#a1)"/>
+        <path class="ln-thin" d="M 980 302 L 980 450 L 900 450 L 900 516" marker-end="url(#a1)"/>
+      </g>
+      <text class="t-lbl" x="637" y="440">log entries</text>
+      <text class="t-lbl" x="910" y="440">verifications</text>
+    </svg>
+    </div>
+    <figcaption><b>Two arrows carry the whole idea.</b> The agent reaches the merchant's MCP server to search and price, which costs nothing and commits nothing. The only line into the payment API leaves the rules engine, after it has read the mandate and the transaction history. The amber path is the human in the loop: when a proposal falls outside the mandate, the rules engine sends it back through the BFF to the buyer instead of deciding.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= FIG 2 ================= -->
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Figure 2</div>
+    <h2>A purchase, start to finish</h2>
+  </div>
+  <p>Marta authorizes flights to Córdoba under $150 until the end of the month. A seat appears at $130 and the agent buys it.</p>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1140 610" role="img" aria-label="Sequence diagram across buyer, BFF, agent, rules engine, merchant and log lanes, showing eleven steps from authorization to logged decision.">
+      <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- lanes -->
+      <rect class="s-box" x="20" y="30" width="140" height="38" rx="4"/>
+      <text class="t" x="90" y="54" text-anchor="middle">Buyer</text>
+      <rect class="s-box" x="200" y="30" width="140" height="38" rx="4"/>
+      <text class="t" x="270" y="54" text-anchor="middle">BFF</text>
+      <rect class="s-box" x="380" y="30" width="140" height="38" rx="4"/>
+      <text class="t" x="450" y="54" text-anchor="middle">Agent</text>
+      <rect class="s-accent" x="570" y="30" width="140" height="38" rx="4"/>
+      <text class="t t-acc" x="640" y="54" text-anchor="middle">Rules</text>
+      <rect class="s-box" x="800" y="30" width="140" height="38" rx="4"/>
+      <text class="t" x="870" y="54" text-anchor="middle">Merchant</text>
+      <rect class="s-box" x="990" y="30" width="140" height="38" rx="4"/>
+      <text class="t" x="1060" y="54" text-anchor="middle">Log</text>
+
+      <line class="ln-life" x1="90" y1="68" x2="90" y2="580"/>
+      <line class="ln-life" x1="270" y1="68" x2="270" y2="580"/>
+      <line class="ln-life" x1="450" y1="68" x2="450" y2="580"/>
+      <line class="ln-life" x1="640" y1="68" x2="640" y2="580"/>
+      <line class="ln-life" x1="870" y1="68" x2="870" y2="580"/>
+      <line class="ln-life" x1="1060" y1="68" x2="1060" y2="580"/>
+
+      <g style="color:var(--body)">
+        <line class="ln" x1="90" y1="110" x2="266" y2="110" marker-end="url(#a2)"/>
+        <line class="ln-dash" x1="270" y1="150" x2="94" y2="150" marker-end="url(#a2)"/>
+        <line class="ln" x1="90" y1="192" x2="636" y2="192" marker-end="url(#a2)"/>
+        <line class="ln" x1="450" y1="250" x2="866" y2="250" marker-end="url(#a2)"/>
+        <line class="ln-dash" x1="870" y1="288" x2="454" y2="288" marker-end="url(#a2)"/>
+        <line class="ln-dash" x1="640" y1="470" x2="94" y2="470" marker-end="url(#a2)"/>
+      </g>
+      <g style="color:var(--accent)">
+        <line class="ln-acc" x1="450" y1="332" x2="636" y2="332" marker-end="url(#a2)"/>
+        <path class="ln-acc" d="M 640 356 L 700 356 L 700 382 L 644 382" marker-end="url(#a2)"/>
+        <line class="ln-acc" x1="640" y1="420" x2="866" y2="420" marker-end="url(#a2)"/>
+        <line class="ln-acc" x1="640" y1="520" x2="1056" y2="520" marker-end="url(#a2)"/>
+      </g>
+      <g style="color:var(--body)">
+        <line class="ln-dash" x1="870" y1="446" x2="644" y2="446" marker-end="url(#a2)"/>
+      </g>
+
+      <text class="t-lbl" x="178" y="103" text-anchor="middle">1 · authorize</text>
+      <text class="t-lbl" x="182" y="143" text-anchor="middle">2 · sign this</text>
+      <text class="t-lbl" x="360" y="185" text-anchor="middle">3 · signed mandate M-1</text>
+      <text class="t-lbl" x="658" y="243" text-anchor="middle">4 · search flights</text>
+      <text class="t-lbl" x="662" y="281" text-anchor="middle">5 · seat at $130</text>
+      <text class="t-lbl t-acc" x="543" y="325" text-anchor="middle">6 · propose purchase</text>
+      <text class="t-lbl t-acc" x="708" y="372">7 · three checks, in order</text>
+      <text class="t-lbl t-acc" x="753" y="413" text-anchor="middle">8 · pay, proof of M-1</text>
+      <text class="t-lbl" x="757" y="439" text-anchor="middle">9 · verified, accepted</text>
+      <text class="t-lbl" x="367" y="463" text-anchor="middle">10 · record: bought under M-1</text>
+      <text class="t-lbl t-acc" x="848" y="513" text-anchor="middle">11 · decision entry, chained</text>
+    </svg>
+    </div>
+    <figcaption><b>Step 3 is the one that does not exist today.</b> Marta signs the mandate herself, so what reaches the rules engine is a permission with her signature on it rather than a setting in our database. Step 8 carries that proof to the merchant, which is why the merchant can verify without calling us and trusting our answer.</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li>Marta writes what she wants in Slack: flights to Córdoba, under $150, until 31 August, on her saved card.</li>
+    <li>The BFF turns it into a mandate and asks her to approve it. She sees the exact terms before she signs.</li>
+    <li>She signs. The signed mandate <code>M-1</code> goes to the rules engine and the store. The agent never sees the card.</li>
+    <li>The agent searches VuelaYa through its MCP server and watches prices.</li>
+    <li>A seat appears at $130.</li>
+    <li>The agent proposes the purchase. It does not buy. The proposal names the mandate it thinks covers it.</li>
+    <li>The rules engine runs the three checks in figure 3.</li>
+    <li>It pays through the merchant's API and includes the proof of <code>M-1</code>.</li>
+    <li>VuelaYa verifies the proof itself and accepts, keeping its own verification record.</li>
+    <li>Marta gets the receipt, and it says which mandate the purchase was made under.</li>
+    <li>The decision goes into the log, chained to the one before it, and appears in the control tower.</li>
+  </ol>
+</section>
+
+<!-- ================= FIG 3 ================= -->
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Figure 3</div>
+    <h2>The three checks, and what each refusal looks like</h2>
+  </div>
+  <p>Order matters. An unknown agent is refused before we look at the mandate, and a dead mandate is refused before we look at the amount. Each refusal names the check that produced it.</p>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1140 280" role="img" aria-label="Pipeline of three checks: agent identity, mandate live, within limits. Failing the first two refuses the purchase; failing the third escalates to the buyer; passing all three pays.">
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 -100 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect class="s-box" x="20" y="30" width="140" height="60" rx="4"/>
+      <text class="t" x="90" y="66" text-anchor="middle">Proposal</text>
+
+      <rect class="s-accent" x="210" y="30" width="185" height="60" rx="4"/>
+      <text class="t t-acc" x="302" y="55" text-anchor="middle">1 · Is the agent</text>
+      <text class="t t-acc" x="302" y="73" text-anchor="middle">who it says?</text>
+
+      <rect class="s-accent" x="445" y="30" width="185" height="60" rx="4"/>
+      <text class="t t-acc" x="537" y="55" text-anchor="middle">2 · Is the mandate</text>
+      <text class="t t-acc" x="537" y="73" text-anchor="middle">still alive?</text>
+
+      <rect class="s-accent" x="680" y="30" width="185" height="60" rx="4"/>
+      <text class="t t-acc" x="772" y="55" text-anchor="middle">3 · Is the purchase</text>
+      <text class="t t-acc" x="772" y="73" text-anchor="middle">inside it?</text>
+
+      <rect class="s-allow" x="915" y="30" width="200" height="60" rx="4"/>
+      <text class="t t-allow" x="1015" y="66" text-anchor="middle">Pay</text>
+
+      <g style="color:var(--body)">
+        <line class="ln" x1="162" y1="60" x2="206" y2="60" marker-end="url(#a3)"/>
+      </g>
+      <g style="color:var(--allow)">
+        <line class="ln" style="stroke:var(--allow)" x1="397" y1="60" x2="441" y2="60" marker-end="url(#a3)"/>
+        <line class="ln" style="stroke:var(--allow)" x1="632" y1="60" x2="676" y2="60" marker-end="url(#a3)"/>
+        <line class="ln" style="stroke:var(--allow)" x1="867" y1="60" x2="911" y2="60" marker-end="url(#a3)"/>
+      </g>
+      <text class="t-lbl t-allow" x="419" y="52" text-anchor="middle">yes</text>
+      <text class="t-lbl t-allow" x="654" y="52" text-anchor="middle">yes</text>
+      <text class="t-lbl t-allow" x="889" y="52" text-anchor="middle">yes</text>
+
+      <g style="color:var(--deny)">
+        <line class="ln-deny" x1="302" y1="92" x2="302" y2="176" marker-end="url(#a3)"/>
+        <line class="ln-deny" x1="537" y1="92" x2="537" y2="176" marker-end="url(#a3)"/>
+      </g>
+      <g style="color:var(--hold)">
+        <line class="ln" style="stroke:var(--hold)" x1="772" y1="92" x2="772" y2="176" marker-end="url(#a3)"/>
+      </g>
+      <text class="t-lbl t-deny" x="311" y="140">no</text>
+      <text class="t-lbl t-deny" x="546" y="140">no</text>
+      <text class="t-lbl t-hold" x="781" y="140">no</text>
+
+      <rect class="s-deny" x="210" y="180" width="185" height="66" rx="4"/>
+      <text class="t t-deny" x="302" y="205" text-anchor="middle">Refuse</text>
+      <text class="t-sm t-deny" x="302" y="225" text-anchor="middle">unknown or forged</text>
+      <text class="t-sm t-deny" x="302" y="239" text-anchor="middle">agent identity</text>
+
+      <rect class="s-deny" x="445" y="180" width="185" height="66" rx="4"/>
+      <text class="t t-deny" x="537" y="205" text-anchor="middle">Refuse</text>
+      <text class="t-sm t-deny" x="537" y="225" text-anchor="middle">revoked by Marta,</text>
+      <text class="t-sm t-deny" x="537" y="239" text-anchor="middle">or past its date</text>
+
+      <rect class="s-hold" x="680" y="180" width="185" height="66" rx="4"/>
+      <text class="t t-hold" x="772" y="205" text-anchor="middle">Ask Marta</text>
+      <text class="t-sm t-hold" x="772" y="225" text-anchor="middle">over the amount, or</text>
+      <text class="t-sm t-hold" x="772" y="239" text-anchor="middle">the wrong category</text>
+
+      <rect class="s-box" x="915" y="180" width="200" height="66" rx="4"/>
+      <text class="t-sm" x="1015" y="205" text-anchor="middle">Every outcome above</text>
+      <text class="t-sm" x="1015" y="221" text-anchor="middle">writes one log entry,</text>
+      <text class="t-sm" x="1015" y="237" text-anchor="middle">naming the check.</text>
+    </svg>
+    </div>
+    <figcaption><b>Check three is the only one that can escalate.</b> A forged agent or a revoked mandate is not a judgment call, so there is nothing to ask a human about. Being over the limit is a judgment call, so Marta gets asked. Nothing is ever approved by silence.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= DEFINITIONS ================= -->
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Definitions</div>
+    <h2>Every word on the board, in one line</h2>
+  </div>
+
+  <div class="group-label">The problem</div>
+  <dl class="defs">
+    <div class="def"><dt>Merchant</dt><dd>A company that takes payments. Ours is VuelaYa, a travel agency.</dd></div>
+    <div class="def"><dt>Purchasing agent</dt><dd>Software that finds, decides and buys on behalf of a person or a company.</dd></div>
+    <div class="def"><dt>Mandate</dt><dd>The permission a person gives their agent: what it may buy, up to how much, until when, with which payment method.</dd></div>
+    <div class="def"><dt>Verification</dt><dd>How the merchant checks that the agent buying from it is acting inside a real, live mandate from a real person.</dd></div>
+    <div class="def"><dt>Revocation</dt><dd>The person takes the permission back. Every purchase attempted after that has to fail.</dd></div>
+    <div class="def"><dt>Chargeback</dt><dd>The cardholder tells their bank they never authorized a payment, and the bank takes the money back from the merchant.</dd></div>
+    <div class="def"><dt>Human in the loop</dt><dd>A point where the agent stops and waits for a person to say yes. A stop, not a notification.</dd></div>
+  </dl>
+
+  <div class="group-label">What the platform has to get right</div>
+  <dl class="defs">
+    <div class="def"><dt>Traceability</dt><dd>Every action leaves a record that ties the purchase to the person, the mandate and the rule that allowed it.</dd></div>
+    <div class="def"><dt>Idempotency</dt><dd>The same request sent twice buys once. Retries return the original result instead of a second flight.</dd></div>
+    <div class="def"><dt>Usability</dt><dd>Authorizing takes seconds from Slack or Telegram. If it feels like configuring a firewall, nobody does it.</dd></div>
+    <div class="def"><dt>Security</dt><dd>The agent never holds the raw card. It holds permission to use one the platform keeps.</dd></div>
+    <div class="def"><dt>Non-repudiation</dt><dd>Neither side can later deny what they did. Marta cannot say she never asked, and the merchant cannot claim an approval it never got.</dd></div>
+    <div class="def"><dt>Domain knowledge</dt><dd><em>A limit of the agent.</em> It does not know what is normal for this buyer, so the rules and the history have to supply that.</dd></div>
+    <div class="def"><dt>Transaction access</dt><dd><em>A limit of the agent.</em> It needs to see past purchases to know whether this one is a repeat and what it means.</dd></div>
+  </dl>
+
+  <div class="group-label">The pieces</div>
+  <dl class="defs">
+    <div class="def"><dt>Auth</dt><dd>The boundary. Nothing enters the platform without a person attached to it.</dd></div>
+    <div class="def"><dt>BFF</dt><dd>One entry point for Slack, web and Telegram. It flattens all three into the same internal shape.</dd></div>
+    <div class="def"><dt>Agent</dt><dd>Searches, compares and proposes. It has no authority to move money.</dd></div>
+    <div class="def"><dt>Rules engine</dt><dd>Decides allow, ask, or refuse, and records the reason. No model runs inside it, so the same input always gives the same answer.</dd></div>
+    <div class="def"><dt>Mandates + transactions</dt><dd>Where signed mandates and purchase history live. The rules read from here.</dd></div>
+    <div class="def"><dt>Queue</dt><dd>Carries events between components so a slow merchant or a retry blocks nothing else.</dd></div>
+    <div class="def"><dt>Append-only log</dt><dd>Every decision, in order, each entry chained to the one before so a changed record is visible.</dd></div>
+    <div class="def"><dt>MCP server</dt><dd>The merchant's read side. How the agent explores what is for sale. Costs nothing, commits nothing.</dd></div>
+    <div class="def"><dt>Payment API</dt><dd>The merchant's write side. Only the rules engine calls it.</dd></div>
+    <div class="def"><dt>Control tower</dt><dd>One view of everything the agents have done, with who authorized it, which rule allowed it, and what the merchant returned.</dd></div>
+  </dl>
+
+  <div class="note">
+    <b>Still open.</b> Figure 2 step 3 says "signed mandate M-1", and we have not defined what that object actually is. Its fields, how Marta signs it, and how VuelaYa checks the signature without calling us. Everything else on this page already works. That one object is what turns the platform into an answer to the challenge, and it should be decided before anyone writes rules code.
+  </div>
+</section>
+
+</div>
+</body>
+</html>
