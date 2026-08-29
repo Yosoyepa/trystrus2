@@ -8,6 +8,20 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 — fraud implementation plan (branch `dev3/fraud-transaction-research`)
+- **Why:** team approved the research; next step was an executable plan.
+- **Done:** [`../plans/2026-08-29-fraud-implementation.md`](../plans/2026-08-29-fraud-implementation.md)
+  — 5 phases, task cards F1.1–F2.3 with owner/milestone/estimate/DoD/tests
+  (T19–T25 proposed), migrations and outbox events by lane, demo acceptance
+  checklist, and drafts of decisions 0020–0022 in the appendix (NOT yet
+  ratified — Phase 0 is the team sign-off gate).
+- **Decision:** none new (plan only). F0.1–F0.3 are the pending ratifications.
+- **Contracts touched:** none yet; Apéndice B lists the exact deltas F0 will apply.
+- **Tests I own:** T19 (idempotency derived key), T21 (webhook forgery), T24
+  (evidence pack), T17/T14 extensions, rail parity suite.
+- **Open questions:** Yuno sandbox credentials ≥48 h before demo (gate for
+  F2.2); measure UV deep-link latency at M3 to validate 300 s TTL.
+
 ## 2026-08-29 — fraud-prevention research (comité, branch `dev3/fraud-transaction-research`)
 - **Why:** the team asked for a fraud-defense strategy that complements (never
   replaces) 3DS, customer auth and processor validations, with official sources.
