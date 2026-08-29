@@ -8,6 +8,21 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 — C0 bootstrap service skeleton
+- **Why:** opened the implementation lane with a runnable Python 3.13/FastAPI
+  service and a stable persistence/configuration boundary for the fraud P0.
+- **Done:** added uv dependencies and ruff/pytest configuration, typed env
+  settings, the thin root entrypoint, FastAPI factory with `/healthz`, the
+  renamed `src/api/repository.py` in-memory boundary, and the v1.1 PostgreSQL
+  seed DDL including idempotency, risk, rail metadata and webhook tables.
+- **Tests:** `src/api/tests/test_smoke.py`; `uv run pytest` and
+  `uv run ruff check .` pass at this phase.
+- **Contracts touched:** none; frozen `aval/contracts/` remains unchanged.
+- **Open questions:** none for C0; persistence adapters and policy ports land
+  in the following phases.
+
+---
+
 ## 2026-08-29 — branch updated with main (src/ landed); coder brief issued
 - **Why:** main gained `src/` (empty `src/api` scaffold + placeholder
   `src/agent/text.txt`, uv + Dockerfile at root, docs-guard now covers
