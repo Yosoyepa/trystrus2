@@ -266,14 +266,55 @@ def _e1():
             assert "append-only" in str(exc), exc
 
 
-@case("E2", "mutating one event breaks the chain from that point on")
+@case("E2", "a naive tamper breaks the replay; a thorough one breaks the root")
 def _e2():
+    """Two attacks, two different defences.
+
+    A database admin who edits one payload is caught by replaying the chain.
+    An admin who edits the payload AND recomputes every hash forward AND
+    rewrites the stored head produces a chain that replays perfectly -- and is
+    caught only because the previous root was signed and witnessed outside the
+    database. That is the whole argument for E3.
+    """
     conn, ctx = fresh()
-    assert audit.verify_chain(conn)["valid"] is True
+    assert audit.verify_all(conn)["valid"] is True
+    signed = audit.checkpoint(conn)
+    assert audit.verify_checkpoint(conn)["valid"] is True
+
     conn.execute("DROP TRIGGER audit_events_no_update ON audit_events")  # a db admin
-    conn.execute("UPDATE audit_events SET payload='{\"tampered\":true}' WHERE seq=3")
-    result = audit.verify_chain(conn)
-    assert result["valid"] is False and result["seq"] == 3, result
+    key = ctx["mandate_jti"]
+    target = conn.execute(
+        "SELECT seq, chain_seq FROM audit_events WHERE chain_key=? "
+        "ORDER BY chain_seq LIMIT 1", (key,)).fetchone()
+
+    # ── attack 1: edit a payload and hope nobody replays ──────────────────
+    conn.execute("UPDATE audit_events SET payload=? WHERE seq=?",
+                 ('{"tampered":true}', target["seq"]))
+    naive = audit.verify_all(conn)
+    assert naive["valid"] is False, naive
+    assert naive["broken"][0]["chain_key"] == key, naive["broken"]
+    assert audit.verify_checkpoint(conn)["valid"] is False
+
+    # ── attack 2: rewrite the chain forward so the replay succeeds ────────
+    prev = audit.GENESIS
+    for row in conn.execute("SELECT * FROM audit_events WHERE chain_key=? "
+                            "ORDER BY chain_seq", (key,)).fetchall():
+        rebuilt = {"event_id": row["event_id"], "type": row["type"],
+                   "actor": row["actor"], "agent_id": row["agent_id"],
+                   "run_id": row["run_id"], "mandate_jti": row["mandate_jti"],
+                   "payload": json.loads(row["payload"]),
+                   "created_at": row["created_at"], "chain_key": row["chain_key"]}
+        digest = audit._digest(prev, rebuilt)
+        conn.execute("UPDATE audit_events SET prev_hash=?, hash=? WHERE seq=?",
+                     (prev, digest, row["seq"]))
+        prev = digest
+    conn.execute("UPDATE chains SET head_hash=? WHERE chain_key=?", (prev, key))
+
+    assert audit.verify_all(conn)["valid"] is True, "a forged chain should replay"
+    caught = audit.verify_checkpoint(conn)
+    assert caught["valid"] is False, caught
+    assert caught["signed_root"] != caught["current_root"]
+    assert signed["root"] == caught["signed_root"]
 
 
 @case("E7/E8", "the run pins its agent version and its trajectory is in the chain")
@@ -460,6 +501,61 @@ def _g8():
         raise AssertionError("the daily cap reset on reconnect")
     except limits.LimitExceeded as exc:
         assert exc.code == "QUOTA_EXHAUSTED", exc
+
+
+# ── N: concurrency and scale ─────────────────────────────────────────────────
+@case("N1", "two mandates append at once; the same mandate still serialises")
+def _n1():
+    conn, ctx = fresh()
+    other = mandate_mod.issue(
+        conn, user_id=ctx["people"]["marta"], agent_id=ctx["agent_id"],
+        agent_jwk=json.loads(registry.get_agent(conn, ctx["agent_id"])["public_jwk"]),
+        payment_method_ref="ppt_other", scope={"categories": ["flights"]},
+        conditions=True, limits={"max_per_txn": "50.00", "total_budget": "50.00"},
+        validity={"exp": 4102444800})["jti"]
+
+    holder = db.connect()                       # a second process
+    holder.execute("BEGIN")
+    holder.execute("SELECT head_hash FROM chains WHERE chain_key=? FOR UPDATE",
+                   (ctx["mandate_jti"],))       # holds Marta's chain open
+    try:
+        # A different mandate's chain is untouched by that lock.
+        writer = db.connect()
+        out = audit.append(writer, "test.parallel", {"x": 1}, mandate_jti=other)
+        assert out["chain_key"] == other, out
+
+        # The SAME chain must still wait -- ordering within a mandate is evidence.
+        writer.execute("SET lock_timeout='400ms'")
+        try:
+            audit.append(writer, "test.contended", {"x": 2},
+                         mandate_jti=ctx["mandate_jti"])
+            raise AssertionError("same-chain append did not wait for the lock")
+        except AssertionError:
+            raise
+        except Exception as exc:
+            assert "lock" in str(exc).lower() or "timeout" in str(exc).lower(), exc
+        writer.execute("ROLLBACK")
+        writer.execute("SET lock_timeout=0")
+        writer.close()
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert audit.verify_all(conn)["valid"] is True
+
+
+@case("N4", "single-flight holds across two separate connections")
+def _n4():
+    conn, _ = fresh()
+    a, b = db.connect(), db.connect()
+    try:
+        with limits.single_flight(a, "test.lock") as first:
+            assert first is True
+            with limits.single_flight(b, "test.lock") as second:
+                assert second is False, "two holders of the same lock"
+        with limits.single_flight(b, "test.lock") as third:
+            assert third is True, "lock not released"
+    finally:
+        a.close(); b.close()
 
 
 def main() -> int:

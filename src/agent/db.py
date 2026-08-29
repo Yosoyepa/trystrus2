@@ -132,13 +132,33 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 -- ── the chain (E1-E5) ───────────────────────────────────────────────────────
+-- Partitioned by chain_key so writers contend only within one mandate. A
+-- single global chain made every event in the system queue behind one row:
+-- to write entry N you must first read entry N-1. Marta's purchases no longer
+-- wait behind Juan's; the checkpoints table restores one global proof over all
+-- of them.
+CREATE TABLE IF NOT EXISTS chains (
+  chain_key TEXT PRIMARY KEY,
+  head_hash TEXT NOT NULL,
+  length BIGINT NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit_events (
   seq BIGSERIAL PRIMARY KEY,
+  chain_key TEXT NOT NULL,
+  chain_seq BIGINT NOT NULL,
   event_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL,
   actor TEXT, agent_id TEXT, run_id TEXT, mandate_jti TEXT,
   payload TEXT NOT NULL,
   prev_hash TEXT NOT NULL, hash TEXT NOT NULL,
-  root_sig TEXT, created_at TEXT NOT NULL
+  root_sig TEXT, created_at TEXT NOT NULL,
+  UNIQUE (chain_key, chain_seq)
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+  id BIGSERIAL PRIMARY KEY,
+  root_hash TEXT NOT NULL, chain_heads TEXT NOT NULL,
+  signature TEXT, chains_covered INTEGER NOT NULL, events_covered BIGINT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 -- E1 is enforced by the database, not by convention: an append-only log
@@ -179,6 +199,7 @@ CREATE TABLE IF NOT EXISTS counters (
   updated_at TEXT NOT NULL, PRIMARY KEY (key, window_key)
 );
 
+CREATE INDEX IF NOT EXISTS ix_audit_chain ON audit_events(chain_key, chain_seq);
 CREATE INDEX IF NOT EXISTS ix_audit_mandate ON audit_events(mandate_jti);
 CREATE INDEX IF NOT EXISTS ix_audit_agent ON audit_events(agent_id);
 CREATE INDEX IF NOT EXISTS ix_audit_run ON audit_events(run_id);
@@ -189,6 +210,7 @@ CREATE INDEX IF NOT EXISTS ix_purchases_mandate ON purchases(mandate_jti, status
 """
 
 TABLES = ["chat_messages", "outbox", "counters", "rate_buckets", "locks",
+          "checkpoints", "chains",
           "agent_runs", "escalations", "purchases", "purchase_intents",
           "idempotency_keys", "watches", "offers", "payment_instruments",
           "mandates", "agent_versions", "agents", "people", "audit_events"]

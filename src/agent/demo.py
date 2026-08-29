@@ -164,10 +164,14 @@ def run_demo(conn=None, pause: bool = True) -> None:
     # ── 9 ────────────────────────────────────────────────────────────────────
     _head("9.", "The trail",
           "append-only, hash chained, recomputed live")
-    chain = audit.verify_chain(conn)
-    print(f"  {chain['checked']} events · valid={chain['valid']}")
-    root = audit.sign_root(conn)
-    print(f"  root {str(root['root'])[:32]}… signed, witnessed to var/witness/")
+    chain = audit.verify_all(conn)
+    print(f"  {chain['checked']} events across {chain['chains']} chains · "
+          f"valid={chain['valid']}")
+    print("  one chain per mandate, so writers never queue behind each other;")
+    root = audit.checkpoint(conn)
+    print(f"  one signed root covers them all: {str(root['root'])[:32]}…")
+    print(f"  witnessed to var/witness/ ({root['chains']} chains, "
+          f"{root['events']} events)")
     print("\n  the agent's own trajectory is in the same chain:")
     for row in conn.execute(
             "SELECT seq,type,payload FROM audit_events WHERE type LIKE 'agent.%' "

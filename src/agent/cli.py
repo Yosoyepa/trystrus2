@@ -79,7 +79,7 @@ def cmd_chat(args) -> None:
             cmd_audit(argparse.Namespace(limit=15, mandate=None))
             continue
         if text == ":verify":
-            _print(audit.verify_chain(conn))
+            _print(audit.verify_all(conn))
             continue
         for line in session.send(text):
             print(f"agent> {line}")
@@ -233,10 +233,23 @@ def cmd_audit(args) -> None:
 
 def cmd_verify(args) -> None:
     conn = _conn()
-    result = audit.verify_chain(conn)
-    _print(result)
-    if result["valid"]:
-        _print(audit.sign_root(conn))
+    result = audit.verify_all(conn)
+    print(f"chains: {result['chains']}   events: {result['checked']}   "
+          f"valid: {result['valid']}")
+    print(f"root:   {result['root']}")
+    if result["broken"]:
+        print(BAR)
+        for b in result["broken"]:
+            print(f"  BROKEN {b['chain_key']} at chain_seq {b.get('chain_seq')}: "
+                  f"{b['error']}")
+        return
+    if args.per_chain:
+        print(BAR)
+        for row in conn.execute("SELECT chain_key, length FROM chains "
+                                "ORDER BY chain_key"):
+            print(f"  {row['chain_key']:<34}{row['length']:>5} events")
+    print(BAR)
+    _print(audit.checkpoint(conn))
 
 
 def cmd_runs(args) -> None:
@@ -349,7 +362,8 @@ def main(argv: list[str] | None = None) -> None:
 
     p = add("audit", cmd_audit, "the trail")
     p.add_argument("--limit", type=int, default=25); p.add_argument("--mandate")
-    add("verify", cmd_verify, "recompute the hash chain and sign the root")
+    p = add("verify", cmd_verify, "recompute every chain and sign a global root")
+    p.add_argument("--per-chain", action="store_true", help="list each chain")
     p = add("runs", cmd_runs, "agent runs")
     p.add_argument("--limit", type=int, default=15)
     add("escalations", cmd_escalations, "pending escalations")
