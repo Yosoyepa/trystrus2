@@ -8,6 +8,43 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 22:15 — the Yuno-style AP2 orchestrator; T17 and T18 green
+- **Why:** decision 0024 replaced the PayPal sandbox with a simulated payment
+  orchestrator that speaks AP2. This is that service — a separate deployable
+  with a real network boundary, not an in-process fake, because an in-process
+  fake proves nothing about an integration.
+- **Decision:** implements [`0024`](../decisions/0024-yuno-style-ap2-orchestrator-instead-of-paypal.md).
+- **Contracts touched:** `api.yaml` gains `GET /mandates/by-jti/{jti}` — the
+  rail holds a presented mandate and knows its `jti`, not our internal id, and
+  a signature stays valid after revocation, so it has to ask the issuer whether
+  the permission is still live. **Additive.**
+- **Tests:** **T17 green** and **T18 green** (27 cases). 219 total. All run
+  with no network and no credentials — that determinism is the compensation
+  for giving up a real sandbox.
+- **Open questions:**
+  - **Dev 2 — there is now a second, independent kill switch.** The
+    orchestrator asks the issuer for mandate status before settling, so a
+    revoked mandate is refused **even when its payment token is still alive**.
+    Measured end to end against both services running: **16 ms**, target was
+    2 s. Your verify is still the first line; this is the one that holds if a
+    merchant skips it.
+  - **Dev 2 — the rail refuses a charge whose amount does not match the
+    merchant's signed Checkout JWT.** So if your saga ever retries a capture
+    with a changed amount, it will 402 with `CONDITION_FAILED` rather than
+    silently charging the new figure. That is deliberate.
+  - **Everyone — `Idempotency-Key` is a required header on `POST /v1/payments`,
+    not optional.** Without it a retry is a second charge.
+  - **Dev 4 — every response carries `simulated: true` plus `X-Aval-Simulated`
+    and `X-Aval-Provider` headers.** Please surface that in the merchant
+    console; the honesty of 0024 depends on nobody mistaking this for a real
+    provider. Run it: `uv run uvicorn yuno_sim.main:app --app-dir src --port 8002`.
+  - **The thinnest part of the simulation** is `/simulated-approval/{id}`,
+    which stands in for a provider's own approval screen. We cannot make a
+    judge authenticate against a provider that does not exist. Named here so
+    nobody discovers it on stage.
+
+---
+
 ## 2026-08-29 21:10 — the identity HTTP surface; mandates live end to end
 - **Why:** the services existed but nothing was reachable. Dev 4 cannot build a
   console against a Python class, and M1 needs a real SD-JWT over the wire.

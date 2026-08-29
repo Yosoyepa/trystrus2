@@ -255,6 +255,24 @@ async def list_mandates(user_id: str,
     return [_to_view(r) for r in records]
 
 
+@router.get("/mandates/by-jti/{jti}", response_model=MandateView)
+async def get_mandate_by_jti(jti: str,
+                             session: AsyncSession = Depends(get_session)):
+    """Look a mandate up by the `jti` inside its SD-JWT.
+
+    Exists for the payment rail. A verifier holding a presented mandate knows
+    its `jti`, not our internal id — and a signature stays valid after
+    revocation, so the rail has to ask someone whether the permission is still
+    live. Answering that is the issuer's job (decision #4).
+
+    Declared before `/mandates/{mandate_id}` so the literal segment wins.
+    """
+    record = await repo.get_mandate_by_jti(session, jti)
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such mandate")
+    return _to_view(record)
+
+
 @router.get("/mandates/{mandate_id}", response_model=MandateView)
 async def get_mandate(mandate_id: str,
                       session: AsyncSession = Depends(get_session)):
