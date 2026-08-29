@@ -37,9 +37,8 @@ El dominio puro YA EXISTE y está verificado (`src/api/domain/`, 22 tests en ver
 5. **Reserva atómica:** `verify` [2] es el ÚNICO escritor de `mandates.reserved_amount/spent_total/txn_count_period`, vía UPDATE condicional (`WHERE status='active' AND ...`); cero filas actualizadas = rechazo. Sin SELECT-then-UPDATE.
 6. **Exactly-once:** eventos de outbox y cambios de negocio en la MISMA transacción (decisión #10).
 7. **Disciplina de carril — qué puedes tocar:** `src/api/domain/` (solo aditivo), `src/api/decision/` (nuevo, tuyo), `src/api/db/`, `src/api/tests/`, `pyproject.toml` (solo dev-deps justificados), `aval/docs/devlogs/dev2.md`. **Qué NO:** `router.py`, `main.py`, `schemas.py`, `config.py` (superficie Dev 3), `src/agent/`, `src/mocks/`, `aval/contracts/`, `DECISIONS.md`. La capa HTTP la cablea Dev 3 contra tus servicios.
-8. **NO apliques el stash** que existe en el repo (`git stash list` lo muestra): es el archivo del trabajo de superficie de Dev 3; traerlo arrastraría el carril equivocado.
-9. **No hagas push.** Dev 2 revisa al final.
-10. Cada commit con código incluye su entrada en `aval/docs/devlogs/dev2.md` y pasa `bash scripts/docs-guard.sh origin/main`.
+8. **No hagas push.** Dev 2 revisa al final.
+9. Cada commit con código incluye su entrada en `aval/docs/devlogs/dev2.md` y pasa `bash scripts/docs-guard.sh origin/main`.
 
 ### 2. Estado actual (tu punto de partida)
 
@@ -116,7 +115,7 @@ Conventional commits. Cada commit: compila, suite en verde, devlog actualizado, 
 - [ ] `uv run ruff check .` limpio.
 - [ ] `bash scripts/docs-guard.sh origin/main` en verde en HEAD.
 - [ ] `git diff origin/main...HEAD --stat` NO muestra: `src/api/router.py`, `src/api/main.py`, `src/api/schemas.py`, `src/api/config.py`, `src/agent/`, `src/mocks/`, `aval/contracts/`, `aval/DECISIONS.md`.
-- [ ] El stash sigue intacto (no aplicado) y el working tree limpio.
+- [ ] Working tree limpio y sin stashes residuales (`git stash list` vacío).
 - [ ] Sin push.
 
 ### 7. Informe final (formato obligatorio de tu último mensaje)

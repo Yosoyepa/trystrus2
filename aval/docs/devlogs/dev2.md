@@ -7,6 +7,17 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — Dev 3 surface archive (stash) dropped
+- **Why:** Dev 3 is rebuilding the API surface on their own line, so the
+  stashed coder-run copy served no one on this branch — and it was flagged
+  as noise/risk in our own coder brief (a coder could apply it by mistake).
+- **Done:** `git stash drop` of the "dev3 surface archive" entry; stash list
+  now empty. Nothing in our lane depended on it (the domain core was already
+  extracted and committed in `f4d9a69`). Brief updated to remove the stash
+  warnings; DoD now asserts an empty stash list instead.
+- **Decision:** none (housekeeping within the 0019/0022 lane boundaries).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — Dev 2 coder brief issued (decision core completion)
 - **Why:** handover done; the four pending pieces of our lane need a coder
   run correctly scoped this time — decision core only, zero API surface.
