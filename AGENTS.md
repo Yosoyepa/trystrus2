@@ -23,7 +23,7 @@ Full story: [`aval/README.md`](aval/README.md) · shared concepts:
 | You are working on… | Read, in order |
 |---|---|
 | Anything (start here) | `aval/README.md` → this file → `aval/DECISIONS.md` |
-| Any workstream, before each task | + the last 3 entries of your devlog: `aval/docs/devlogs/<A\|B\|C1\|C2\|C3\|D>.md` |
+| Any workstream, before each task | + the last 3 entries of your devlog under `aval/docs/devlogs/` (`dev1.md`–`dev4.md`) |
 | kernel (mandates, gate, verify, ledger) | + `aval/docs/PLAN.md` §5 (ADRs), `aval/contracts/schemas.md` |
 | agent or merchant | + `aval/contracts/api.yaml`, `schemas.md` §1–2 (mandate + intent crypto) |
 | web frontend | + `aval/contracts/api.yaml` (your ONLY dependency — types are generated from it) |
@@ -48,10 +48,10 @@ aval/
 ├── contracts/          # FROZEN INTERFACES — the only shared surface
 │   ├── api.yaml        # OpenAPI 3.1: kernel + merchant endpoints, DTOs, error codes
 │   └── schemas.md      # SD-JWT claims, canonical intent (JCS), events, DDL, Python interfaces
-├── kernel/             # [Dev A + B] mandate registry, passkeys, gate, verify, saga, ledger, SSE
-├── agent/              # [Dev C3] own-graph agent, intent signer, watcher job, Presidio, injection suite
-├── merchant/           # [Dev C1+C2] VuelaYa catalog + MCP tools, checkout, PayPal adapter, webhooks
-└── web/                # [Dev D] React SPA: buyer console, judge/auditor console (control tower),
+├── kernel/             # [Dev 2 + 3] gate, verify, saga, ledger, SSE · mandates, passkeys, escalations
+├── agent/              # [Dev 1] own-graph agent, intent signer, watcher job, Presidio, injection suite
+├── merchant/           # [Dev 3] VuelaYa catalog + MCP tools, checkout, PayPal adapter, webhooks
+└── web/                # [Dev 4] React SPA: buyer console, judge/auditor console (control tower),
                         #         merchant console + Telegram bot logic + GCP infra/
 
 (repo root: scripts/docs-guard.sh = CI documentation gate ·
@@ -63,23 +63,20 @@ is the control tower. Product working name in older notes ("TrustChannel") is
 Aval. Deployables: `web`, `kernel`, `agent` (+ watcher Cloud Run job),
 `merchant` — all on Cloud Run, region `southamerica-east1`.
 
-## Ownership (4 parallel workstreams)
+## Ownership (4 capability lanes — decision #19)
 
 | Dev | Owns | Mission |
 |---|---|---|
-| A | `kernel` mandates + identity: SD-JWT issuance, JWKS, passkey ceremony, state machine, revocation, escalations API | Only a real human with a passkey creates/limits/revokes spending power |
-| B | `kernel` decision + evidence: policy gate, verify endpoint (atomic reservation), purchase saga, hash-chained ledger, KMS roots, outbox/SSE | Nothing out-of-mandate ever passes; every decision leaves verifiable evidence |
-| C1 | `merchant` rail: PayPal adapter (setup/payment tokens, capture with `vault_id`, disputes, DELETE), incoming webhooks | Money moves by PayPal without anyone touching the instrument; the rail obeys revocation |
-| C2 | `merchant` store: VuelaYa catalog + MCP tools, checkout verification | The merchant verifies the mandate itself before charging |
-| C3 | `agent`: own graph orchestrator (`await_human` + `agent_runs` checkpointing, decision #16), signed intents (JCS/EdDSA), watcher job, Presidio, injection suite | The agent discovers and proposes; it structurally cannot pay outside the gate |
-| D | `web` (all three consoles) + Telegram bot + `infra/` (bootstrap, CI/CD, domain, secrets) | Humans, judges and auditors operate everything; the system stays deployed and reproducible |
+| 1 | `agent`: own graph orchestrator (`await_human` + `agent_runs` checkpointing, decision #16), signed intents (JCS/EdDSA), watcher job, Presidio, injection suite | The agent discovers and proposes; it structurally cannot pay outside the gate |
+| 2 | `kernel` fraud, contracts, idempotency: policy gate, verify endpoint (atomic reservation), purchase saga + compensation, idempotency keys, hash-chained ledger, KMS roots, outbox relay | Nothing out-of-mandate ever passes; every operation exactly-once; every decision leaves verifiable evidence |
+| 3 | `kernel` identity + `merchant`: SD-JWT issuance, JWKS, passkey ceremony, state machine, revocation, escalations API, catalog + MCP tools, checkout, PayPal adapter, webhooks | The API surfaces exist, and the merchant verifies the mandate itself before charging |
+| 4 | `web` (all three consoles) + Telegram bot + `infra/` (bootstrap, CI/CD, domain, secrets) | Humans, judges and auditors operate everything; the system stays deployed and reproducible |
 
-Dev C owns all three sub-missions by default, in the order C1 → C2 → C3 (see
-`aval/docs/PLAN-PARALELO.md` §3.1). Each sub-mission is self-contained — its
-boundaries are existing contracts (`PaymentRail` interface for C1↔C2, the MCP
-tools contract in `contracts/schemas.md` §10 for C2↔C3) — so they can be split
-across people or assigned to separate agents without extra synchronization.
-The detachable one if someone is overloaded: C2 (Dev A can absorb it after M1).
+The kernel deployable hosts routers from 2 and 3 in separate folders
+(CODEOWNERS, no cross-imports outside `trustlib`); Dev 4's bot router mounts
+there too. If Dev 3 overloads, the catalog detaches to Dev 1 (trivial
+fixtures) and the checkout to Dev 2 after M1 — the mandate crypto never
+moves (decision #19).
 
 Do not edit another workstream's module without their review. Contracts are
 community property: change them by PR with a version bump, updating mocks and
@@ -131,9 +128,9 @@ a mock that approves everything is forbidden.
 ## Status (as of this commit)
 
 Decided and documented: architecture, crypto formats, contracts v1.0, decision
-log (17 entries — full records in `docs/decisions/`), workstreams and
-milestones, own-graph agent orchestrator (#16), documentation protocol with
-CI guard (#17). Next: the M0 freeze session
+log (19 entries — full records in `docs/decisions/`), own-graph agent
+orchestrator (#16), documentation protocol with CI guard (#17), workstreams
+re-cut by capability (#19). Next: the M0 freeze session
 (see `aval/docs/PLAN-PARALELO.md` §11) — scaffold the services, stand up the
 mocks in `contracts/mocks/`, generate TypeScript types from `api.yaml`, buy the
 domain, run the PayPal smoke test. Until M0 is green, no workstream starts

@@ -80,10 +80,10 @@ decisions in [`../DECISIONS.md`](../DECISIONS.md), formats in
   hash-chained evidence bundle: mandate → signed intent → approval receipt →
   capture (decision #8).
 
-**Where each whiteboard component landed:** Auth + BFF → `kernel/` (Dev A+B)
-· Agent — own graph, no framework (decision #16) → `agent/` (Dev C3) ·
-business rules → the deterministic gate inside `kernel/` (Dev B) · queue →
-Postgres outbox, no broker (decision #10) · logs → hash-chained
-`audit_events` with KMS-signed roots and an external witness (decision #7) ·
-merchant MCP server + payment API → `merchant/` (Dev C1+C2, PayPal sandbox
-rail) · control tower → `web/` (Dev D).
+**Where each whiteboard component landed:** Auth + BFF → `kernel/` (Dev 3
+identity + Dev 2 decision) · Agent — own graph, no framework (decision #16)
+→ `agent/` (Dev 1) · business rules → the deterministic gate inside
+`kernel/` (Dev 2) · queue → Postgres outbox, no broker (decision #10) ·
+logs → hash-chained `audit_events` with KMS-signed roots and an external
+witness (decision #7) · merchant MCP server + payment API → `merchant/`
+(Dev 3, PayPal sandbox rail) · control tower → `web/` (Dev 4).

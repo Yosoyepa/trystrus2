@@ -401,3 +401,31 @@ example rename. That is the protocol working as designed.
 
 **Does not solve:** `docs/fig1-3.png` still show the original whiteboard
 wording — kept as artifacts of the starting point.
+
+---
+
+## 19. Four workstreams cut by capability, not by architectural layer
+
+**Chose:** Dev 1 agentic (agent + watcher: own graph, signed intents,
+Presidio, injection suite) · Dev 2 fraud, contracts, idempotency (gate,
+verify + atomic reservation, saga + compensation, idempotency keys,
+hash-chained ledger, outbox) · Dev 3 API backend (mandates + passkeys,
+state machine, escalations, catalog + MCP tools, checkout, PayPal rail,
+webhooks) · Dev 4 front & platform (three consoles, bot, GCP infra, CI/CD).
+The C1/C2/C3 subdivision dissolves: brain → Dev 1, money and store → Dev 3.
+Full record: `docs/decisions/0019-workstreams-cut-by-capability.md`.
+
+**Rejected:** one-service-per-dev (five deployables, four devs); the old
+layer cut (its symptom was C's overload, which C1/C2/C3 only patched);
+keeping the subdivision (a patch for a cut that no longer exists).
+
+**Why:** Capability lanes match how failures are investigated on demo day:
+one dev owns every anti-fraud invariant, one owns everything the agent does,
+one owns every API surface, one owns what the judges touch. Contracts,
+milestones and tests are untouched — parallelism never depended on which dev
+held which component.
+
+**Does not solve:** Dev 3 is the heaviest lane (identity + store + rail);
+mitigations pre-agreed — catalog detaches to Dev 1, checkout to Dev 2 after
+M1, mandate crypto never moves. Devs 2 and 3 share the kernel deployable, so
+folder discipline is load-bearing.

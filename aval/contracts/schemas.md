@@ -6,7 +6,7 @@
 
 ## 1. Contrato cripto — Mandato SD-JWT (`MandateClaims`)
 
-Emisor: servicio `api` (Dev A). Clave: Ed25519 PEM en Secret Manager, publicada en `/.well-known/jwks.json` con `kid = vN`. Formato: **SD-JWT (RFC 9901) + Key Binding** (el KB lo emite el AGENTE al presentar, con `nonce` del merchant).
+Emisor: servicio `api` (Dev 3). Clave: Ed25519 PEM en Secret Manager, publicada en `/.well-known/jwks.json` con `kid = vN`. Formato: **SD-JWT (RFC 9901) + Key Binding** (el KB lo emite el AGENTE al presentar, con `nonce` del merchant).
 
 ```json
 {
@@ -40,7 +40,7 @@ Reglas:
 
 ## 2. Contrato cripto — Payment Intent canónico (`PurchaseIntent`)
 
-Firmado por el **agente** (Dev C) con la clave `cnf.jwk` del mandato. **Serialización: JSON Canonicalization Scheme (RFC 8785 / JCS)** — sin ella, la firma no es verificable entre servicios. JWS **detached** EdDSA (payload viaja aparte del objeto firma, patrón estándar JOSE).
+Firmado por el **agente** (Dev 1) con la clave `cnf.jwk` del mandato. **Serialización: JSON Canonicalization Scheme (RFC 8785 / JCS)** — sin ella, la firma no es verificable entre servicios. JWS **detached** EdDSA (payload viaja aparte del objeto firma, patrón estándar JOSE).
 
 ```json
 {
@@ -60,9 +60,9 @@ Firmado por el **agente** (Dev C) con la clave `cnf.jwk` del mandato. **Serializ
 
 Reglas:
 - `amount` = **string decimal fijo a 2 decimales** (evita float drift entre servicios).
-- `amount` **debe ser igual al precio de la offer referenciada** — el verify endpoint lo comprueba contra el catálogo. El agente no elige el monto: elimina toda manipulación de precio en la fuente (subdivisión C2↔C3, ver PLAN-PARALELO §3.1).
+- `amount` **debe ser igual al precio de la offer referenciada** — el verify endpoint lo comprueba contra el catálogo. El agente no elige el monto: elimina toda manipulación de precio en la fuente (contrato tienda↔agente: Dev 3↔Dev 1 — ver PLAN-PARALELO §3.1).
 - `exp − iat ≤ 120 s`. `jti` + `nonce` únicos globalmente (constraint UNIQUE en BD del merchant/verify).
-- Verificación en orden (Dev B, usada también por Dev D en checkout): firma del intent contra `cnf.jwk` → KB-JWT del presentación SD-JWT (nonce/aud del verifier) → frescura temporal → unicidad.
+- Verificación en orden (Dev 2, usada también por Dev 3 en checkout): firma del intent contra `cnf.jwk` → KB-JWT del presentación SD-JWT (nonce/aud del verifier) → frescura temporal → unicidad.
 
 ## 3. Interfaces Python (viven en `packages/trustlib`)
 
@@ -75,7 +75,7 @@ class Decision(BaseModel):
     reservation_id: str | None = None      # solo APPROVED; TTL 120 s
     diff: dict | None = None               # solo ESCALATED: {"limit":"max_per_txn","value":150,"attempted":300}
 
-# [Dev B] PolicyGate — determinista, sin I/O, testeado con T1/T10
+# [Dev 2] PolicyGate — determinista, sin I/O, testeado con T1/T10
 class PolicyGate(Protocol):
     def evaluate(self, mandate: MandateClaims, intent: PurchaseIntent,
                  spend: SpendView, now: datetime) -> Decision: ...
@@ -86,7 +86,7 @@ class SpendView(BaseModel):                 # proyección del ledger para evalua
     txn_count_period: int
     mandate_status: MandateStatus           # active | suspended | revoked | …
 
-# [Dev D] PaymentRail — adaptador PayPal; A usa delete_token, merchant usa el resto
+# [Dev 3] PaymentRail — adaptador PayPal; revocación y checkout la usan (ambos Dev 3; Dev 2 no toca el rail)
 class PaymentRail(Protocol):
     def create_setup_token(self, mandate_id: str) -> SetupToken:        # → approve_url
     def exchange_payment_token(self, setup_token_id: str) -> str:       # → payment_token_id
@@ -96,13 +96,13 @@ class PaymentRail(Protocol):
     def open_dispute(self, capture_id: str, reason: str = "UNAUTHORISED") -> DisputeRef
     def verify_webhook(self, headers: dict, body: bytes) -> WebhookEvent | None
 
-# [Dev A] MandateRegistry — emisión/verificación SD-JWT
+# [Dev 3] MandateRegistry — emisión/verificación SD-JWT
 class MandateRegistry(Protocol):
     def issue(self, claims: MandateClaimsInput) -> IssuedMandate:       # sd_jwt + jti
     def verify(self, sd_jwt: str, *, nonce: str, aud: str) -> MandateClaims:  # + KB check
     def jwks(self) -> JWKSet
 
-# [Dev B] Ledger — append-only hash-chained
+# [Dev 2] Ledger — append-only hash-chained
 class Ledger(Protocol):
     def append(self, type: EventType, mandate_id: str, payload: dict) -> AuditEvent
     def verify_chain(self) -> ChainResult          # recomputa hashes + valida roots KMS
@@ -117,34 +117,34 @@ Envelope único: `{event_id, type, aggregate_id, payload, created_at}` (+ `seq` 
 
 | type | Emite | Payload mínimo | Consumen |
 |---|---|---|---|
-| `mandate.created` / `mandate.activated` | A | jti, limits | B (ledger), D (webhook) |
-| `mandate.revoked` | A | jti, by, at | B (ledger), D (merchant anula checkout), bot |
-| `mandate.suspended` / `mandate.exhausted` / `mandate.expired` | A | jti | B, D |
-| `payment_instrument.linked` | A | mandate_jti, token_ref (opaco) | B |
-| `offer.seen` | C | offer_id, price, mandate_jti, conditions_result | B |
-| `purchase.requested` | B | purchase_id, intent_jti | B (ledger) |
-| `purchase.verified` | B | purchase_id, reservation_id | D |
-| `purchase.escalated` | B | purchase_id, escalation_id, diff | A (bot), SSE |
-| `purchase.captured` | B | purchase_id, receipt | A (registro Marta), SSE |
-| `purchase.rejected` | B | purchase_id, reason_code | C (agente replanifica), SSE |
-| `escalation.resolved` | A | escalation_id, decision, receipt_sig | B (resume saga), SSE |
-| `escalation.expired` | A | escalation_id (timeout fail-closed) | B (compensa), C |
-| `dispute.opened` / `dispute.resolved` | D | capture_id, dispute_id, outcome | B (evidence bundle), SSE |
-| `root.checkpoint` | B | root_hash, root_sig, seq_range | GCS witness |
+| `mandate.created` / `mandate.activated` | 3 | jti, limits | 2 (ledger), bot/SSE |
+| `mandate.revoked` | 3 | jti, by, at | 2 (ledger), 3 (merchant anula checkout), bot |
+| `mandate.suspended` / `mandate.exhausted` / `mandate.expired` | 3 | jti | 2, bot/SSE |
+| `payment_instrument.linked` | 3 | mandate_jti, token_ref (opaco) | 2 |
+| `offer.seen` | 1 | offer_id, price, mandate_jti, conditions_result | 2 |
+| `purchase.requested` | 2 | purchase_id, intent_jti | 2 (ledger) |
+| `purchase.verified` | 2 | purchase_id, reservation_id | 4 (SSE) |
+| `purchase.escalated` | 2 | purchase_id, escalation_id, diff | 4 (bot A/R), SSE |
+| `purchase.captured` | 2 | purchase_id, receipt | 4 (registro Marta), SSE |
+| `purchase.rejected` | 2 | purchase_id, reason_code | 1 (agente replanifica), SSE |
+| `escalation.resolved` | 3 | escalation_id, decision, receipt_sig | 2 (resume saga), SSE |
+| `escalation.expired` | 3 | escalation_id (timeout fail-closed) | 2 (compensa), 1 |
+| `dispute.opened` / `dispute.resolved` | 4 | capture_id, dispute_id, outcome | 2 (evidence bundle), SSE |
+| `root.checkpoint` | 2 | root_hash, root_sig, seq_range | GCS witness |
 
-## 5. Semántica de "escalation resume" (contrato A↔B↔C — el más delicado)
+## 5. Semántica de "escalation resume" (contrato 3↔2↔1 — el más delicado)
 
-1. Gate devuelve `ESCALATED` → B crea `purchase` en `awaiting_escalation` + evento `purchase.escalated` → NO hay reserva de presupuesto todavía.
-2. A (bot/UI) resuelve dentro de `timeout_at` (120 s):
-   - `APPROVE` → A emite `escalation.resolved` con `receipt_sig` → **B re-ejecuta el gate** (estado puede haber cambiado — nunca confía en el approval como bypass) → si APPROVED ahora sí reserva y cobra. El approval autoriza a reintentar, **no** a saltarse el gate.
-   - `REJECT` o timeout → `escalation.expired` → B compensa la compra (`rejected`/`compensated`) → C replanifica.
-3. `sticky: true` → A emite **mini-mandato derivado** (nuevo SD-JET con `parent_jti`, límites acotados) → el agente debe usar el nuevo mandato para reintentos.
-4. Agente (C): el nodo `await_human` antes del nodo pay es **idempotente** (T7) — el run persiste en `agent_runs` (checkpointing del grafo propio, ADR-006 del plan maestro) y el nodo re-ejecuta al resumir; ningún side effect monetario ocurre antes del resume.
+1. Gate devuelve `ESCALATED` → 2 crea `purchase` en `awaiting_escalation` + evento `purchase.escalated` → NO hay reserva de presupuesto todavía.
+2. 4 (bot/UI) resuelve dentro de `timeout_at` (120 s):
+   - `APPROVE` → 3 emite `escalation.resolved` con `receipt_sig` → **2 re-ejecuta el gate** (estado puede haber cambiado — nunca confía en el approval como bypass) → si APPROVED ahora sí reserva y cobra. El approval autoriza a reintentar, **no** a saltarse el gate.
+   - `REJECT` o timeout → `escalation.expired` → 2 compensa la compra (`rejected`/`compensated`) → 1 replanifica.
+3. `sticky: true` → 3 emite **mini-mandato derivado** (nuevo SD-JWT con `parent_jti`, límites acotados) → el agente debe usar el nuevo mandato para reintentos.
+4. Agente (1): el nodo `await_human` antes del nodo pay es **idempotente** (T7) — el run persiste en `agent_runs` (checkpointing del grafo propio, ADR-006 del plan maestro) y el nodo re-ejecuta al resumir; ningún side effect monetario ocurre antes del resume.
 
 ## 6. Contrato de base de datos (DDL semilla — una migración por dueño)
 
 ```sql
--- [A] mandates + escalations
+-- [3] mandates + escalations (API backend)
 CREATE TABLE mandates (
   id TEXT PRIMARY KEY, jti TEXT UNIQUE NOT NULL,
   user_id TEXT NOT NULL, agent_id TEXT NOT NULL,
@@ -167,7 +167,7 @@ CREATE TABLE escalations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- [B] decisión + evidencia
+-- [2] decisión + evidencia (fraude, contratos, idempotencia)
 CREATE TABLE purchase_intents (
   jti TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL, agent_id TEXT NOT NULL,
   intent_canonical JSONB NOT NULL, status TEXT NOT NULL,
@@ -194,7 +194,7 @@ CREATE TABLE outbox (
   relayed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- [C] runs del agente — checkpointing del grafo propio (ADR-006): cada transición de nodo persiste
+-- [1] runs del agente — checkpointing del grafo propio (ADR-006): cada transición de nodo persiste
 CREATE TABLE agent_runs (
   run_id UUID PRIMARY KEY,
   mandate_jti TEXT NOT NULL,
@@ -205,7 +205,7 @@ CREATE TABLE agent_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- [C] comercio & rail (sub-misión C2)
+-- [3] comercio & rail
 CREATE TABLE payment_instruments (
   token_ref TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL,
   rail TEXT NOT NULL DEFAULT 'paypal', status TEXT NOT NULL DEFAULT 'active',
@@ -218,7 +218,7 @@ CREATE TABLE offers (
 );
 ```
 
-Convención de escritura cruzada: `verify` [B] es el ÚNICO escritor de `mandates.reserved_amount/spent_total/txn_count_period` [tabla de A]; lo hace vía el UPDATE condicional atómico (`WHERE status='active' AND …`). A nunca escribe esas columnas.
+Convención de escritura cruzada: `verify` [2] es el ÚNICO escritor de `mandates.reserved_amount/spent_total/txn_count_period` [tabla de 3]; lo hace vía el UPDATE condicional atómico (`WHERE status='active' AND …`). 3 nunca escribe esas columnas.
 
 ## 7. Semántica de `ReasonCode` (para mensajes de UI idénticos entre vistas)
 
@@ -250,7 +250,7 @@ Los mocks corren en `docker-compose` junto a Postgres desde el Día 0 — **cada
 - [ ] `trustlib` v0.1: modelos + `canonical_json` + helpers firma/verificación + `fake.*` + mocks corriendo.
 - [ ] Fixtures canónicos: mandato VuelaYa (`<$150`, 3/mes, USD 400), intent $130 (APPROVED), intent $300 (ESCALATED/REJECTED), intent categoría wrong (REJECTED), intent firmado con clave equivocada (INVALID_PROOF_OF_POSSESSION).
 
-## 10. Contrato MCP — tools del merchant consumidas por el agente (C2 implementa · C3 consume)
+## 10. Contrato MCP — tools del merchant consumidas por el agente (Dev 3 implementa · Dev 1 consume)
 
 El agente descubre y compra vía MCP (ADR-013 del plan maestro). **Tres tools, sin más:**
 
@@ -261,8 +261,8 @@ El agente descubre y compra vía MCP (ADR-013 del plan maestro). **Tres tools, s
 | `request_purchase` | `{offer_id: str, mandate_jti: str}` | `{status: "submitted", purchase_id: str}` | Internamente llama `POST /purchases` del kernel — **nunca cobra directo** |
 
 Reglas de la frontera:
-1. **Outputs = datos, no instrucciones.** Todo texto del merchant (`title`, `description`, reviews) viaja delimitado y el agente lo trata como dato (spotlighting). Las descripciones con payload adversarial viven en `contracts/fixtures/offers_adversarial.json` — propiedad comunidad: C3 aporta los strings del ataque, C2 los monta en el catálogo.
+1. **Outputs = datos, no instrucciones.** Todo texto del merchant (`title`, `description`, reviews) viaja delimitado y el agente lo trata como dato (spotlighting). Las descripciones con payload adversarial viven en `contracts/fixtures/offers_adversarial.json` — propiedad comunidad: Dev 1 aporta los strings del ataque, Dev 3 los monta en el catálogo.
 2. **`request_purchase` no acepta `amount`.** El monto sale de la offer referenciada; el invariante `intent.amount == offer.amount` se verifica en el kernel (§2). El agente no puede proponer un precio distinto del catálogo.
 3. **No existe tool de pago.** Ninguna tool toca `PaymentRail`; la única ruta al dinero sigue siendo gate → verify → checkout.
-4. El watcher (C3) NO usa MCP: sondea el REST `GET /catalog/offers` (api.yaml) — MCP es para el agente interactivo, el polling es para el job.
+4. El watcher (1) NO usa MCP: sondea el REST `GET /catalog/offers` (api.yaml) — MCP es para el agente interactivo, el polling es para el job.
 - [ ] DDL aplicado en Cloud SQL staging + docker-compose local.

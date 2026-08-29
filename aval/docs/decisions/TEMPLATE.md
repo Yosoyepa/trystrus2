@@ -1,7 +1,7 @@
 # NNNN — <short title>
 
 Date: YYYY-MM-DD · Status: proposed | accepted | superseded by NNNN
-Workstream: A | B | C1 | C2 | C3 | D | all
+Workstream: 1 | 2 | 3 | 4 | all
 Supersedes: none (or the entry/ADR it replaces)
 
 ## Context

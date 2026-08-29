@@ -15,11 +15,11 @@ servers:
     variables:
       domain: { default: localhost }
 tags:
-  - { name: mandates, description: "Ciclo de vida del mandato [Dev A]" }
-  - { name: decision, description: "Verificación y decisión de compras [Dev B]" }
-  - { name: escalations, description: "Escalamiento humano (HIL) [Dev A]" }
-  - { name: audit, description: "Trail de auditoría [Dev B]" }
-  - { name: merchant, description: "VuelaYa: catálogo y checkout [Dev D]" }
+  - { name: mandates, description: "Ciclo de vida del mandato [Dev 3]" }
+  - { name: decision, description: "Verificación y decisión de compras [Dev 2]" }
+  - { name: escalations, description: "Escalamiento humano (HIL) [Dev 3]" }
+  - { name: audit, description: "Trail de auditoría [Dev 2]" }
+  - { name: merchant, description: "VuelaYa: catálogo y checkout [Dev 3]" }
 
 paths:
   /.well-known/jwks.json:

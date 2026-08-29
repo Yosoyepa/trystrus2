@@ -32,5 +32,11 @@ context and consequences.
   the agent runs on our own graph: LangGraph's critical ideas, no LangGraph.
 - [`0017-documentation-protocol.md`](0017-documentation-protocol.md) —
   devlogs + decision records, enforced by the CI docs-guard.
+- [`0018-coherence-pass-naming-and-channels.md`](0018-coherence-pass-naming-and-channels.md) —
+  every doc aligned with the decided build (channels, "since decided",
+  issuer example).
+- [`0019-workstreams-cut-by-capability.md`](0019-workstreams-cut-by-capability.md) —
+  Dev 1 agentic · Dev 2 fraud/contracts/idempotency · Dev 3 API backend ·
+  Dev 4 front & platform; C1/C2/C3 dissolved.
 - Entries 1–15 predate this directory and live only in the
   [index](../../DECISIONS.md).

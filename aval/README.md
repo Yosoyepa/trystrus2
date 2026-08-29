@@ -72,16 +72,16 @@ between a fresh clone and a working demo.
 
 ## Team
 
-Four parallel workstreams; contracts are the only shared surface. Names TBD.
+Four capability lanes; contracts are the only shared surface. Names TBD.
 
 | Area | Owner |
 |---|---|
-| Kernel: mandate, signing, rules, log | Dev A (identity: mandates, passkeys, SD-JWT, revocation, escalations) + Dev B (decision: gate, verify, saga, ledger, events) |
-| Payments rail: PayPal adapter, webhooks | Dev C1 — sub-mission of C (money) |
-| Merchant: catalog, checkout, verification | Dev C2 — sub-mission of C (store) |
-| Agent: discovery, proposals, escalation | Dev C3 — sub-mission of C (brain) |
-| Web and story: consoles, bot, slides, diagram | Dev D (also owns GCP infra and CI/CD) |
+| Agentic: agent graph, watcher, injection suite | Dev 1 |
+| Fraud, contracts, idempotency: gate, verify, saga, ledger | Dev 2 |
+| API backend: mandates, passkeys, merchant, PayPal rail | Dev 3 |
+| Front and platform: consoles, bot, GCP infra, CI/CD | Dev 4 |
 
-C is one workstream subdivided into three independently executable sub-missions
-(see `docs/PLAN-PARALELO.md` §3.1): assign them together to one person or split
-them — the boundaries between them are frozen contracts, not conversations.
+Workstreams are cut by capability (decision #19,
+`docs/decisions/0019-workstreams-cut-by-capability.md`). The old C1/C2/C3
+subdivision dissolved into it: brain → Dev 1, money and store → Dev 3.
+Contracts, milestones and tests did not change.
