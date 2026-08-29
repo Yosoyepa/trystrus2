@@ -648,4 +648,4 @@ Orden de escritura: **T1–T2 primero** (definen el contrato del gate y del mand
 **Backend:** JsonLogic (jsonlogic.com) · Postgres event sourcing + outbox + SKIP LOCKED · RFC 6962/Certificate Transparency · Saga pattern · RFC 7009.
 **GCP (v2, verificado):** Cloud Run sidecars/streaming/min-instances/timeout (cloud.google.com/run/docs) · Cloud Run jobs on schedule con OIDC · Cloud SQL connector unix socket + pricing + ediciones · **Cloud KMS algoritmos (`EC_SIGN_ED25519`)** (cloud.google.com/kms/docs/algorithms) · **Public Suffix List (run.app) + W3C WebAuthn L3 rpId** (publicsuffix.org · w3.org/TR/webauthn-3) · Pub/Sub pricing · Free tier/US$300 (cloud.google.com/free) · **Gemini API rate limits dic-2025** (ai.google.dev/gemini-api/docs/rate-limits) · GitHub Actions WIF + deploy-cloudrun (google-github-actions) · Regiones LATAM (southamerica-east1).
 
-*(Informes completos de los 9 subagentes con ~140 URLs en el historial de esta sesión; consolidar los relevantes en `docs/adr/` al ejecutar G0.)*
+*(Informes completos de los 9 subagentes con ~140 URLs en el historial de esta sesión; consolidar los relevantes en `docs/decisions/` al ejecutar G0.)*

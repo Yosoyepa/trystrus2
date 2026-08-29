@@ -377,3 +377,27 @@ For a new agent — AI or human — one file contextualizes the whole workstream
 
 **Does not solve:** Documentation quality. The guard checks presence, not
 truth. Reviews still have to read.
+
+---
+
+## 18. Coherence pass: naming and channels aligned to the decided build
+
+**Chose:** Align every document to the decisions: channels are web / Telegram
+(primary) / WhatsApp (secondary) per #13; the "not decided yet" and "still
+open" closers became "Since decided" with pointers; FOUNDATION gained a
+whiteboard-component → build mapping; the contract's issuer example is
+`api.aval.example`; the sources footer points at `docs/decisions/`. Full
+record: `docs/decisions/0018-coherence-pass-naming-and-channels.md`.
+
+**Rejected:** keeping the foundation docs as untouched history (README sends
+every newcomer and AI agent to them first — "not decided yet" about a frozen
+contract is an active hazard); rewriting the whiteboard voice entirely
+(annotating beats replacing).
+
+**Why:** In a repo where agents contextualize themselves from the docs,
+coherence is load-bearing. And this entry exists because the docs-guard
+demands a decision record for any contract change — including a one-line
+example rename. That is the protocol working as designed.
+
+**Does not solve:** `docs/fig1-3.png` still show the original whiteboard
+wording — kept as artifacts of the starting point.

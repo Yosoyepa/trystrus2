@@ -187,7 +187,7 @@
       <!-- BUYER -->
       <text class="t-zone" x="30" y="62">BUYER</text>
       <rect class="s-box" x="30" y="80" width="140" height="48" rx="4"/>
-      <text class="t" x="100" y="109" text-anchor="middle">Slack</text>
+      <text class="t" x="100" y="109" text-anchor="middle">WhatsApp</text>
       <rect class="s-box" x="30" y="144" width="140" height="48" rx="4"/>
       <text class="t" x="100" y="173" text-anchor="middle">Web</text>
       <rect class="s-box" x="30" y="208" width="140" height="48" rx="4"/>
@@ -380,7 +380,7 @@
   </figure>
 
   <ol class="steps">
-    <li>Marta writes what she wants in Slack: flights to Córdoba, under $150, until 31 August, on her saved card.</li>
+    <li>Marta writes what she wants in Telegram: flights to Córdoba, under $150, until 31 August, paid with her vaulted PayPal.</li>
     <li>The BFF turns it into a mandate and asks her to approve it. She sees the exact terms before she signs.</li>
     <li>She signs. The signed mandate <code>M-1</code> goes to the rules engine and the store. The agent never sees the card.</li>
     <li>The agent searches VuelaYa through its MCP server and watches prices.</li>
@@ -499,8 +499,8 @@
   <dl class="defs">
     <div class="def"><dt>Traceability</dt><dd>Every action leaves a record that ties the purchase to the person, the mandate and the rule that allowed it.</dd></div>
     <div class="def"><dt>Idempotency</dt><dd>The same request sent twice buys once. Retries return the original result instead of a second flight.</dd></div>
-    <div class="def"><dt>Usability</dt><dd>Authorizing takes seconds from Slack or Telegram. If it feels like configuring a firewall, nobody does it.</dd></div>
-    <div class="def"><dt>Security</dt><dd>The agent never holds the raw card. It holds permission to use one the platform keeps.</dd></div>
+    <div class="def"><dt>Usability</dt><dd>Authorizing takes seconds from Telegram or WhatsApp. If it feels like configuring a firewall, nobody does it.</dd></div>
+    <div class="def"><dt>Security</dt><dd>The agent never holds the raw card — nobody here does. The instrument lives tokenized at the rail (PayPal vault); the agent holds only permission to use it.</dd></div>
     <div class="def"><dt>Non-repudiation</dt><dd>Neither side can later deny what they did. Marta cannot say she never asked, and the merchant cannot claim an approval it never got.</dd></div>
     <div class="def"><dt>Domain knowledge</dt><dd><em>A limit of the agent.</em> It does not know what is normal for this buyer, so the rules and the history have to supply that.</dd></div>
     <div class="def"><dt>Transaction access</dt><dd><em>A limit of the agent.</em> It needs to see past purchases to know whether this one is a repeat and what it means.</dd></div>
@@ -509,11 +509,11 @@
   <div class="group-label">The pieces</div>
   <dl class="defs">
     <div class="def"><dt>Auth</dt><dd>The boundary. Nothing enters the platform without a person attached to it.</dd></div>
-    <div class="def"><dt>BFF</dt><dd>One entry point for Slack, web and Telegram. It flattens all three into the same internal shape.</dd></div>
+    <div class="def"><dt>BFF</dt><dd>One entry point for web, Telegram and WhatsApp. It flattens all three into the same internal shape.</dd></div>
     <div class="def"><dt>Agent</dt><dd>Searches, compares and proposes. It has no authority to move money.</dd></div>
     <div class="def"><dt>Rules engine</dt><dd>Decides allow, ask, or refuse, and records the reason. No model runs inside it, so the same input always gives the same answer.</dd></div>
     <div class="def"><dt>Mandates + transactions</dt><dd>Where signed mandates and purchase history live. The rules read from here.</dd></div>
-    <div class="def"><dt>Queue</dt><dd>Carries events between components so a slow merchant or a retry blocks nothing else.</dd></div>
+    <div class="def"><dt>Queue</dt><dd>Carries events between components so a slow merchant or a retry blocks nothing else. Built as a Postgres outbox — no broker (decision #10).</dd></div>
     <div class="def"><dt>Append-only log</dt><dd>Every decision, in order, each entry chained to the one before so a changed record is visible.</dd></div>
     <div class="def"><dt>MCP server</dt><dd>The merchant's read side. How the agent explores what is for sale. Costs nothing, commits nothing.</dd></div>
     <div class="def"><dt>Payment API</dt><dd>The merchant's write side. Only the rules engine calls it.</dd></div>
@@ -521,7 +521,7 @@
   </dl>
 
   <div class="note">
-    <b>Still open.</b> Figure 2 step 3 says "signed mandate M-1", and we have not defined what that object actually is. Its fields, how Marta signs it, and how VuelaYa checks the signature without calling us. Everything else on this page already works. That one object is what turns the platform into an answer to the challenge, and it should be decided before anyone writes rules code.
+    <b>Since decided.</b> The "signed mandate M-1" of figure 2 step 3 is now defined: an SD-JWT (RFC 9901) with AP2-shaped claims and the agent's public key inside (<code>contracts/schemas.md</code> §1), signed by Marta's passkey over the mandate's canonical hash (decision #3), and verified by VuelaYa itself against our published JWKS before it ever calls us (decision #6). The rest of this page landed too: Telegram primary with WhatsApp secondary, fail-closed at 120 s (decision #13); the rail is PayPal sandbox with vaulted payment tokens (decision #8); the agent runs on our own graph, no framework (decision #16).
   </div>
 </section>
 

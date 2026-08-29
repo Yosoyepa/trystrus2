@@ -10,7 +10,7 @@ Emisor: servicio `api` (Dev A). Clave: Ed25519 PEM en Secret Manager, publicada 
 
 ```json
 {
-  "iss": "https://api.trustchannel.example",
+  "iss": "https://api.aval.example",
   "iat": 1770000000, "nbf": 1770000000, "exp": 1772608000,
   "jti": "mdt_01J8Z...",
   "type": "purchase_mandate_v1",
