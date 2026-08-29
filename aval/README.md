@@ -31,6 +31,8 @@ The agent never holds the card, and it never calls the merchant's payment API.
 - `docs/FOUNDATION.md` is the shared starting point. Read it before writing code.
 - `docs/architecture.html` has the three diagrams and every term defined.
 - `DECISIONS.md` is a graded deliverable. Add an entry when you make a call, not at the end.
+- `docs/decisions/` holds the full decision records (one numbered file per choice); `DECISIONS.md` is the index.
+- `docs/devlogs/` is the per-workstream build log. Read yours before starting a task; append to it in every PR — CI rejects code changes without a devlog entry.
 - `docs/PLAN.md` is the researched master plan (architecture, ADRs, gates, test strategy, ~140 sources).
 - `docs/PLAN-PARALELO.md` is the parallel build plan (4 workstreams, contracts, milestones).
 - `contracts/` holds the frozen interfaces — `api.yaml` (OpenAPI) and `schemas.md` (crypto formats, events, DDL). If code and contract disagree, the contract wins.
@@ -38,8 +40,10 @@ The agent never holds the card, and it never calls the merchant's payment API.
 ## Repo layout
 
     docs/            foundation, architecture, diagrams, master plan, parallel plan
+    docs/decisions/  full decision records (one numbered file per choice + TEMPLATE)
+    docs/devlogs/    one append-only build log per workstream — the anti-duplication radio
     contracts/       frozen interfaces: OpenAPI + schemas + (soon) mocks and fixtures
-    DECISIONS.md     what we chose, what we rejected, why
+    DECISIONS.md     decision index: what we chose, what we rejected, why
 
 Everything below is to be filled in as it gets built.
 

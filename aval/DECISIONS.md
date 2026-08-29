@@ -326,3 +326,54 @@ Costs cents per month.
 
 **Does not solve:** Nothing a hardware token in the judges' hands would not
 improve. Stated for the cross-examination.
+
+---
+
+## 16. Agent orchestration without LangGraph
+
+**Chose:** A hybrid adaptation — keep the four critical ideas that fit us
+(explicit graph as control flow with the LLM confined to the propose node,
+checkpointing to Postgres via `agent_runs`, interrupt-before-pay as an
+`await_human` node resumed by escalation resolution, tools as a bounded
+contract) and implement them in ~150 lines of framework-free Python. Full
+record: `docs/decisions/0016-agent-orchestration-without-langgraph.md`.
+
+**Rejected:** LangGraph the framework (learning curve, checkpointer setup and
+framework debugging concentrated in one dev over a 2.5-day build — the exact
+bottleneck we were avoiding); OpenAI Agents SDK (vendor coupling for no
+safety gain); no orchestrator at all (unauditable, unresumable).
+
+**Why:** What we needed from LangGraph was three behaviors, not a package.
+The graph is code we can read in one sitting, its state is one table we can
+SELECT, and its resume semantics are the escalation contract we already
+froze. Every graph transition can become an audit event — the agent's
+trajectory joins the evidence chain.
+
+**Does not solve:** We own the orchestrator's bugs (graph-loop, resume
+races); no free integration ecosystem. Wrapping the same nodes in LangGraph
+later is the documented path back.
+
+---
+
+## 17. Every change documents itself (devlogs + decisions, enforced by CI)
+
+**Chose:** A repository structure that makes documentation unavoidable
+rather than encouraged: one append-only devlog per workstream under
+`docs/devlogs/`, full decision records under `docs/decisions/` (this file
+stays the short index), and a CI guard — `scripts/docs-guard.sh` — that
+rejects a PR changing code without a devlog entry, or changing a frozen
+contract without a decision record. Full record:
+`docs/decisions/0017-documentation-protocol.md`.
+
+**Rejected:** trusting discipline (documentation dies on day 2 of a
+hackathon); a wiki (drifts from the code); docs written at the end (then
+they are fiction, not record); unenforced conventions.
+
+**Why:** Four people plus AI agents build asynchronously against frozen
+contracts. The failure mode is duplication and lost context: two streams
+re-solving the same problem because neither knew the other had. A devlog
+entry costs two minutes; the guard makes skipping it impossible to merge.
+For a new agent — AI or human — one file contextualizes the whole workstream.
+
+**Does not solve:** Documentation quality. The guard checks presence, not
+truth. Reviews still have to read.

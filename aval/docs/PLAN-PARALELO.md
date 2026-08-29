@@ -1,14 +1,16 @@
-# PLAN-PARALELO v2 — Ejecución con 4 desarrolladores · Componentes, Contratos y Workstreams
+# PLAN-PARALELO v2.1 — Ejecución con 4 desarrolladores · Componentes, Contratos y Workstreams
 
-> **🗺️ Nota de adaptación a este repo (Aval):** el monorepo descrito en §8 es exactamente la estructura de `aval/` (`kernel/` ≡ el servicio `api` del plan; `agent/` incluye el job watcher; `merchant/`; `web/`). Los contratos congelados están en [`../contracts/`](../contracts/) y el decision log calificado en [`../DECISIONS.md`](../DECISIONS.md). Idioma de los planes: español; idioma del repo: inglés.
+> **🗺️ Nota de adaptación a este repo (Aval):** el monorepo descrito en §8 es exactamente la estructura de `aval/` (`kernel/` ≡ el servicio `api` del plan; `agent/` incluye el job watcher; `merchant/`; `web/`). Los contratos congelados están en [`../contracts/`](../contracts/) y el decision log calificado vive en [`../DECISIONS.md`](../DECISIONS.md). Idioma de los planes: español; idioma del repo: inglés.
 
-> **Complemento de [PLAN.md](PLAN.md) (v2.2, plan maestro).** Descompone el sistema en **componentes clasificados por área general**, define los **contratos** que permiten construirlos de forma independiente, y asigna **4 workstreams paralelizables** (Dev A/B/C/D) con milestones de integración.
+> **Complemento de [PLAN.md](PLAN.md) (v2.3, plan maestro).** Descompone el sistema en **componentes clasificados por área general**, define los **contratos** que permiten construirlos de forma independiente, y asigna **4 workstreams paralelizables** (Dev A/B/C/D) con milestones de integración.
 >
 > **v2 — TOPOLOGÍA MICROSERVICIOS + FRONTEND SEPARADO (ADR-022):** el frontend (`web`) es un **servicio y workstream propio (Dev D)** que consume únicamente contratos públicos. Las vistas ya NO se reparten entre devs de backend. El backend se reagrupa: el circuito de compra completo (agente + merchant + rail PayPal) queda en un solo workstream (Dev C).
 >
+> **v2.1 — ADR-006 v2.3 aplicado:** el agente NO usa LangGraph — el orquestador es un **grafo propio** (ideas críticas retenidas: grafo explícito, checkpointing en `agent_runs`, nodo `await_human`). Además, regla 9 de §6: protocolo de documentación obligatoria (devlogs + decisiones, con guard de CI en el repo).
+>
 > **Regla de oro del paralelismo:** cada dev construye contra **contratos y mocks congelados**, no contra el código de los demás. Ningún módulo espera a otro: se integra por milestone.
 >
-> **Fecha:** 2026-08-29 · **Estado:** Borrador v2 (congelar en G0)
+> **Fecha:** 2026-08-29 · **Estado:** Borrador v2.1 (congelar en G0)
 
 ---
 
@@ -39,7 +41,7 @@ flowchart TB
 
     subgraph CIRC["ÁREA 3+4 · CIRCUITO DE COMPRA [Dev C]"]
         subgraph AGS["ÁREA 3 · Agente — servicio `agent` + job"]
-            PLA["LangGraph planner<br/>discover→decide→interrupt→pay"]
+            PLA["Orquestador del agente (grafo propio)<br/>discover→decide→await_human→pay"]
             SIG["Intent Signer<br/>Ed25519 (cnf.jwk) · JWS detached"]
             MCP["MCP client<br/>(outputs = datos, no instrucciones)"]
             WAT["Watcher · Cloud Run job<br/>poll catálogo → JsonLogic"]
@@ -92,7 +94,7 @@ flowchart TB
 |---|---|---|---|
 | **1. Identidad & Mandatos** | Mandate Registry (SD-JWT/JWKS/passkeys), máquina de estados, Escalations API | `api` (routers) | **Dev A** |
 | **2. Decisión & Evidencia** | Policy Gate, Verify Endpoint, Purchase Orchestrator, Proof Ledger, Outbox+relé | `api` (routers) | **Dev B** |
-| **3. Agente Autónomo** | LangGraph planner, Intent Signer, MCP client, Watcher job, Presidio, injection fixtures | `agent` + Cloud Run job | **Dev C** |
+| **3. Agente Autónomo** | Orquestador grafo propio (ADR-006), Intent Signer, MCP client, Watcher job, Presidio, injection fixtures | `agent` + Cloud Run job | **Dev C** |
 | **4. Comercio & Rail** | Catálogo VuelaYa, Checkout, PaymentRail (PayPal), webhooks firmados | `merchant` | **Dev C** |
 | **5. Experiencia & Canales** | Web App completa (3 vistas), bot Telegram, cliente SSE | `web` | **Dev D** |
 | **6. Plataforma GCP** | bootstrap.sh, CI/CD, Scheduler, secretos, dominio | `infra/` | **Dev D** (mantenimiento) + sesión conjunta Día 0 |
@@ -113,7 +115,7 @@ flowchart TB
 | C6 | Purchase Orchestrator | B | api | Saga: intent → gate → checkout merchant → receipt/compensación | merchant `/checkout/charge` (C) | `POST /purchases`, eventos `purchase.*` |
 | C7 | Proof Ledger | B | api | `audit_events` hash-chain; roots KMS; witness GCS | KMS `EC_SIGN_ED25519` | `GET /audit/events`, `GET /audit/verify` |
 | C8 | Outbox + relé | B | api | Eventos en la tx del negocio; relé SKIP LOCKED → SSE/bot/webhook | `EventEnvelope` | `GET /events/stream` |
-| C9 | LangGraph agent | C | agent | Grafo discover→decide→`interrupt()`→pay; replanificación | MCP tools (propias), `POST /purchases` (B), escalations (A) | — |
+| C9 | Orquestador del agente (grafo propio) | C | agent | Grafo discover→decide→`await_human`→pay; checkpointing en `agent_runs`; replanificación | MCP tools (propias), `POST /purchases` (B), escalations (A) | — |
 | C10 | Intent Signer | C | agent | Par Ed25519 del agente; JWS detached sobre intent canónico (JCS) | `PurchaseIntent` | `intent_jwt` |
 | C11 | Watcher job | C | job | Poll catálogo → evaluar JsonLogic → disparar compra | Catálogo (propio), Scheduler OIDC | evento `offer.seen` |
 | C12 | Presidio middleware | C | agent | Scrub PII de todo lo que entra/sale del LLM/logs del agente | — | — |
@@ -138,7 +140,7 @@ flowchart TB
 |---|---|---|---|
 | **A** | **Identidad del humano (backend)** | Que solo un humano real con passkey pueda crear, limitar y revocar el poder de gasto de su agente — y que esa prueba sea verificable por cualquiera | Mandato SD-JWT verificable contra JWKS; revocación con passkey mata mandato Y payment token; escalations API con receipts firmados |
 | **B** | **El juez y la evidencia (backend)** | Que NINGUNA compra fuera de mandato pase jamás, y que toda decisión deje evidencia criptográficamente verificable | Invariant T1 en verde; reserva atómica sin races; hash chain detecta mutación; `/audit/verify` en vivo; saga con compensación |
-| **C** | **El circuito de compra (agente + comercio + rail)** | Que el agente descubra y compre de verdad, que VuelaYa verifique el mandato ANTES de cobrar, y que el dinero mueva por PayPal sin tocar jamás el instrumento | Grafo con `interrupt()` idempotente; checkout verifica SD-JWT+intent+verify antes del cobro; enrollment→vault_id→capture→disputa→DELETE en sandbox; inyección 100% bloqueada por el gate |
+| **C** | **El circuito de compra (agente + comercio + rail)** | Que el agente descubra y compre de verdad, que VuelaYa verifique el mandato ANTES de cobrar, y que el dinero mueva por PayPal sin tocar jamás el instrumento | Grafo propio con `await_human` idempotente (ADR-006); checkout verifica SD-JWT+intent+verify antes del cobro; enrollment→vault_id→capture→disputa→DELETE en sandbox; inyección 100% bloqueada por el gate |
 | **D** | **Experiencia & Plataforma (frontend + canales + GCP)** | Que humanos, jueces y auditores operen todo desde interfaces impecables, y que el sistema viva desplegado y reproducible en GCP | 3 vistas completas contra contratos; bot con timeout fail-closed; deploy 1-click; smoke T15/T16 en verde; demo sin cold starts |
 
 ### Plan día a día por workstream
@@ -150,7 +152,7 @@ flowchart TB
 | **1 AM** | SD-JWT issuance + JWKS + firma (PEM en Secret Manager) | Policy Gate con TDD: T1 (property-based), T10 (JsonLogic) | `PaymentRail` completo contra sandbox real (T17) | Scaffold `web` (Vite+React) + codegen tipos + shell/rutas/estado + CORS en mocks |
 | **1 PM** | Passkey ceremony (challenge = hash del mandato) + máquina de estados (T8) | Verify endpoint con reserva atómica: T4, T5, T6 (con SD-JWT de fixture de trustlib) | Catálogo REST + MCP tools + fixtures de precios | Bot Telegram esqueleto + hook SSE (`/events/stream` contra mock) |
 | **1 FIN** | **M1: handshake A↔B** (B verifica SD-JWT real de A) | **M1** + orchestrator contra mock-merchant | Checkout: verifica SD-JWT (mock JWKS) + llama verify (mock B) | `web` desplegada en Cloud Run + contract-tests contra mocks |
-| **2 AM** | Escalations API + approval receipts firmados | Ledger hash-chain + KMS roots + witness GCS (T9) | LangGraph grafo + `interrupt()` + Intent Signer (T3) | UI Marta: crear mandato con passkey + dashboard de gasto |
+| **2 AM** | Escalations API + approval receipts firmados | Ledger hash-chain + KMS roots + witness GCS (T9) | Grafo propio + `await_human` + Intent Signer (T3) | UI Marta: crear mandato con passkey + dashboard de gasto |
 | **2 PM** | Revocación → `PaymentRail.delete_token` (junto a C) | Outbox + relé SKIP LOCKED → SSE (T7 junto a C) | **M3: saga real B↔C** + MCP client real + watcher job + webhooks firmados (T14) | UI Marta: revocar + disputar compra; bot escalación A/R + timeout fail-closed |
 | **2 FIN** | **M3: revocación e2e** (passkey → estado → DELETE → compra falla ≤2 s) | **M3** (T5/T6/T7 en verde) + endpoint `/audit/verify` | Presidio middleware (T12) + inicio suite de inyección | UI Auditor: trail + verify en vivo |
 | **3 AM** | Mini-mandatos sticky (aprobar categoría) + hardening | Evidence bundle de disputa + veredicto (T18, junto a C) | Suite de inyección completa (T11) + disputa sandbox (T18) + timing del watcher | UI Merchant + smoke T15/T16 + min-instances + video backup |
@@ -169,7 +171,7 @@ C concentra 9 componentes y **tres competencias distintas** (integración de pag
 |---|---|---|---|---|---|---|
 | **C1 · El dinero** | PaymentRail | C16 PaymentRail (PayPal), C17 webhooks entrantes | Que el dinero se mueva por PayPal sin que nadie toque el instrumento, y que el rail obedezca la revocación | Interfaz `PaymentRail` completa: setup token → payment token → capture con `vault_id` → disputa → `DELETE`; webhooks verificados; idempotencia `PayPal-Request-Id` | T17, T14 (+T18 junto a B) | Solo PayPal sandbox + interfaz en trustlib. **Cero dependencia del equipo** → arranca el Día 0 (smoke test) |
 | **C2 · La tienda** | VuelaYa | C14 catálogo REST+MCP, C15 checkout | Que VuelaYa acepte compras de agentes verificando el mandato ANTES de cobrar | Checkout que: verifica SD-JWT contra JWKS él mismo → llama verify → solo si APPROVED cobra (402 en caso contrario); MCP tools delimitadas; fixtures de precios (incluye descripciones adversariales de `contracts/fixtures`) | Contract-test del 402-path; fixtures del catálogo | JWKS mock + verify mock + **interfaz** `PaymentRail` (la implementación de C1 llega por contrato, no por espera) |
-| **C3 · El cerebro** | Agente | C9 LangGraph, C10 Intent Signer, C11 watcher, C12 Presidio, C13 inyección | Un agente útil que propone, pero estructuralmente incapaz de pagar fuera del gate y resistente a inyección | Grafo con `interrupt()` idempotente; intents firmados (JCS + EdDSA); watcher + trigger manual; trazas scrubbeadas; suite de inyección 100% bloqueada por el gate | T3, T7 (con B), T11, T12 | Catálogo **mock** (MCP tools), `/purchases` **mock**, semántica de escalation-resume (schemas.md §5) |
+| **C3 · El cerebro** | Agente | C9 grafo propio (ADR-006), C10 Intent Signer, C11 watcher, C12 Presidio, C13 inyección | Un agente útil que propone, pero estructuralmente incapaz de pagar fuera del gate y resistente a inyección | Grafo propio con `await_human` idempotente (checkpointing en `agent_runs`); intents firmados (JCS + EdDSA); watcher + trigger manual; trazas scrubbeadas; suite de inyección 100% bloqueada por el gate | T3, T7 (con B), T11, T12 | Catálogo **mock** (MCP tools), `/purchases` **mock**, semántica de escalation-resume (schemas.md §5) |
 
 **Fronteras internas (todas ya contratadas — no se inventan nuevas):**
 - **C2 ↔ C3:** contrato MCP (schemas.md §10) + regla "outputs = datos, no instrucciones". El invariante anti-manipulación: `intent.amount` DEBE ser igual al precio de la offer referenciada — verify lo comprueba contra el catálogo; el agente no elige el monto.
@@ -183,7 +185,7 @@ C concentra 9 componentes y **tres competencias distintas** (integración de pag
 |---|---|---|---|
 | D0 | Smoke test PayPal (30 min, sesión conjunta) | — | — |
 | D1 AM | `PaymentRail` completo contra sandbox real (T17) | Catálogo REST + MCP tools + fixtures de precios | *(espera deliberada: consume mocks)* |
-| D1 PM | Hardening: idempotencia, errores RAIL_* | Checkout: verifica SD-JWT (mock JWKS) + llama verify (mock B) + cobra vía interfaz PaymentRail | Grafo LangGraph esqueleto + `interrupt()` contra mock /purchases |
+| D1 PM | Hardening: idempotencia, errores RAIL_* | Checkout: verifica SD-JWT (mock JWKS) + llama verify (mock B) + cobra vía interfaz PaymentRail | Grafo propio esqueleto + `await_human` contra mock /purchases |
 | D1 FIN | — | **M2 (con B):** saga real orchestrator ↔ checkout ↔ capture | Intent Signer: JCS + JWS detached (T3) |
 | D2 AM | Webhooks firmados (T14) | Webhook `mandate.revoked` → anula checkout pendiente | MCP client real + delimitación de outputs |
 | D2 PM | Soporte disputa sandbox (con B: T18) | Hardening + circuit breaker mock | Watcher job + trigger manual OIDC + **M3 (con A/B): revocación e2e** |
@@ -194,7 +196,7 @@ C concentra 9 componentes y **tres competencias distintas** (integración de pag
 **Reglas de la subdivisión:**
 1. **Si es una sola persona (caso por defecto):** orden crítito C1 → C2 → C3. C1 primero porque desbloquea M2 con B; el agente (C3) necesita catálogo real recién el Día 2.
 2. **Si se reparte:** cualquier combinación funciona (C1+C2 "dinero y tienda" / C3 "cerebro" es la más natural). Cada sub-misión es entregable por separado porque sus fronteras son contratos.
-3. **Re-balanceo granular:** C2 es la más desprendible (A la absorbe tras M1, como ya estaba); C1 es poco código y mucha integración PayPal (curva de contexto, no de volumen); C3 exige experiencia LLM/LangGraph.
+3. **Re-balanceo granular:** C2 es la más desprendible (A la absorbe tras M1, como ya estaba); C1 es poco código y mucha integración PayPal (curva de contexto, no de volumen); C3 exige experiencia LLM, pero NO de framework — el orquestador es un grafo propio sin LangGraph (ADR-006); la complejidad restante de C3 es el contrato de escalación (§5 de schemas.md) y la suite de inyección.
 4. **Punto de entrada autónomo por sub-misión:** C1 → DECISIONS #8 + schemas.md §3 (interfaz) · C2 → api.yaml (`/catalog/*`, `/checkout/charge`) + schemas.md §10 · C3 → schemas.md §2 (intent) + §5 (escalation) + PLAN-PARALELO §9 (secuencia).
 
 ---
@@ -238,7 +240,7 @@ flowchart LR
 
 | Milestone | Cuándo | Qué se integra | Criterio de salida (binario) | Dueños |
 |---|---|---|---|---|
-| **M0 · Contratos congelados** | Día 0 tarde | `contracts/` v1.0 + trustlib v0.1 + tipos TS generados + mocks + monorepo + GCP hello-world + PayPal smoke | Un test en Python Y otro en TS consumen los mocks y aprueban/rechazan los fixtures canónicos | Todos |
+| **M0 · Contratos congelados** | Día 0 tarde | `contracts/` v1.0 + trustlib v0.1 + tipos TS generados + mocks + monorepo (con devlogs abiertos + docs-guard en CI) + GCP hello-world + PayPal smoke | Un test en Python Y otro en TS consumen los mocks y aprueban/rechazan los fixtures canónicos | Todos |
 | **M1 · Cripto handshake** | Día 1 fin | SD-JWT real de A verificado por el verify de B | B verifica: válido ✓, mutado 1 byte ✗, expirado ✗, sin KB ✗ | A↔B |
 | **M2 · Happy path con rails reales** | Día 1 fin/Día 2 am | Orchestrator B ↔ checkout C ↔ PayPal sandbox + agente C sobre catálogo real | T13 (demo-as-code) en verde contra servicios reales desplegados; la UI de D ya lo muestra por SSE | B↔C |
 | **M3 · Trial by fire interno** | Día 2 fin | Revocación end-to-end (passkey A → estado → DELETE token C → compra falla ≤2 s) + escalación bot D con timeout + race doble compra | T6 + T17 + T5 + T7 en verde, grabados como evidencia | A+B+C+D |
@@ -254,11 +256,12 @@ flowchart LR
 1. **Contratos antes que código.** Nadie escribe un endpoint/modelo/pantalla que no esté en `contracts/`. Si falta → se propone el cambio (regla 2), no se improvisa.
 2. **Cambios de contrato:** PR sobre `contracts/` con revisión de los dueños afectados + bump (`v1.x` aditivo, `v2` rompible — solo antes de M2) + **actualizar mock, trustlib Y regenerar tipos TS en el mismo commit**. Anuncio en el canal.
 3. **Ownership estricto:** CODEOWNERS por carpeta (ver §8). Tocar el módulo de otro = PR con su approval. Hotfix crítico Día 3 con aviso.
-4. **BD:** una migración por dev, solo sus tablas (A: `mandates`, `escalations` · B: `purchase_intents`, `purchases`, `audit_events`, `outbox`, `idempotency_keys` · C: `payment_instruments`, `offers`). Cambiar tabla ajena = cambio de contrato.
+4. **BD:** una migración por dev, solo sus tablas (A: `mandates`, `escalations` · B: `purchase_intents`, `purchases`, `audit_events`, `outbox`, `idempotency_keys` · C: `payment_instruments`, `offers`, `agent_runs`). Cambiar tabla ajena = cambio de contrato.
 5. **Ramas:** `ws-a/*`, `ws-b/*`, `ws-c/*`, `ws-d/*` → PR a `main`; CI dispara **por rutas** (`services/api/**` → api, `web/**` → web, etc. — cada servicio se despliega solo si cambió). `main` siempre desplegable.
 6. **Los tests de contrato son la policía:** los mismos tests corren contra mock y contra real (parametrizados); si el real no pasa lo que el mock pasó, el CI lo dice antes que el equipo.
 7. **Integración temprana y barata:** post M1/M2, cada dev integra a staging al menos 1×/día. Nada de "gran integración final".
 8. **Prohibido:** aprobar todo en un mock, saltarse el gate "solo para avanzar", compartir claves por chat (Secret Manager o nada), y **que el frontend importe código backend** (si necesitas lógica del backend, es un endpoint que falta — propón el cambio de contrato).
+9. **Documenta o no existe (v2.1):** todo PR con código lleva una entrada en el devlog del workstream (`docs/devlogs/<A|B|C1|C2|C3|D>.md` en el repo); todo cambio de contrato o decisión técnica lleva un registro en `docs/decisions/`. **El guard de CI lo exige** (`scripts/docs-guard.sh` en el repo): código sin devlog, o contrato sin decisión, no mergea. Es lo que permite que 4 devs — o agentes IA — trabajen asincrónicos sin duplicar trabajo ni perder contexto: antes de empezar una tarea se leen las últimas 3 entradas del propio devlog y los índices de los demás.
 
 ---
 
@@ -307,7 +310,7 @@ aval/
 │   │   │   └── events.py       # [B] SSE + relé
 │   │   ├── core/               # gate [B] · state machine [A] (carpetas separadas)
 │   │   └── db/                 # migrations por schema
-│   ├── agent/                  # [C] langgraph + watcher job + presidio + injection
+│   ├── agent/                  # [C] grafo propio (ADR-006) + watcher job + presidio + injection
 │   └── merchant/               # [C] catálogo + checkout + paymentrail + webhooks
 ├── web/                        # [D — SERVICIO PROPIO, ADR-022]
 │   ├── src/
@@ -318,7 +321,7 @@ aval/
 │   │   └── bot/                # lógica del bot de Telegram [D]
 │   └── package.json            # script "gen": openapi-typescript ../contracts/api.yaml
 ├── infra/                      # [D] bootstrap.sh · workflows/ · scheduler · CORS
-└── docs/adr/                   # [B] decision log (ADRs del plan maestro)
+└── docs/                       # [todos] decisions/ (registros de decisión) + devlogs/ (uno por workstream — regla §6.9)
 ```
 
 ---
@@ -365,7 +368,7 @@ sequenceDiagram
 | CORS/sesión entre `app.` y `api.` rompe la UI el Día 2 | D configura CORS por contrato en M0 (incluido en mocks); sesión cookie SameSite probada en el scaffold Día 1 |
 | El mock de verify "aprueba todo" y D/C descubren caminos feos tarde | Regla §6.8: mock decide según fixture; contract-tests compartidos |
 | A y B chocan dentro del deployable `api` | Routers y carpetas separados + CODEOWNERS; cero imports cruzados fuera de trustlib |
-| Integración LangGraph interrupt ↔ escalation resume (A↔C) frágil | Contrato explícito (schemas.md §5) + T7 owner C + pairing 30 min en M3 |
+| Integración grafo propio `await_human` ↔ escalation resume (A↔C) frágil | Contrato explícito (schemas.md §5) + T7 owner C + pairing 30 min en M3; el resume es código nuestro — depurable con un SELECT a `agent_runs` |
 | Migraciones cruzadas rompen staging | Una migración por dev sobre sus tablas; heads lineales; CI aplica sobre BD efímera |
 | D bloqueado esperando un endpoint que no existe | Regla §6.8-bis: si el frontend necesita lógica backend, es un endpoint que falta → cambio de contrato, nunca un workaround local |
 
@@ -378,7 +381,7 @@ sequenceDiagram
 - [ ] `trustlib` v0.1: modelos Pydantic + ReasonCode + canonical JSON + helpers SD-JWT + `fake.*`
 - [ ] **Tipos TS generados** (`web`: `npm run gen` desde api.yaml) y compilando
 - [ ] Mocks corriendo en docker-compose: mock-api (verify+purchases+jwks), mock-merchant (catálogo+charge), **con CORS habilitado para `app.localhost`**
-- [ ] Monorepo scaffold + CI por rutas + CODEOWNERS
+- [ ] Monorepo scaffold + CI por rutas + CODEOWNERS + **docs-guard en CI** (devlogs por workstream y `docs/decisions/` creados — regla §6.9)
 - [ ] Ambiente GCP hello-world (5 servicios desplegados con `--source`) + dominio comprado
 - [ ] PayPal smoke test en verde (OAuth → setup token → payment token → capture con vault_id → disputa → DELETE)
 - [ ] Decisiones D1–D7 del plan maestro §14 cerradas (LLM, branding, dominio)

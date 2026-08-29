@@ -1,4 +1,4 @@
-# PLAN v2.2 — "El comprador que no es humano" · NextWave Hackathon 2026 (Yuno × Nauta)
+# PLAN v2.3 — "El comprador que no es humano" · NextWave Hackathon 2026 (Yuno × Nauta)
 
 > **🗺️ Nota de adaptación a este repo (Aval):** plan maestro de investigación y arquitectura, respaldado por ~140 fuentes (agosto 2026). La nomenclatura del repo difiere en un solo eje: el servicio que aquí se llama **`api`** es **`kernel/`** en el repo (mismos routers: mandates/escalations [Dev A], verify/purchases/audit/events [Dev B]); el job `watcher` vive dentro de `agent/`; la "UI Auditor" del plan es la **control tower** de `web/`. Los contratos congelados están en [`../contracts/`](../contracts/). El decision log calificado vive en [`../DECISIONS.md`](../DECISIONS.md) (los ADRs de este documento son su fuente). Idioma de los planes: español; idioma del repo: inglés.
 
@@ -12,7 +12,9 @@
 >
 > **v2.2 — TOPOLOGÍA CONFIRMADA: microservicios con el frontend como servicio separado** (ADR-022, decisión del equipo: "front aparte"). Workstreams recalculados en PLAN-PARALELO.
 >
-> **Fecha:** 2026-08-29 · **Estado:** Borrador v2.2 para validación del equipo
+> **v2.3 — ADR-006 REVISADO: orquestador del agente = grafo híbrido propio** — las ideas críticas de LangGraph (grafo explícito, checkpointing, interrupt-before-pay) SIN el framework, para eliminar el cuello de botella de implementación. Además: protocolo de documentación obligatoria en el repo (devlogs por workstream + decisiones con guard de CI — PLAN-PARALELO §6 regla 9).
+>
+> **Fecha:** 2026-08-29 · **Estado:** Borrador v2.3 para validación del equipo
 
 ---
 
@@ -192,11 +194,16 @@ La idea central del equipo — un canal persona↔comercio que resuelve la confi
 - **Decisión:** (d). **"El agente propone, el policy engine dispone":** el LLM no tiene NINGUNA ruta a la API de pago que no pase por el gate: firma del mandato, `amount ≤ límite`, categoría/merchant allowlist, ventana temporal, estado no-revocado (check síncrono), `spend_so_far + amount ≤ budget` contra ledger, idempotency key. Defense-in-depth: outputs del merchant (descripciones, reviews) entran delimitados como **datos, no instrucciones** (spotlighting / dual-LLM estilo CaMeL).
 - **Consecuencias:** El ataque "compra el iPhone de $5.000" muere en el gate aunque el LLM sea convencido — demostrable en vivo (B3).
 
-### ADR-006 · Framework del agente: LangGraph (fallback OpenAI Agents SDK)
-- **Contexto:** Se necesita pausa confiable ANTES del pago, checkpointing auditable, MCP client, streaming a UI.
-- **Alternativas:** **LangGraph** (`interrupt()` first-class + checkpointer + `Command(resume)`) ✓; OpenAI Agents SDK (`needs_approval`, más rápido, acoplado a OpenAI); CrewAI (HIL básico, ~48% más tokens); Microsoft Agent Framework; Google ADK (HIL limitado — nota: los samples AP2 lo usan); Pydantic AI; Mastra (si fuera TS-only).
-- **Decisión:** **LangGraph (Python)** en el servicio `agent` de Cloud Run; checkpointer = estado auditable/reanudable (persistido en Cloud SQL); observabilidad con Langfuse (OSS) o Cloud Logging. **Fallback:** OpenAI Agents SDK (HIL en ~20 líneas). El gate es agnóstico al framework.
-- **Consecuencias:** Al reanudar un `interrupt()`, el nodo re-ejecuta desde el inicio → side effects previos idempotentes (test T7). SSE desde Cloud Run soportado nativamente (`--timeout=3600` + heartbeats).
+### ADR-006 · Orquestación del agente: grafo híbrido propio — las ideas críticas de LangGraph, sin LangGraph (REVISADO v2.3)
+- **Contexto:** v2.2 elegía LangGraph por su `interrupt()` first-class y su checkpointer. Decisión del equipo: en un build de 2.5 días con 4 devs, el framework es un **cuello de botella concentrado en C3** — curva de aprendizaje, configuración del checkpointer, dependencias/versiones y debugging de framework ajeno bajo presión de demo. Se adopta una **adaptación híbrida**: retener las ideas críticas que encajan en la solución, eliminar el framework.
+- **Las 4 ideas críticas retenidas (y su implementación sin framework):**
+  1. **Grafo explícito como flujo de control** — nodos deterministas `perceive → search → propose → gate → await_human? → pay → receipt`; el LLM vive **solo** en `propose`. El agente no elige su camino: el grafo es ~100–150 líneas de código propio (dict de nodos + loop `run()` con hook de persistencia por transición) — auditable de una sentada.
+  2. **Checkpointing** — tabla `agent_runs` (schemas.md §6) en el mismo Cloud SQL: cada transición persiste `node + state JSONB + status` → el run sobrevive reinicios/re-deploys de Cloud Run y se depura con un SELECT.
+  3. **Interrupt-before-pay** — nodo `await_human` persiste `status='awaiting_human'` y devuelve el control; el resume lo dispara `escalation.resolved` (la aprobación re-entra por el gate, nunca lo bypasea — schemas.md §5). Idempotente por contrato (T7).
+  4. **Tools como contrato acotado** — MCP tools según schemas.md §10, outputs = datos, no instrucciones. (Ya era nuestro; el framework solo lo envolvería.)
+- **Qué se elimina:** la dependencia `langgraph`, su checkpointer configurable, su curva de aprendizaje y su superficie de debugging. Los nodos son funciones planas testeables con fakes inyectados (LLM, MCP client, `/purchases`) — T3/T7/T11 no cambian.
+- **Línea para jueces:** *"El 'framework' del agente son 150 líneas nuestras: un grafo explícito donde el modelo solo propone, y un estado persistido donde cada salto del grafo puede ser un evento de auditoría. Cero magia."*
+- **Consecuencias:** C3 no aprende un framework nuevo; el checkpointer ES nuestra tabla; cada transición puede emitirse como evento `agent.node.*` al ledger. Reversible: los nodos son funciones envoltables por LangGraph si el agente creciera post-hackathon.
 
 ### ADR-007 · Manejo del instrumento de pago y PII: PayPal vaulting + Presidio (REVISADO v2.1)
 - **Contexto:** R1 exige autorizar sin entregar la tarjeta. **El equipo no tiene acceso al sandbox de Yuno**; se necesita un rail con: aprobación única del humano, cobros posteriores solo con token, sandbox instantáneo y gratis, y API de disputas simulable.
@@ -253,13 +260,13 @@ La idea central del equipo — un canal persona↔comercio que resuelve la confi
 - **Nota GCP:** llamadas desde Cloud Run a `api-m.sandbox.paypal.com` (egress estándar, sin VPC); credenciales en Secret Manager.
 
 ### ADR-015 · Plataforma de despliegue: Cloud Run (NUEVO v2)
-- **Contexto:** El sistema se despliega en GCP. Stack: servicios FastAPI + agente LangGraph + frontend React + webhook Telegram + watcher cron.
+- **Contexto:** El sistema se despliega en GCP. Stack: servicios FastAPI + agente con grafo propio (ADR-006) + frontend React + webhook Telegram + watcher cron.
 - **Alternativas:** GKE (Kubernetes — operativo para 2-3 días de build); Compute Engine (servers que parchear); Cloud Functions (por request, mal para SSE/conexiones y checkpointer); App Engine (menos flexible con contenedores); **Cloud Run** (contenedores serverless: sidecars GA, `--min-instances`, streaming SSE nativo, hasta 60 min de timeout, Cloud SQL integrado con unix socket, ID tokens servicio-a-servicio, custom domain con TLS gestionado, y `gcloud run deploy --source` construye con buildpacks sin Dockerfile).
-- **Decisión:** **Todo en Cloud Run, región `southamerica-east1`**: `api` (BFF: mandates, verify, audit, webhook Telegram, SSE; `--min-instances=1` solo en ventana de demo), `agent` (LangGraph; `--min-instances=1` en demo), `merchant` (VuelaYa mock + integración PayPal), `web` (React estático, concurrencia alta), y **`watcher` como Cloud Run job** (ver ADR-019). Cada servicio con service account dedicada de mínimo privilegio; interno con `--no-allow-unauthenticated`.
+- **Decisión:** **Todo en Cloud Run, región `southamerica-east1`**: `api` (BFF: mandates, verify, audit, webhook Telegram, SSE; `--min-instances=1` solo en ventana de demo), `agent` (grafo propio, ADR-006; `--min-instances=1` en demo), `merchant` (VuelaYa mock + integración PayPal), `web` (React estático, concurrencia alta), y **`watcher` como Cloud Run job** (ver ADR-019). Cada servicio con service account dedicada de mínimo privilegio; interno con `--no-allow-unauthenticated`.
 - **Consecuencias:** Deploy el Día 0 con `--source`; costos dentro de free tier salvo min-instances y Cloud SQL.
 
 ### ADR-016 · Datos: Cloud SQL Postgres Enterprise `db-f1-micro` (NUEVO v2)
-- **Contexto:** Fuente única de verdad (mandatos, ledger, outbox, checkpointer de LangGraph) en Postgres.
+- **Contexto:** Fuente única de verdad (mandatos, ledger, outbox, runs del agente — checkpointing `agent_runs` del ADR-006) en Postgres.
 - **Alternativas:** AlloyDB (orientado a performance, ~10× costo); Firestore (no relacional — las transacciones con guard y SKIP LOCKED son del corazón del diseño); **Postgres como sidecar en Cloud Run** (barato pero efímero — inaceptable para revocación/exhaustibilidad que deben sobrevivir reinicios); **Cloud SQL** (managed, backups, unix socket desde Cloud Run sin VPC ni IP pública).
 - **Decisión:** **Cloud SQL Postgres, edición Enterprise, `db-f1-micro`** (0.2 vCPU compartido / 640 MB — suficiente para la demo), **sin IP pública**, conexión vía unix socket `/cloudsql/<PROJECT>:<REGION>:<INSTANCE>` con `cloud-sql-python-connector` + pool (SQLAlchemy/asyncpg). Región `southamerica-east1`.
 - **Consecuencias:** ~US$10/mes; sin VPC connector; límite de conexiones bajo → pool pequeño y máximo 1–2 instancias por servicio en demo.
@@ -293,7 +300,7 @@ La idea central del equipo — un canal persona↔comercio que resuelve la confi
 
 ### ADR-021 · LLM del agente: Vertex AI Gemini (pagado, cubierto por créditos) u OpenAI (NUEVO v2)
 - **Contexto:** El free tier de Gemini API fue recortado en dic-2025 (Flash ~20 requests/día) — **inutilizable para demo en vivo**. Los US$300/90 días de la cuenta nueva cubren Vertex AI (pagado), no la API de AI Studio. El hackathon es apoyado por OpenAI (posibles créditos). El gate es agnóstico al modelo.
-- **Alternativas:** Gemini API free tier (descartado por rate limit); **Vertex AI Gemini** (GCP-native, LangGraph vía `langchain-google-vertexai`, facturado dentro de los créditos); **OpenAI API** (si hay créditos del hackathon; misma arquitectura).
+- **Alternativas:** Gemini API free tier (descartado por rate limit); **Vertex AI Gemini** (GCP-native, REST/SDK directo, facturado dentro de los créditos); **OpenAI API** (si hay créditos del hackathon; misma arquitectura).
 - **Decisión:** Elegir por créditos disponibles y latencia observada en `southamerica-east1`; la arquitectura no cambia. *Recomendación por defecto: Vertex AI (todo en una nube, un solo billing); si el equipo tiene créditos OpenAI del hackathon, usarlos.* La API key/credenciales en Secret Manager; el LLM NUNCA recibe la clave del agente ni tokens de pago (solo el prompt y las tools).
 - **Consecuencias:** Decidir el Día 0 (D5 en §14) para no retrasar el build del Día 1.
 
@@ -328,7 +335,7 @@ flowchart TB
     end
 
     subgraph AGENT["AGENTE COMPRADOR"]
-        LLM[LangGraph planner<br/>interrupt antes de pay]
+        LLM[Grafo propio del agente<br/>nodo await_human antes de pay<br/>LLM solo en propose]
         AK[(Par Ed25519 propio<br/>cnf.jwk del mandato)]
         MCP[MCP client<br/>catálogo/precios]
     end
@@ -387,7 +394,7 @@ flowchart TB
     subgraph CLOUDRUN["Cloud Run (serverless) · suramerica-east1"]
         WEB[web · React estático<br/>allow-unauthenticated]
         API[api · FastAPI<br/>BFF + mandates + verify + audit<br/>+ webhook Telegram + SSE<br/>min-instances=1 en demo]
-        AG[agent · LangGraph<br/>MCP client + gate wrapper<br/>min-instances=1 en demo]
+        AG[agent · grafo propio (ADR-006)<br/>MCP client + gate wrapper<br/>min-instances=1 en demo]
         MER[merchant · VuelaYa mock<br/>+ integración PayPal]
         WT[watcher · Cloud Run JOB<br/>ejecuta bajo Scheduler]
     end
@@ -475,7 +482,7 @@ draft → active → (suspended ⇄ active) → {revoked | expired | exhausted} 
 | ID | Supuesto | Impacto si falla | Mitigación |
 |---|---|---|---|
 | S1 (v2.1) | PayPal sandbox: cuenta developer + REST app + checkbox "Vault" accesibles al instante, sin approval | Medio | Smoke test Día 0 (30 min); si el checkbox no aparece → plan B Braintree sandbox o mock con la misma interfaz |
-| S2 | Equipo trabaja en Python (AP2 SDK) + React para frontend | Medio | Fallback OpenAI Agents SDK si LangGraph traba |
+| S2 | Equipo trabaja en Python (AP2 SDK) + React para frontend | Medio | Orquestador del agente = grafo propio sin framework (ADR-006): nada que "trabe" — ~150 líneas propias |
 | S3 | Jueces tienen teléfono para Telegram / el equipo lo provee | Medio | Dashboard web con los mismos botones como respaldo |
 | S4 | Ventana WhatsApp 24h pre-calentada (juez escribe primero) | Bajo | WhatsApp secundario; Telegram primario |
 | S5 | Latencias LLM aceptables para demo en vivo | Medio | Modelo rápido; trigger manual del watcher controla el timing |
@@ -519,7 +526,7 @@ draft → active → (suspended ⇄ active) → {revoked | expired | exhausted} 
 | T4 | Verify endpoint: revocado/expirado/exhaustado/límite → códigos de error explícitos distintos | Contract | R4 |
 | T5 | **Race double-spend:** 2+ requests concurrentes → exactamente 1 confirma (reserva atómica) | Concurrencia | Integridad del ledger |
 | T6 | **TOCTOU revocación:** revocar entre decisión del gate y execute → verify dentro de la misma tx falla | Integración | Trial by fire |
-| T7 | **Idempotencia de reanudación:** `interrupt()` reanudado 2× → 1 solo cargo | Integración | Sin doble cargo en HIL |
+| T7 | **Idempotencia de reanudación:** run del agente (`agent_runs`, nodo `await_human`) reanudado 2× → 1 solo cargo | Integración | Sin doble cargo en HIL |
 | T8 | Máquina de estados: transiciones inválidas → 0 filas + evento de rechazo | Unit | Integridad |
 | T9 | Hash chain: mutar/eliminar/reordenar 1 evento → `/audit/verify` falla; root KMS inválido → falla | Unit + E2E | R5/O5, B1 |
 | T10 | JsonLogic: condiciones ricas ("<$150 Y flights", "3/mes", ventana, borde $150) | Unit | B2 |
@@ -558,7 +565,7 @@ Orden de escritura: **T1–T2 primero** (definen el contrato del gate y del mand
 
 ### Día 2 — Casos feos + adversario + HIL (Gates G3–G4)
 7. Máquina de estados + revocación con passkey + `DELETE` del payment token + propagación (T6, T8, T17).
-8. LangGraph: grafo con `interrupt()` antes de pay; escalation Telegram con diff + timeout fail-closed + sticky approvals (T7).
+8. Grafo propio del agente (ADR-006): nodos deterministas + nodo `await_human` antes de pay (checkpointing en `agent_runs`); escalation Telegram con diff + timeout fail-closed + sticky approvals (T7).
 9. Ledger hash-chained + roots firmados con KMS + witness GCS + `/audit/verify` (T9).
 10. Watcher como Cloud Run job + Scheduler + **trigger manual OIDC**.
 11. Mini-AgentDojo: injection fixtures (T11) + impersonación (T3) + replay.
@@ -603,7 +610,7 @@ Orden de escritura: **T1–T2 primero** (definen el contrato del gate y del mand
 | PayPal sandbox falla en vivo (v2.1) | Media | Circuit breaker → mock idéntico; mandato/verificación no dependen del rail |
 | Redirect de approval PayPal lento/confuso en vivo (v2.1) | Media | Cuentas sandbox pre-logueadas en el navegador del demo; enrollment pre-grabado como respaldo (el enrollment es 1 vez, no parte del trial by fire) |
 | Disputas sandbox requieren transacción card-funded (v2.1) | Media | Probar en smoke test Día 0 (S13); fallback Webhook Simulator / `process-chargeback` |
-| LangGraph interrupt complica el timing | Media | Fallback OpenAI Agents SDK; el gate es agnóstico al framework |
+| Bug en el resume del orquestador propio (v2.3) | Media | T7 primero (idempotencia por contrato); estado del run = 1 tabla legible con un SELECT; el gate es agnóstico al orquestador |
 | WhatsApp no pre-calentado | Alta | Telegram primario por diseño; WhatsApp solo "wow" |
 | Complejidad criptográfica traba el Día 1 | Media | SD-JWT ya en venv; samples AP2 locales; simplificar a JWS firmado por el issuer si SD-JWT completa traba |
 | Scope creep (3 casos de uso del whiteboard) | Alta | **VuelaYa es el único caso de la demo**; retail/logística = roadmap en slides |

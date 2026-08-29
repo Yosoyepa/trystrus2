@@ -139,7 +139,7 @@ Envelope único: `{event_id, type, aggregate_id, payload, created_at}` (+ `seq` 
    - `APPROVE` → A emite `escalation.resolved` con `receipt_sig` → **B re-ejecuta el gate** (estado puede haber cambiado — nunca confía en el approval como bypass) → si APPROVED ahora sí reserva y cobra. El approval autoriza a reintentar, **no** a saltarse el gate.
    - `REJECT` o timeout → `escalation.expired` → B compensa la compra (`rejected`/`compensated`) → C replanifica.
 3. `sticky: true` → A emite **mini-mandato derivado** (nuevo SD-JET con `parent_jti`, límites acotados) → el agente debe usar el nuevo mandato para reintentos.
-4. LangGraph (C): el `interrupt()` antes del nodo pay es **idempotente** (T7) — el nodo re-ejecuta al resumir; ningún side effect monetario ocurre pre-interrupt.
+4. Agente (C): el nodo `await_human` antes del nodo pay es **idempotente** (T7) — el run persiste en `agent_runs` (checkpointing del grafo propio, ADR-006 del plan maestro) y el nodo re-ejecuta al resumir; ningún side effect monetario ocurre antes del resume.
 
 ## 6. Contrato de base de datos (DDL semilla — una migración por dueño)
 
@@ -194,7 +194,18 @@ CREATE TABLE outbox (
   relayed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- [D] comercio & rail
+-- [C] runs del agente — checkpointing del grafo propio (ADR-006): cada transición de nodo persiste
+CREATE TABLE agent_runs (
+  run_id UUID PRIMARY KEY,
+  mandate_jti TEXT NOT NULL,
+  node TEXT NOT NULL,                     -- perceive|search|propose|gate|await_human|pay|receipt|done|denied
+  state JSONB NOT NULL,                   -- estado canónico acumulado del run
+  status TEXT NOT NULL DEFAULT 'running', -- running|awaiting_human|done|denied|failed
+  escalation_id TEXT,                     -- set cuando status=awaiting_human (resume vía escalation.resolved)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- [C] comercio & rail (sub-misión C2)
 CREATE TABLE payment_instruments (
   token_ref TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL,
   rail TEXT NOT NULL DEFAULT 'paypal', status TEXT NOT NULL DEFAULT 'active',
