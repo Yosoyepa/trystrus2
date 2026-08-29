@@ -1,7 +1,38 @@
 [project]
-name = "hackthon-yuno-nauta"
+name = "aval"
 version = "0.1.0"
-description = "Add your description here"
+description = "Aval — a trust layer for purchases made by AI agents (NextWave 2026, Yuno x Nauta)"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.141.1",
+    "google-cloud-secret-manager>=2.30.0",
+    "httpx>=0.28.1",
+    "jwcrypto>=1.5.9",
+    "mcp>=2.1.1",
+    "pydantic-settings>=2.15.0",
+    "python-ulid>=4.0.1",
+    "rfc8785>=0.1.4",
+    "sd-jwt>=0.10.4",
+    "sqlalchemy[asyncio]>=2.0.52",
+    "uvicorn[standard]>=0.52.4",
+    "webauthn>=3.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+# Four deployables share one venv: kernel (api), merchant, yuno_sim, plus the
+# common trustlib. See aval/docs/PLAN-PARALELO.md §8 for the ownership map.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"

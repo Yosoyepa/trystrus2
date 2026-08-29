@@ -47,21 +47,35 @@ aval/
 │   └── architecture.html, fig*.png
 ├── contracts/          # FROZEN INTERFACES — the only shared surface
 │   ├── api.yaml        # OpenAPI 3.1: kernel + merchant endpoints, DTOs, error codes
-│   └── schemas.md      # SD-JWT claims, canonical intent (JCS), events, DDL, Python interfaces
-├── kernel/             # [Dev 2 + 3] gate, verify, saga, ledger, SSE · mandates, passkeys, escalations
-├── agent/              # [Dev 1] own-graph agent, intent signer, watcher job, Presidio, injection suite
-├── merchant/           # [Dev 3] VuelaYa catalog + MCP tools, checkout, PayPal adapter, webhooks
+│   ├── schemas.md      # SD-JWT claims, canonical intent (JCS), events, DDL, Python interfaces
+│   ├── fixtures/       # canonical mandates/intents/offers/keys + full DDL
+│   └── mocks/          # fixture-driven mocks (a mock that approves everything is forbidden)
 └── web/                # [Dev 4] React SPA: buyer console, judge/auditor console (control tower),
                         #         merchant console + Telegram bot logic + GCP infra/
+
+Python code lives at the repo root under src/ (decision 0020):
+
+src/
+├── trustlib/           # [common] models, canonical JSON, JOSE, SD-JWT, AP2, Protocols, fake.*
+├── api/                # [Dev 2 + 3] kernel: mandates, passkeys, escalations · gate, verify, ledger
+├── merchant/           # [Dev 3] VuelaYa catalog + MCP tools, checkout, Checkout JWT (ES256)
+├── yuno_sim/           # [Dev 3] Yuno-style AP2 payment orchestrator — SIMULATED, not real Yuno
+└── agent/              # [Dev 1] own-graph agent, intent signer, watcher job, Presidio
 
 (repo root: scripts/docs-guard.sh = CI documentation gate ·
  .github/workflows/docs-guard.yml = the PR check that runs it)
 ```
 
-Naming map: what the plans call `api` is `kernel/` here. The plans' "UI Auditor"
-is the control tower. Product working name in older notes ("TrustChannel") is
-Aval. Deployables: `web`, `kernel`, `agent` (+ watcher Cloud Run job),
-`merchant` — all on Cloud Run, region `southamerica-east1`.
+Naming map: what the plans call `api` is `src/api/` here — the plans' `kernel/`.
+The plans' "UI Auditor" is the control tower. Product working name in older notes
+("TrustChannel") is Aval. Deployables: `web`, `api`, `agent` (+ watcher Cloud Run
+job), `merchant`, `yuno_sim` — all on Cloud Run, region `southamerica-east1`.
+
+**The payment rail is a simulation.** Decision #24 replaced the PayPal sandbox
+with `src/yuno_sim/`, a Yuno-style payment orchestrator that speaks AP2. It is
+labelled as simulated everywhere it appears — no external AP2 endpoint exists to
+connect to (PayPal, Adyen and Worldpay have announced support but shipped no
+public API), so the honest move is to build the surface and say so.
 
 ## Ownership (4 capability lanes — decision #19)
 
