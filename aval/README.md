@@ -27,13 +27,18 @@ The agent never holds the card, and it never calls the merchant's payment API.
 
 ## Read these first
 
+- `../AGENTS.md` is the orientation for anyone (or any agent) joining mid-flight.
 - `docs/FOUNDATION.md` is the shared starting point. Read it before writing code.
 - `docs/architecture.html` has the three diagrams and every term defined.
 - `DECISIONS.md` is a graded deliverable. Add an entry when you make a call, not at the end.
+- `docs/PLAN.md` is the researched master plan (architecture, ADRs, gates, test strategy, ~140 sources).
+- `docs/PLAN-PARALELO.md` is the parallel build plan (4 workstreams, contracts, milestones).
+- `contracts/` holds the frozen interfaces — `api.yaml` (OpenAPI) and `schemas.md` (crypto formats, events, DDL). If code and contract disagree, the contract wins.
 
 ## Repo layout
 
-    docs/            foundation, architecture, diagrams
+    docs/            foundation, architecture, diagrams, master plan, parallel plan
+    contracts/       frozen interfaces: OpenAPI + schemas + (soon) mocks and fixtures
     DECISIONS.md     what we chose, what we rejected, why
 
 Everything below is to be filled in as it gets built.
@@ -63,9 +68,11 @@ between a fresh clone and a working demo.
 
 ## Team
 
+Four parallel workstreams; contracts are the only shared surface. Names TBD.
+
 | Area | Owner |
 |---|---|
-| Kernel: mandate, signing, rules, log | |
-| Merchant: catalog, checkout, verification | |
-| Agent: discovery, proposals, escalation | |
-| Web and story: consoles, slides, diagram | |
+| Kernel: mandate, signing, rules, log | Dev A (identity: mandates, passkeys, SD-JWT, revocation, escalations) + Dev B (decision: gate, verify, saga, ledger, events) |
+| Merchant: catalog, checkout, verification | Dev C (also owns the PayPal adapter and webhooks) |
+| Agent: discovery, proposals, escalation | Dev C |
+| Web and story: consoles, bot, slides, diagram | Dev D (also owns GCP infra and CI/CD) |
