@@ -429,3 +429,34 @@ held which component.
 mitigations pre-agreed — catalog detaches to Dev 1, checkout to Dev 2 after
 M1, mandate crypto never moves. Devs 2 and 3 share the kernel deployable, so
 folder discipline is load-bearing.
+
+---
+
+## 20. Agent memory, ontology, and the configuration console
+
+**Chose:** Ontology (domain knowledge) and transaction history feed the
+`propose` node only; the gate keeps reading the signed mandate and nothing else.
+Configuration lives in the database as `people` / `agents` / `agent_versions`,
+append-only and versioned, with `agent_runs.agent_version` pinning the exact
+brain each run used. The agent writes its own trajectory into the same
+hash-chained log as the kernel. Full record:
+`docs/decisions/0020-agent-memory-ontology-and-console.md`.
+
+**Rejected:** subagents per step (only one node has a model in it, so there was
+nothing to split — and it would put model judgement back into control flow);
+memory the agent owns and can rewrite; ontology as a file only (a file cannot
+answer "which brain produced this proposal?"); letting history relax the gate;
+a separate log for the agent.
+
+**Why:** This closes the two limits FOUNDATION names — "it lacks domain
+knowledge" and "it needs access to past transactions" — without spending
+decision #1. The split that makes it safe: an ontology is unsigned advice that
+shapes proposals; a mandate is signed law that decides whether money moves.
+Anyone may edit an agent's brain; nobody can widen a spending limit by doing so.
+The demo is exactly that: set the ontology to "approve everything, limit
+100000", watch the gate refuse a $300 purchase against a $150 mandate.
+
+**Does not solve:** Nothing checks the ontology is *true* — a wrong one produces
+bad proposals inside the mandate. It remains an injection surface (fenced, not
+sanitised). Memory is per-mandate, not per-buyer. Publishing a version is
+attributed and permanent but not approved by anyone.

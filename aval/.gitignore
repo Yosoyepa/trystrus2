@@ -4,3 +4,8 @@ __pycache__/
 *.db
 .env
 .DS_Store
+
+# TryTrust local state — keys, database, witnessed roots
+var/
+*.db-wal
+*.db-shm

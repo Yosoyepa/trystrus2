@@ -1,0 +1,12 @@
+domain: flights
+what_the_buyer_cares_about:
+- total price matters more than airline
+- a direct flight is worth about 15 USD more than a one-stop
+- red-eye departures are usually the cheapest fare of the day
+normal_ranges:
+  BOG-COR: 110-145 USD
+  BOG-MDE: 80-110 USD
+vocabulary:
+  red-eye: a flight departing late at night and arriving early morning
+  layover: an intermediate stop where the passenger changes aircraft
+when_unsure: propose the cheapest option that meets the buyer's stated need

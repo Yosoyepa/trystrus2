@@ -1,6 +1,9 @@
-# Aval
+# TryTrust
 
-A trust layer for purchases made by AI agents.
+`trytrust.lat` — a trust layer for purchases made by AI agents.
+
+> Renamed from Aval, 29 Aug 2026. The `aval/` directory name and the frozen
+> contract paths are unchanged so nobody's branch breaks mid-hackathon.
 
 NextWave Hackathon 2026, challenge 05-01, "The buyer who isn't human".
 Yuno x Nauta, Bogota, 29-30 August 2026.
@@ -54,19 +57,27 @@ Everything below is to be filled in as it gets built.
 
 ## Running it
 
-To be written. Target: one command, no external services, no network dependency
-between a fresh clone and a working demo.
+The agent lane runs today, from a clean clone, with no external service:
+
+    uv run python -m src.agent.cli reset && uv run python -m src.agent.cli seed
+    uv run python -m src.agent.cli demo      # the whole story
+    uv run python -m src.agent.cli chat      # talk to it
+    uv run python -m src.agent.tests         # 20 property checks
+
+Details: [`src/agent/README.md`](src/agent/README.md).
+Everything the system must conserve: [`docs/PROPERTIES.md`](docs/PROPERTIES.md).
+Where we sit among AP2, ACP and the rest: [`docs/PROTOCOLS.md`](docs/PROTOCOLS.md).
 
 ## What the challenge asks for
 
-- [ ] A person creates a mandate without handing over the raw card
-- [ ] The merchant verifies the mandate before accepting
-- [ ] An end to end purchase inside the mandate
-- [ ] Over the limit, wrong category, or expired: refused or escalated, never silently approved
-- [ ] Live revocation: revoked, and the next attempt fails
-- [ ] An impersonated agent is handled
+- [x] A person creates a mandate without handing over the raw card
+- [x] The merchant verifies the mandate before accepting
+- [x] An end to end purchase inside the mandate
+- [x] Over the limit, wrong category, or expired: refused or escalated, never silently approved
+- [x] Live revocation: revoked, and the next attempt fails
+- [x] An impersonated agent is handled
 - [ ] Three views: the person's record, the merchant's verification, the auditor's trail
-- [ ] Every decision leaves an auditable trail
+- [x] Every decision leaves an auditable trail
 - [ ] The judges can operate it live without us touching anything
 - [ ] Slides, demo, public repo, architecture diagram, decision log
 
