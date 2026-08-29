@@ -7,6 +7,22 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — Dev 2 coder brief issued (decision core completion)
+- **Why:** handover done; the four pending pieces of our lane need a coder
+  run correctly scoped this time — decision core only, zero API surface.
+- **Done:** [`../plans/2026-08-29-dev2-coder-brief.md`](../plans/2026-08-29-dev2-coder-brief.md)
+  — 5 closed commits: C1 velocity store (Postgres + fake, atomic upserts),
+  C2 idempotency store (T19 store side), C3 verify path with atomic
+  reservation + escalation flow (re-gate, never bypass; lazy expiry
+  fail-closed; outbox same-tx), C4 T1 property-based extension (Hypothesis),
+  C5 db-marked integration. Lane discipline enforced by DoD: forbidden-files
+  diff check against router/main/schemas/config/agent/mocks/contracts;
+  stash must stay unapplied; no push.
+- **Decision:** none new (executes 0019/0021/0022 + #1/#4/#5/#10).
+- **Contracts touched:** none.
+- **Open questions:** coder report pending; `escalations.level` stays in
+  `diff` JSONB (a real column would need a decision record).
+
 ## 2026-08-29 — extracted Dev 2 domain core from the coder run (branch `dev2/gate-core`)
 - **Why:** the coder executed the full-P0 brief (all lanes) on the Dev 3
   branch; Dev 3 is building the API surface themselves, so we took only what
