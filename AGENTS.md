@@ -63,7 +63,16 @@ Aval. Deployables: `web`, `kernel`, `agent` (+ watcher Cloud Run job),
 |---|---|---|
 | A | `kernel` mandates + identity: SD-JWT issuance, JWKS, passkey ceremony, state machine, revocation, escalations API | Only a real human with a passkey creates/limits/revokes spending power |
 | B | `kernel` decision + evidence: policy gate, verify endpoint (atomic reservation), purchase saga, hash-chained ledger, KMS roots, outbox/SSE | Nothing out-of-mandate ever passes; every decision leaves verifiable evidence |
-| C | `agent` + `merchant`: LangGraph graph, signed intents, watcher, Presidio, injection suite; VuelaYa catalog/checkout, PayPal adapter, webhooks | The agent discovers and buys; the merchant verifies before charging; money moves by PayPal without the agent ever seeing the instrument |
+| C1 | `merchant` rail: PayPal adapter (setup/payment tokens, capture with `vault_id`, disputes, DELETE), incoming webhooks | Money moves by PayPal without anyone touching the instrument; the rail obeys revocation |
+| C2 | `merchant` store: VuelaYa catalog + MCP tools, checkout verification | The merchant verifies the mandate itself before charging |
+| C3 | `agent`: LangGraph graph, signed intents (JCS/EdDSA), watcher job, Presidio, injection suite | The agent discovers and proposes; it structurally cannot pay outside the gate |
+
+Dev C owns all three by default, in the order C1 → C2 → C3 (see
+`aval/docs/PLAN-PARALELO.md` §3.1). Each sub-mission is self-contained — its
+boundaries are existing contracts (`PaymentRail` interface for C1↔C2, the MCP
+tools contract in `contracts/schemas.md` §10 for C2↔C3) — so they can be split
+across people or assigned to separate agents without extra synchronization.
+The detachable one if someone is overloaded: C2 (Dev A can absorb it after M1).
 | D | `web` (all three consoles) + Telegram bot + `infra/` (bootstrap, CI/CD, domain, secrets) | Humans, judges and auditors operate everything; the system stays deployed and reproducible |
 
 Do not edit another workstream's module without their review. Contracts are

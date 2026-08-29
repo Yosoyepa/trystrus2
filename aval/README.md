@@ -73,6 +73,11 @@ Four parallel workstreams; contracts are the only shared surface. Names TBD.
 | Area | Owner |
 |---|---|
 | Kernel: mandate, signing, rules, log | Dev A (identity: mandates, passkeys, SD-JWT, revocation, escalations) + Dev B (decision: gate, verify, saga, ledger, events) |
-| Merchant: catalog, checkout, verification | Dev C (also owns the PayPal adapter and webhooks) |
-| Agent: discovery, proposals, escalation | Dev C |
+| Payments rail: PayPal adapter, webhooks | Dev C1 — sub-mission of C (money) |
+| Merchant: catalog, checkout, verification | Dev C2 — sub-mission of C (store) |
+| Agent: discovery, proposals, escalation | Dev C3 — sub-mission of C (brain) |
 | Web and story: consoles, bot, slides, diagram | Dev D (also owns GCP infra and CI/CD) |
+
+C is one workstream subdivided into three independently executable sub-missions
+(see `docs/PLAN-PARALELO.md` §3.1): assign them together to one person or split
+them — the boundaries between them are frozen contracts, not conversations.

@@ -161,6 +161,42 @@ flowchart TB
 
 **Regla de re-balanceo:** A tiene la carga más front-loaded (crypto Día 1) y la más liviana después de M1 → **si C se atasca, A absorbe catálogo+checkout tras M1** (los contratos ya lo permiten: son módulos independentes).
 
+### 3.1 Subdivisión del Workstream C — el circuito de compra en 3 sub-misiones independientes
+
+C concentra 9 componentes y **tres competencias distintas** (integración de pagos, APIs de comercio, ingeniería de agentes LLM). Se subdivide en 3 sub-misiones cuyas fronteras internas **ya son contratos existentes** (`contracts/api.yaml` + `schemas.md`): cada una tiene punto de entrada autónomo, DoD propio y tests propios — asignables a 1, 2 o 3 personas (o agentes IA) sin sincronización adicional más allá de los milestones M1–M5.
+
+| Sub-misión | Apodo | Componentes (§2) | Misión | DoD | Tests | Puede empezar con… (deps M0) |
+|---|---|---|---|---|---|---|
+| **C1 · El dinero** | PaymentRail | C16 PaymentRail (PayPal), C17 webhooks entrantes | Que el dinero se mueva por PayPal sin que nadie toque el instrumento, y que el rail obedezca la revocación | Interfaz `PaymentRail` completa: setup token → payment token → capture con `vault_id` → disputa → `DELETE`; webhooks verificados; idempotencia `PayPal-Request-Id` | T17, T14 (+T18 junto a B) | Solo PayPal sandbox + interfaz en trustlib. **Cero dependencia del equipo** → arranca el Día 0 (smoke test) |
+| **C2 · La tienda** | VuelaYa | C14 catálogo REST+MCP, C15 checkout | Que VuelaYa acepte compras de agentes verificando el mandato ANTES de cobrar | Checkout que: verifica SD-JWT contra JWKS él mismo → llama verify → solo si APPROVED cobra (402 en caso contrario); MCP tools delimitadas; fixtures de precios (incluye descripciones adversariales de `contracts/fixtures`) | Contract-test del 402-path; fixtures del catálogo | JWKS mock + verify mock + **interfaz** `PaymentRail` (la implementación de C1 llega por contrato, no por espera) |
+| **C3 · El cerebro** | Agente | C9 LangGraph, C10 Intent Signer, C11 watcher, C12 Presidio, C13 inyección | Un agente útil que propone, pero estructuralmente incapaz de pagar fuera del gate y resistente a inyección | Grafo con `interrupt()` idempotente; intents firmados (JCS + EdDSA); watcher + trigger manual; trazas scrubbeadas; suite de inyección 100% bloqueada por el gate | T3, T7 (con B), T11, T12 | Catálogo **mock** (MCP tools), `/purchases` **mock**, semántica de escalation-resume (schemas.md §5) |
+
+**Fronteras internas (todas ya contratadas — no se inventan nuevas):**
+- **C2 ↔ C3:** contrato MCP (schemas.md §10) + regla "outputs = datos, no instrucciones". El invariante anti-manipulación: `intent.amount` DEBE ser igual al precio de la offer referenciada — verify lo comprueba contra el catálogo; el agente no elige el monto.
+- **C1 ↔ C2:** interfaz `PaymentRail` (trustlib). C2 programa contra la interfaz desde M0; la implementación real de C1 entra por M2 sin tocar código de C2.
+- **C3 ↔ B:** `POST /purchases` (api.yaml). **C3 ↔ A:** escalations resume (schemas.md §5).
+- **Fixtures compartidos:** las descripciones adversariales viven en `contracts/fixtures/offers_adversarial.json` (propiedad comunidad): C3 aporta los strings del ataque, C2 los monta en el catálogo.
+
+**Plan por sub-misión (equivalente al día a día de los demás workstreams):**
+
+| Momento | C1 · El dinero | C2 · La tienda | C3 · El cerebro |
+|---|---|---|---|
+| D0 | Smoke test PayPal (30 min, sesión conjunta) | — | — |
+| D1 AM | `PaymentRail` completo contra sandbox real (T17) | Catálogo REST + MCP tools + fixtures de precios | *(espera deliberada: consume mocks)* |
+| D1 PM | Hardening: idempotencia, errores RAIL_* | Checkout: verifica SD-JWT (mock JWKS) + llama verify (mock B) + cobra vía interfaz PaymentRail | Grafo LangGraph esqueleto + `interrupt()` contra mock /purchases |
+| D1 FIN | — | **M2 (con B):** saga real orchestrator ↔ checkout ↔ capture | Intent Signer: JCS + JWS detached (T3) |
+| D2 AM | Webhooks firmados (T14) | Webhook `mandate.revoked` → anula checkout pendiente | MCP client real + delimitación de outputs |
+| D2 PM | Soporte disputa sandbox (con B: T18) | Hardening + circuit breaker mock | Watcher job + trigger manual OIDC + **M3 (con A/B): revocación e2e** |
+| D2 FIN | — | — | Presidio middleware (T12) |
+| D3 AM | Timing/latencias para demo | UI-feed: verificaciones para la vista merchant (datos, no vista) | Suite de inyección (T11) + timing del watcher |
+| D3 PM | **M5** ensayo general (todos) | **M5** | **M5** + ataque en vivo ejecutado por "jueces" |
+
+**Reglas de la subdivisión:**
+1. **Si es una sola persona (caso por defecto):** orden crítito C1 → C2 → C3. C1 primero porque desbloquea M2 con B; el agente (C3) necesita catálogo real recién el Día 2.
+2. **Si se reparte:** cualquier combinación funciona (C1+C2 "dinero y tienda" / C3 "cerebro" es la más natural). Cada sub-misión es entregable por separado porque sus fronteras son contratos.
+3. **Re-balanceo granular:** C2 es la más desprendible (A la absorbe tras M1, como ya estaba); C1 es poco código y mucha integración PayPal (curva de contexto, no de volumen); C3 exige experiencia LLM/LangGraph.
+4. **Punto de entrada autónomo por sub-misión:** C1 → DECISIONS #8 + schemas.md §3 (interfaz) · C2 → api.yaml (`/catalog/*`, `/checkout/charge`) + schemas.md §10 · C3 → schemas.md §2 (intent) + §5 (escalation) + PLAN-PARALELO §9 (secuencia).
+
 ---
 
 ## 4. Mapa de dependencias y contratos (quién contrata con quién)
@@ -323,7 +359,7 @@ sequenceDiagram
 
 | Riesgo | Mitigación |
 |---|---|
-| C es el workstream más cargado (agente + merchant + PayPal) | Catálogo = fixtures triviales (~2h); regla de re-balanceo: A absorbe catálogo+checkout tras M1; Presidio es el primer corte de contingencia |
+| C es el workstream más cargado (agente + merchant + PayPal) | **Subdividido en C1/C2/C3 (§3.1)** con fronteras contratadas; catálogo = fixtures triviales (~2h); regla de re-balanceo: A absorbe C2 (catálogo+checkout) tras M1; Presidio es el primer corte de contingencia |
 | Un contrato resulta incompleto a mitad del Día 1 | Regla §6.2: PR aditivo `v1.x` + mock + trustlib + **regeneración TS** en el mismo commit; rompibles solo antes de M2 |
 | Drift entre tipos TS (web) y Pydantic (backend) | Codegen único desde `api.yaml`; CI verifica que `web/src/api` esté regenerado (falla si el yaml cambió sin regenerar) |
 | CORS/sesión entre `app.` y `api.` rompe la UI el Día 2 | D configura CORS por contrato en M0 (incluido en mocks); sesión cookie SameSite probada en el scaffold Día 1 |

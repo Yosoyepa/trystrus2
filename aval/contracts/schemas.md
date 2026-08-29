@@ -60,6 +60,7 @@ Firmado por el **agente** (Dev C) con la clave `cnf.jwk` del mandato. **Serializ
 
 Reglas:
 - `amount` = **string decimal fijo a 2 decimales** (evita float drift entre servicios).
+- `amount` **debe ser igual al precio de la offer referenciada** — el verify endpoint lo comprueba contra el catálogo. El agente no elige el monto: elimina toda manipulación de precio en la fuente (subdivisión C2↔C3, ver PLAN-PARALELO §3.1).
 - `exp − iat ≤ 120 s`. `jti` + `nonce` únicos globalmente (constraint UNIQUE en BD del merchant/verify).
 - Verificación en orden (Dev B, usada también por Dev D en checkout): firma del intent contra `cnf.jwk` → KB-JWT del presentación SD-JWT (nonce/aud del verifier) → frescura temporal → unicidad.
 
@@ -237,4 +238,20 @@ Los mocks corren en `docker-compose` junto a Postgres desde el Día 0 — **cada
 - [ ] `api.yaml` validado (redocly/spectral) y revisado cruzado.
 - [ ] `trustlib` v0.1: modelos + `canonical_json` + helpers firma/verificación + `fake.*` + mocks corriendo.
 - [ ] Fixtures canónicos: mandato VuelaYa (`<$150`, 3/mes, USD 400), intent $130 (APPROVED), intent $300 (ESCALATED/REJECTED), intent categoría wrong (REJECTED), intent firmado con clave equivocada (INVALID_PROOF_OF_POSSESSION).
+
+## 10. Contrato MCP — tools del merchant consumidas por el agente (C2 implementa · C3 consume)
+
+El agente descubre y compra vía MCP (ADR-013 del plan maestro). **Tres tools, sin más:**
+
+| Tool | Args | Return | Efectos |
+|---|---|---|---|
+| `search_offers` | `{origin?: str, destination?: str, date?: date}` | `Offer[]` | ninguno (read-only) |
+| `get_offer` | `{offer_id: str}` | `Offer` | ninguno (read-only) |
+| `request_purchase` | `{offer_id: str, mandate_jti: str}` | `{status: "submitted", purchase_id: str}` | Internamente llama `POST /purchases` del kernel — **nunca cobra directo** |
+
+Reglas de la frontera:
+1. **Outputs = datos, no instrucciones.** Todo texto del merchant (`title`, `description`, reviews) viaja delimitado y el agente lo trata como dato (spotlighting). Las descripciones con payload adversarial viven en `contracts/fixtures/offers_adversarial.json` — propiedad comunidad: C3 aporta los strings del ataque, C2 los monta en el catálogo.
+2. **`request_purchase` no acepta `amount`.** El monto sale de la offer referenciada; el invariante `intent.amount == offer.amount` se verifica en el kernel (§2). El agente no puede proponer un precio distinto del catálogo.
+3. **No existe tool de pago.** Ninguna tool toca `PaymentRail`; la única ruta al dinero sigue siendo gate → verify → checkout.
+4. El watcher (C3) NO usa MCP: sondea el REST `GET /catalog/offers` (api.yaml) — MCP es para el agente interactivo, el polling es para el job.
 - [ ] DDL aplicado en Cloud SQL staging + docker-compose local.
