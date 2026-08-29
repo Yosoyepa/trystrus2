@@ -8,6 +8,29 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 — fraud-prevention research (comité, branch `dev3/fraud-transaction-research`)
+- **Why:** the team asked for a fraud-defense strategy that complements (never
+  replaces) 3DS, customer auth and processor validations, with official sources.
+- **Done:** 4 parallel research subagents (transactional fraud, identity &
+  behavior, Yuno+PayPal integrations, network standards) + committee synthesis
+  resolving 10 cross-report contradictions. Full deliverable:
+  [`../research/2026-08-29-fraud-transaction-research.md`](../research/2026-08-29-fraud-transaction-research.md).
+- **Key verdicts:** no network liability shift on vaulted PayPal — our defense
+  is *cryptographic evidence of authorization* (D-01); corroborative signals
+  may only ESCALATE, verdictive ones REJECT (gold rule); P0 rules R-IDEM,
+  R-PRICE, R-WEBHOOK, R-BURST, R-STEPUP, R-EVIDENCE are hackathon-feasible and
+  deterministic; Yuno is integrable behind `PaymentRail` (mock faithful to the
+  real contract; `stored_credentials` CIT/MIT solves our COF marking gap).
+- **Decision:** none ratified here (research only). Proposed follow-ups that
+  DO need decision records: YunoRail adoption (0020), level-dependent
+  escalation TTL, `get_status`/`respond_dispute` on the PaymentRail protocol.
+- **Contracts touched:** none.
+- **Tests I own:** proposal adds coverage targets — R-WEBHOOK strengthens T14,
+  R-IDEM strengthens T17, evidence pack feeds T18.
+- **Open questions:** ownership split of P0 rules (proposal in the doc §12),
+  Yuno sandbox credentials, granular anti-fraud consent in mandate UI
+  (Colombia Ley 1581) for Dev 4.
+
 ## 2026-08-29 — workstream opened at M0 freeze
 - **Why:** contracts v1.0 are frozen; this log exists so nobody re-solves what Dev 3 already solved.
 - **Decision:** none yet. Starting points:
