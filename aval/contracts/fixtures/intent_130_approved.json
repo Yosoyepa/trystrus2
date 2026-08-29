@@ -1,0 +1,19 @@
+{
+  "intent": {
+    "typ": "purchase_intent_v1",
+    "mandate_jti": "mdt_fixture_vuelaya",
+    "agent": "agt_flights",
+    "merchant_id": "vuelaya",
+    "offer_id": "ofr_COR_130",
+    "amount": "130.00",
+    "currency": "USD",
+    "nonce": "non_01M17XSVHH7HG9MHH7SQ38ME52",
+    "jti": "int_01M17XSVHH7HG9MHH7SQ38ME53",
+    "iat": 1788046274,
+    "exp": 1788046394
+  },
+  "intent_jwt": "eyJhbGciOiAiRWREU0EifQ..cSWFhHfPP-UQnwov4NgGRAtlXPHhf7-er-SqxxRJu1POi7KSEDyb83zT9LQtyPbILmwf_SHOWsJbOJYXEgHEBg",
+  "expect": {
+    "decision": "APPROVED"
+  }
+}

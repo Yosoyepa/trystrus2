@@ -8,6 +8,43 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 19:20 — fixtures, local Postgres, and a fixture-driven verify mock
+- **Why:** M0's exit criterion is a test that actually consumes the canonical
+  fixtures and approves/rejects them correctly. Also: my checkout cannot be
+  built before M1 without something to call in place of Dev 2's verify.
+- **Decision:** none new. Implements the DDL of `schemas.md` §6 plus the tables
+  from [`0021`](../decisions/0021-webauthn-credentials-table.md) and
+  [`0024`](../decisions/0024-yuno-style-ap2-orchestrator-instead-of-paypal.md).
+- **Contracts touched:** `contracts/fixtures/` and `contracts/mocks/` created
+  (both were empty). No change to `api.yaml` or `schemas.md`.
+- **Tests:** 63 green. Fixture consumption (13) proves Dev 1 and Dev 2 can sign
+  and verify against these files without running my service. `mock_verify` (20)
+  includes a test that fails if anyone "simplifies" the mock into approve-all.
+- **Open questions:**
+  - **Dev 2 — evaluation order is yours to decide, and I had to pick one.**
+    Several rules fail at once and only one reason reaches the buyer. I used:
+    state → validity → scope → price match → budget/count → **per-txn
+    (ESCALATE)** → conditions. Rationale: state beats money (a revoked mandate
+    refuses $1); hard limits before the escalatable one, so we never ask Marta
+    to approve something that fails anyway after the re-run.
+  - **Dev 2 — the canonical fixture states the same threshold twice, and it
+    breaks the HIL demo.** `schemas.md` §9 pins `max_per_txn: 150` *and*
+    `conditions: {"<": [offer.price, 150]}`. Every over-limit purchase violates
+    both, so escalation on that mandate is a **dead end**: Marta approves, the
+    gate re-runs per §5, the condition still refuses. My ordering keeps
+    PLAN.md §7's "$300 > $150 with buttons" scene alive, but the real fix is in
+    the fixture — the ceiling and the buy-trigger should be different numbers
+    (spend up to $200 if asked; buy unprompted only under $150). §9 froze it, so
+    I did not change it alone. `test_canonical_fixture_states_the_same_threshold_twice`
+    documents it and will keep failing loudly if the semantics drift.
+  - **Everyone — no Docker on this machine.** `docker-compose.yml` exists, but
+    `scripts/db-bootstrap.sh` works against either a local Postgres or the
+    compose one. Don't assume Docker in CI scripts.
+  - **Dev 1:** `contracts/fixtures/offers_adversarial.json` is still yours to
+    fill — I built `offers.json` and will mount whatever strings you add.
+
+---
+
 ## 2026-08-29 18:40 — trustlib v0.1 + AP2 conformance layer; T2 green
 - **Why:** nothing existed yet — no trustlib, no fixtures, no DB. Dev 3 issues
   the mandates, so the shared crypto library is mine to write first. Everything

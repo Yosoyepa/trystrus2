@@ -1,0 +1,30 @@
+{
+  "payload": {
+    "order_id": "ord_fixture_130",
+    "merchant": {
+      "id": "vuelaya",
+      "name": "VuelaYa",
+      "website": "https://merchant.aval.example"
+    },
+    "line_items": [
+      {
+        "id": "ofr_COR_130",
+        "label": "BOG->COR morning flight",
+        "amount": 13000,
+        "quantity": 1
+      }
+    ],
+    "total_price": 13000,
+    "currency": "USD",
+    "shipping_policy": "No physical shipment; e-ticket issued on capture.",
+    "return_policy": "Refundable up to 24h before departure."
+  },
+  "checkout_jwt": "eyJhbGciOiAiRVMyNTYiLCAia2lkIjogIm0xIiwgInR5cCI6ICJKV1QifQ.eyJjdXJyZW5jeSI6IlVTRCIsImxpbmVfaXRlbXMiOlt7ImFtb3VudCI6MTMwMDAsImlkIjoib2ZyX0NPUl8xMzAiLCJsYWJlbCI6IkJPRy0-Q09SIG1vcm5pbmcgZmxpZ2h0IiwicXVhbnRpdHkiOjF9XSwibWVyY2hhbnQiOnsiaWQiOiJ2dWVsYXlhIiwibmFtZSI6IlZ1ZWxhWWEiLCJ3ZWJzaXRlIjoiaHR0cHM6Ly9tZXJjaGFudC5hdmFsLmV4YW1wbGUifSwib3JkZXJfaWQiOiJvcmRfZml4dHVyZV8xMzAiLCJyZXR1cm5fcG9saWN5IjoiUmVmdW5kYWJsZSB1cCB0byAyNGggYmVmb3JlIGRlcGFydHVyZS4iLCJzaGlwcGluZ19wb2xpY3kiOiJObyBwaHlzaWNhbCBzaGlwbWVudDsgZS10aWNrZXQgaXNzdWVkIG9uIGNhcHR1cmUuIiwidG90YWxfcHJpY2UiOjEzMDAwfQ.Ymk-83fBnP0YeIt5nQRdLHj8jkBiSCYi58Z2mVQ7ZYUanzRuv6buIT2uK_si6azc6weEq8aUOaWKxZ6360hXQw",
+  "checkout_hash": "shzOEEcVnHa_IYGnyjkEIMMsiRZd-iJAgoL5dnYLZWs",
+  "closed_checkout_mandate": {
+    "vct": "mandate.checkout.1",
+    "checkout_hash": "shzOEEcVnHa_IYGnyjkEIMMsiRZd-iJAgoL5dnYLZWs",
+    "_sd_alg": "sha-256"
+  },
+  "note": "Signed ES256 \u2014 AP2 forbids deterministic signatures here."
+}

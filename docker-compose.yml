@@ -1,0 +1,29 @@
+# Local parity for the four Python deployables (PLAN.md §10, "Paridad local").
+#
+# Postgres only, for now: the services run from the host with `uv run` while
+# iterating, so a code change does not cost an image rebuild. The DDL loaded
+# here is the full schema (every workstream's tables), so Dev 3 can join
+# against Dev 2's tables locally without waiting for their migration.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: aval-db
+    environment:
+      POSTGRES_USER: aval
+      POSTGRES_PASSWORD: aval
+      POSTGRES_DB: aval
+    ports:
+      - "5433:5432"   # 5433 on the host: a local Postgres on 5432 is common
+    volumes:
+      - aval-db-data:/var/lib/postgresql/data
+      # Runs once, on an empty data volume. `docker compose down -v` re-seeds.
+      - ./aval/contracts/fixtures/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aval -d aval"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  aval-db-data:
