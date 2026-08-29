@@ -7,6 +7,22 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — parallel phase brief issued: evidence & distribution (ledger + outbox)
+- **Why:** a second coder can run in parallel with the decision-core brief
+  without sharing a single code file — the ledger and the outbox relay are
+  explicitly Dev 2's lane (decision 0019) and live in separate folders.
+- **Done:** [`../plans/2026-08-29-dev2-parallel-audit-brief.md`](../plans/2026-08-29-dev2-parallel-audit-brief.md)
+  on branch `dev2/audit-evidence` (created from this line): P1 pure chain
+  algebra, P2 append-only Postgres repository with tail lock, P3 KMS
+  EC_SIGN_ED25519 root signers + versioned-bucket GCS witness (lazy imports,
+  fakes for tests), P4 verification use case = T9 (the judge-facing
+  tamper-breaks-verification test), P5 outbox relay with FOR UPDATE SKIP
+  LOCKED + signed webhook sink (#15). Lane discipline via allowlist diff
+  check against `dev2/gate-core`; merge of both branches happens after both
+  reports. Devlog collisions on merge are expected (append-only, keep both).
+- **Decision:** none new (executes #7/#10/#11/#15).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — Dev 3 surface archive (stash) dropped
 - **Why:** Dev 3 is rebuilding the API surface on their own line, so the
   stashed coder-run copy served no one on this branch — and it was flagged
