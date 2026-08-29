@@ -19,7 +19,6 @@ Counters live in the database, so a restart does not reset an attacker's budget.
 from __future__ import annotations
 import datetime as _dt
 import os
-import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator
@@ -127,7 +126,7 @@ def bump(conn, key: str, window: str, *, cap: int, amount: float = 1.0) -> None:
     """Increment a windowed counter and raise once it passes `cap`."""
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT value FROM counters WHERE key=? AND window=?",
+        row = conn.execute("SELECT value FROM counters WHERE key=? AND window_key=?",
                            (key, window)).fetchone()
         value = (row["value"] if row else 0.0) + amount
         if value > cap:
@@ -135,8 +134,8 @@ def bump(conn, key: str, window: str, *, cap: int, amount: float = 1.0) -> None:
             raise LimitExceeded("QUOTA_EXHAUSTED",
                                 f"{key} used {value:.0f} of {cap} for {window}")
         conn.execute(
-            "INSERT INTO counters(key,window,value,updated_at) VALUES(?,?,?,?) "
-            "ON CONFLICT(key,window) DO UPDATE SET value=excluded.value, "
+            "INSERT INTO counters(key,window_key,value,updated_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(key,window_key) DO UPDATE SET value=excluded.value, "
             "updated_at=excluded.updated_at",
             (key, window, value, now_iso()))
         conn.execute("COMMIT")
@@ -260,6 +259,6 @@ def snapshot(conn) -> dict:
             "SELECT key, ROUND(tokens,2) tokens, updated_at FROM rate_buckets "
             "ORDER BY key").fetchall()],
         "counters": [dict(r) for r in conn.execute(
-            "SELECT key, window, value FROM counters ORDER BY key, window").fetchall()],
+            "SELECT key, window_key AS window, value FROM counters ORDER BY key, window_key").fetchall()],
         "locks": [dict(r) for r in conn.execute("SELECT * FROM locks").fetchall()],
     }

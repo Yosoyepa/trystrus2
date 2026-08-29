@@ -12,7 +12,6 @@ from typing import Callable
 
 from . import (audit, chat, db, escalation, graph, jsonlogic, kernel, limits,
                mandate as mandate_mod, registry, watcher)
-from .config import VAR_DIR
 from .crypto import jws
 from .crypto.keys import load_or_create
 from .mocks import merchant, rail
@@ -28,11 +27,14 @@ def case(prop: str, name: str):
 
 
 def fresh():
-    """A clean database per test. Cheap, and no test can poison another."""
-    path = VAR_DIR / "test.db"
-    for suffix in ("", "-wal", "-shm"):
-        path.with_name(path.name + suffix).unlink(missing_ok=True)
-    conn = db.init(path)
+    """A clean database per test. Cheap, and no test can poison another.
+
+    Postgres has no "delete the file" -- dropping and recreating the schema is
+    the equivalent, and it exercises the same DDL the migration applies.
+    """
+    conn = db.connect()
+    db.drop_all(conn)
+    conn = db.init()
     from .seed import seed_all
     ctx = seed_all(conn)
     return conn, ctx
@@ -268,7 +270,7 @@ def _e1():
 def _e2():
     conn, ctx = fresh()
     assert audit.verify_chain(conn)["valid"] is True
-    conn.execute("DROP TRIGGER audit_events_no_update")      # simulate a db admin
+    conn.execute("DROP TRIGGER audit_events_no_update ON audit_events")  # a db admin
     conn.execute("UPDATE audit_events SET payload='{\"tampered\":true}' WHERE seq=3")
     result = audit.verify_chain(conn)
     assert result["valid"] is False and result["seq"] == 3, result
@@ -451,7 +453,7 @@ def _g8():
                 cap=limits.QUOTA.llm_calls_per_day,
                 amount=limits.QUOTA.llm_calls_per_day - 1)
     conn.close()
-    conn = db.connect(VAR_DIR / "test.db")            # a fresh process would see this
+    conn = db.connect()                               # a fresh process would see this
     limits.guard_llm_call(conn, ctx["agent_id"])      # the last one allowed
     try:
         limits.guard_llm_call(conn, ctx["agent_id"])

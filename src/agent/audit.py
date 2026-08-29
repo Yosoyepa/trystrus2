@@ -7,7 +7,6 @@ deleting or reordering any event breaks verification from that point on (E2).
 from __future__ import annotations
 import hashlib
 import json
-import sqlite3
 from typing import Any
 
 from .crypto.canonical import canonical_json
@@ -21,7 +20,7 @@ def _digest(prev_hash: str, row: dict[str, Any]) -> str:
 
 
 def append(
-    conn: sqlite3.Connection,
+    conn,
     type: str,
     payload: dict[str, Any],
     *,
@@ -69,7 +68,7 @@ def append(
     return {"event_id": event_id, "hash": digest, "prev_hash": prev_hash}
 
 
-def verify_chain(conn: sqlite3.Connection) -> dict[str, Any]:
+def verify_chain(conn) -> dict[str, Any]:
     """Recompute the whole chain. This is what the auditor view calls live."""
     prev_hash = GENESIS
     checked = 0
@@ -92,7 +91,7 @@ def verify_chain(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"valid": True, "checked": checked, "head": prev_hash}
 
 
-def sign_root(conn: sqlite3.Connection) -> dict[str, Any]:
+def sign_root(conn) -> dict[str, Any]:
     """Sign the head of the chain (E3).
 
     Locally this is an Ed25519 key on disk; in GCP it is KMS EC_SIGN_ED25519 and

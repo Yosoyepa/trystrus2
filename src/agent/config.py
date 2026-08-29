@@ -28,7 +28,7 @@ PRODUCT_NAME = "TryTrust"
 PRODUCT_DOMAIN = "trytrust.lat"
 ISSUER = f"https://api.{PRODUCT_DOMAIN}"
 
-DB_PATH = Path(os.environ.get("TRYTRUST_DB", VAR_DIR / "trytrust.db"))
+# The database is a service, not a file: see src/agent/db.py DSN.
 
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")

@@ -73,8 +73,9 @@ def issue(conn, *, user_id: str, agent_id: str, agent_jwk: dict,
         (jti, user_id, agent_id, json.dumps(claims), token, parent_jti, stamp, stamp),
     )
     conn.execute(
-        "INSERT OR IGNORE INTO payment_instruments(token_ref,mandate_jti,rail,status,"
-        "created_at) VALUES(?,?,'paypal_sandbox_mock','active',?)",
+        "INSERT INTO payment_instruments(token_ref,mandate_jti,rail,status,"
+        "created_at) VALUES(?,?,'paypal_sandbox_mock','active',?) "
+        "ON CONFLICT (token_ref) DO NOTHING",
         (payment_method_ref, jti, stamp),
     )
     audit.append(conn, "mandate.created",

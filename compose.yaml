@@ -1,0 +1,27 @@
+# One Postgres for development, the same schema Cloud SQL runs in production.
+# Dev and prod diverging on the database is how "works on my machine" becomes
+# a demo failure, so there is no SQLite fallback to drift against.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: trytrust-db
+    environment:
+      POSTGRES_USER: trytrust
+      POSTGRES_PASSWORD: trytrust
+      POSTGRES_DB: trytrust
+    ports: ["5432:5432"]
+    volumes: ["trytrust-pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trytrust -d trytrust"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    command:
+      # A hackathon laptop, not a production box. Enough connections for
+      # several relay and watcher workers plus the CLI.
+      - postgres
+      - -c
+      - max_connections=100
+
+volumes:
+  trytrust-pgdata:

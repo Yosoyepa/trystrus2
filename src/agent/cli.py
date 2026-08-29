@@ -7,7 +7,7 @@ from typing import Any
 
 from . import (audit, chat, db, escalation, graph, jsonlogic, limits,
                mandate as mandate_mod, memory, registry, watcher)
-from .config import DB_PATH, LLM_MODEL, PRODUCT_DOMAIN, PRODUCT_NAME
+from .config import LLM_MODEL, PRODUCT_DOMAIN, PRODUCT_NAME
 from .mocks import merchant
 
 BAR = "─" * 72
@@ -23,10 +23,10 @@ def _print(obj: Any) -> None:
 
 # ── setup ────────────────────────────────────────────────────────────────────
 def cmd_reset(args) -> None:
-    for suffix in ("", "-wal", "-shm"):
-        path = DB_PATH.with_name(DB_PATH.name + suffix)
-        path.unlink(missing_ok=True)
-    print(f"database cleared: {DB_PATH}")
+    conn = db.connect()
+    db.drop_all(conn)
+    db.init()
+    print(f"database cleared and re-created: {db.DSN.rsplit('@', 1)[-1]}")
 
 
 def cmd_seed(args) -> None:

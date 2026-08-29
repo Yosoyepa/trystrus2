@@ -9,7 +9,6 @@ reaches the gate: it makes proposals better, never permissions wider.
 """
 from __future__ import annotations
 import json
-import sqlite3
 from decimal import Decimal
 from typing import Any
 
@@ -28,7 +27,7 @@ def purchase_history(conn, mandate_jti: str, limit: int = 20) -> list[dict]:
     rows = conn.execute(
         "SELECT p.*, o.title, o.destination FROM purchases p "
         "LEFT JOIN purchase_intents i ON i.jti = p.intent_jti "
-        "LEFT JOIN offers o ON o.id = json_extract(i.intent,'$.offer_id') "
+        "LEFT JOIN offers o ON o.id = (i.intent::jsonb ->> 'offer_id') "
         "WHERE p.mandate_jti=? ORDER BY p.created_at DESC LIMIT ?",
         (mandate_jti, limit)).fetchall()
     return [dict(r) for r in rows]

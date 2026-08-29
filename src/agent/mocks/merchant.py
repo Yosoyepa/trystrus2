@@ -56,9 +56,11 @@ SEED_OFFERS: list[dict[str, Any]] = [
 def seed(conn) -> int:
     for offer in SEED_OFFERS:
         conn.execute(
-            "INSERT OR REPLACE INTO offers(id,merchant_id,category,title,amount,currency,"
+            "INSERT INTO offers(id,merchant_id,category,title,amount,currency,"
             "origin,destination,depart_date,description,active) "
-            "VALUES(?,?,?,?,?,'USD',?,?,?,?,1)",
+            "VALUES(?,?,?,?,?,'USD',?,?,?,?,1) "
+            "ON CONFLICT (id) DO UPDATE SET amount=excluded.amount, "
+            "title=excluded.title, description=excluded.description, active=1",
             (offer["id"], MERCHANT_ID, offer["category"], offer["title"],
              fmt(offer["amount"]), offer.get("origin"), offer.get("destination"),
              offer.get("depart_date"), offer.get("description")))
@@ -84,7 +86,7 @@ def search_offers(conn, *, origin: str | None = None, destination: str | None = 
         if value:
             sql += f" AND {column}=?"
             args.append(value)
-    sql += " ORDER BY CAST(amount AS REAL) ASC LIMIT ?"
+    sql += " ORDER BY amount::numeric ASC LIMIT ?"
     args.append(limit)
     return [_row_to_offer(r) for r in conn.execute(sql, tuple(args)).fetchall()]
 

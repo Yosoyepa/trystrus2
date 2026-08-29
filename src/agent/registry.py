@@ -11,7 +11,6 @@ overwritten, so every past run can be replayed against the brain it actually had
 """
 from __future__ import annotations
 import json
-import sqlite3
 from typing import Any
 
 from . import audit
@@ -32,7 +31,7 @@ def add_person(conn, name: str, email: str | None = None, role: str = "member",
     return pid
 
 
-def list_people(conn) -> list[sqlite3.Row]:
+def list_people(conn) -> list[dict]:
     return conn.execute("SELECT * FROM people ORDER BY created_at").fetchall()
 
 
@@ -90,14 +89,14 @@ def publish_version(conn, agent_id: str, ontology: dict, model_cfg: dict | None 
     return version
 
 
-def get_agent(conn, agent_id: str) -> sqlite3.Row:
+def get_agent(conn, agent_id: str) -> dict:
     row = conn.execute("SELECT * FROM agents WHERE id=?", (agent_id,)).fetchone()
     if row is None:
         raise KeyError(f"no such agent: {agent_id}")
     return row
 
 
-def get_version(conn, agent_id: str, version: int | None = None) -> sqlite3.Row:
+def get_version(conn, agent_id: str, version: int | None = None) -> dict:
     if version is None:
         version = int(get_agent(conn, agent_id)["current_version"])
     row = conn.execute("SELECT * FROM agent_versions WHERE agent_id=? AND version=?",
@@ -107,7 +106,7 @@ def get_version(conn, agent_id: str, version: int | None = None) -> sqlite3.Row:
     return row
 
 
-def list_agents(conn) -> list[sqlite3.Row]:
+def list_agents(conn) -> list[dict]:
     return conn.execute(
         "SELECT a.*, o.name AS owner_name, p.name AS approver_name FROM agents a "
         "LEFT JOIN people o ON o.id=a.owner_id LEFT JOIN people p ON p.id=a.approver_id "
@@ -115,7 +114,7 @@ def list_agents(conn) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def history(conn, agent_id: str) -> list[sqlite3.Row]:
+def history(conn, agent_id: str) -> list[dict]:
     return conn.execute(
         "SELECT v.*, p.name AS changed_by_name FROM agent_versions v "
         "LEFT JOIN people p ON p.id=v.changed_by WHERE v.agent_id=? "
