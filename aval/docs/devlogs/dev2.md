@@ -7,6 +7,12 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — P3: root signers + external witness
+- **Why:** implement cryptographic root signing via Cloud KMS `EC_SIGN_ED25519` (non-exportable HSM key) and local Ed25519 for dev, accompanied by external root witness storage in versioned GCS buckets (decisions #7, #11, #15).
+- **Done:** created `src/api/audit/signer_kms.py` (KMS `asymmetricSign` adapter with lazy imports), `src/api/audit/signer_local.py` (Ed25519 local keypair/PEM signer), `src/api/audit/witness_gcs.py` (GCS versioned bucket witness adapter with `if_generation_match=0`), `src/api/audit/witness_memory.py` (in-memory witness fake with tamper/deletion hooks), and tests in `src/api/tests/test_audit_signers.py` (unit sign/verify, corruption detection, immutability + `@pytest.mark.gcp` integration tests).
+- **Decision:** none new (implements #7, #11, #15).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — P2: postgres ledger repository (append-only, tail lock)
 - **Why:** provide persistent, append-only storage for the audit hash chain with concurrency serialization (tail-lock `SELECT ... FOR UPDATE`) to prevent chain forks, plus a testable in-memory fake with tamper injection (decisions #7, #19).
 - **Done:** created `src/api/audit/ports.py` (`LedgerRepository`, `Clock`), `src/api/audit/repository_memory.py` (thread-safe fake with `tamper` hook), `src/api/audit/repository_postgres.py` (PostgreSQL driver with tail-lock atomic append, range queries, guarded `annotate_root`), and tests in `src/api/tests/test_audit_repository.py` (unit concurrency and chaining tests + `@pytest.mark.db` integration tests).
