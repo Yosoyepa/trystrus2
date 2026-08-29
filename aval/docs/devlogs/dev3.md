@@ -8,6 +8,23 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 — branch updated with main (src/ landed); coder brief issued
+- **Why:** main gained `src/` (empty `src/api` scaffold + placeholder
+  `src/agent/text.txt`, uv + Dockerfile at root, docs-guard now covers
+  `src/`); our branch needed it before implementation starts.
+- **Done:** merged `origin/main` (eff60c7..22ba154) into
+  `dev3/fraud-transaction-research` — clean, no conflicts. Issued the coder
+  brief: [`../plans/2026-08-29-fraud-coder-brief.md`](../plans/2026-08-29-fraud-coder-brief.md)
+  — full prompt implementing Fase 1 + F2.1/F2.3 in `src/` ONLY (code never in
+  `aval/`), 9 closed commits (C0 bootstrap → C8 fixtures + T25 smoke),
+  clean-architecture layout for `src/api` (router/services/repository/ports/
+  domain/rail/webhooks/evidence), invariants (no enforcement ML, gold rule,
+  fail-closed, frozen contracts), env table, test strategy, DoD and report
+  format. Dev 3 verifies the commit range + suite afterwards.
+- **Decision:** none new (brief executes 0020–0022).
+- **Contracts touched:** none.
+- **Open questions:** none — verification pending coder's completion report.
+
 ## 2026-08-29 — Phase 0 ratified: decisions 0020–0022 executed (contracts v1.1)
 - **Why:** team answered the four blocking questions; the plan's Fase 0 gate is green.
 - **Done:** records `0020-yunorail-adapter` (accepted **mock-only variant**: no Yuno
