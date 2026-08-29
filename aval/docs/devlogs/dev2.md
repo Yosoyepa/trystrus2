@@ -7,6 +7,12 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — P2: postgres ledger repository (append-only, tail lock)
+- **Why:** provide persistent, append-only storage for the audit hash chain with concurrency serialization (tail-lock `SELECT ... FOR UPDATE`) to prevent chain forks, plus a testable in-memory fake with tamper injection (decisions #7, #19).
+- **Done:** created `src/api/audit/ports.py` (`LedgerRepository`, `Clock`), `src/api/audit/repository_memory.py` (thread-safe fake with `tamper` hook), `src/api/audit/repository_postgres.py` (PostgreSQL driver with tail-lock atomic append, range queries, guarded `annotate_root`), and tests in `src/api/tests/test_audit_repository.py` (unit concurrency and chaining tests + `@pytest.mark.db` integration tests).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — P1: pure chain algebra (hashing + validation)
 - **Why:** implement deterministic, append-only hash chain computations and pure validation rules without any I/O dependencies (decisions #7, #19).
 - **Done:** created `src/api/audit/models.py` (`AuditEvent`, `ChainResult`, `RootCheckpoint`), `src/api/audit/hashing.py` (canonical JSON serialization with key ordering, no floats, UTC normalization, `compute_event_hash`, `compute_root_hash`), `src/api/audit/chain.py` (`validate_event`, `validate_chain`), and tests in `src/api/tests/test_audit_hashing.py` (12 unit tests covering determinism, sensitivity, payload mutations, hash corruptions, sequence gaps).
