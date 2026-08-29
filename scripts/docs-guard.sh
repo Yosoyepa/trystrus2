@@ -18,7 +18,7 @@ CHANGED=$({ git diff --name-only "$BASE"...HEAD 2>/dev/null || true
             git ls-files --others --exclude-standard; } | sort -u)
 [ -z "$CHANGED" ] && { echo "docs-guard: no changes against $BASE"; exit 0; }
 
-CODE=$(echo "$CHANGED" | grep -E '^((aval/)?(kernel|agent|merchant|web|packages|services|infra)/).*\.(py|ts|tsx|js|jsx|sh|sql|go|toml)$' || true)
+CODE=$(echo "$CHANGED" | grep -E '^((aval/)?(kernel|agent|merchant|web|packages|services|infra|src)/).*\.(py|ts|tsx|js|jsx|sh|sql|go|toml)$' || true)
 CONTRACTS=$(echo "$CHANGED" | grep -E '^aval/contracts/' || true)
 DEVLOGS=$(echo "$CHANGED" | grep -E '^aval/docs/devlogs/' || true)
 DECISIONS=$(echo "$CHANGED" | grep -E '^aval/docs/decisions/' || true)
