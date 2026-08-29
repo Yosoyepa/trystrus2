@@ -8,6 +8,18 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+---
+
+## 2026-08-29 — handover note: branch deleted, domain core extracted by Dev 2
+- Dev 3 is rebuilding the API surface (webhooks, rail adapters, Yuno mock) on
+  their own line of work. The coder-run copies that lived uncommitted on
+  `dev3/fraud-transaction-research` were archived in a labeled git stash
+  before the branch was deleted (`git stash list` →
+  "dev3 surface archive: webhooks/rail/yuno-mock/ports…"). The Dev 2 domain
+  core (`src/api/domain/`) was extracted to `dev2/gate-core`. All docs
+  history (research/plan/decisions 0020–0022/contracts v1.1) is preserved in
+  `dev2/gate-core` — merge it to main when the team ratifies the push.
+
 ## 2026-08-29 — C0 bootstrap service skeleton
 - **Why:** opened the implementation lane with a runnable Python 3.13/FastAPI
   service and a stable persistence/configuration boundary for the fraud P0.
