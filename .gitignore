@@ -1,2 +1,15 @@
 /.venv/
 .env
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local key material. Issuer/merchant PEMs live in Secret Manager in GCP and
+# in this directory in dev — never in git (decision #15).
+/secrets/
+*.pem
+
+.DS_Store
