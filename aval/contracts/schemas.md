@@ -1,6 +1,7 @@
-# CONTRATOS DE DATOS E INTERFACES — Aval v1.0 (M0)
+# CONTRATOS DE DATOS E INTERFACES — Aval v1.1 (M0)
 
 > **Fuente única de verdad para los 4 workstreams.** Congelado en M0 (Día 0). Cambios: PR aditivo `v1.x` (actualizando mock + trustlib en el mismo commit); cambios rompibles solo antes de M2. Compañero de [api.yaml](api.yaml) (transporte REST) — este archivo define lo que viaja DENTRO.
+> **v1.1 (2026-08-29, decisiones 0020–0022):** `PaymentRail.get_status/respond_dispute` (+deprecación de `open_dispute`), eventos `risk.*`/`fraud.*`, DDL de riesgo/webhooks, reason codes de step-up. Aditivo puro.
 
 ---
 
@@ -86,14 +87,17 @@ class SpendView(BaseModel):                 # proyección del ledger para evalua
     txn_count_period: int
     mandate_status: MandateStatus           # active | suspended | revoked | …
 
-# [Dev 3] PaymentRail — adaptador PayPal; revocación y checkout la usan (ambos Dev 3; Dev 2 no toca el rail)
+# [Dev 3] PaymentRail — PayPal real + YunoMockRail (decisión 0020: demo vía AVAL_RAIL=paypal|yuno_mock);
+# revocación y checkout la usan (ambos Dev 3; Dev 2 no toca el rail)
 class PaymentRail(Protocol):
     def create_setup_token(self, mandate_id: str) -> SetupToken:        # → approve_url
     def exchange_payment_token(self, setup_token_id: str) -> str:       # → payment_token_id
-    def delete_payment_token(self, token_id: str) -> None:              # kill-switch del rail
+    def delete_payment_token(self, token_id: str) -> None:              # kill-switch del rail (unenroll en Yuno)
     def capture(self, *, token_id: str, amount: Decimal, currency: str,
                 idempotency_key: str, intent_ref: str) -> Receipt:      # order con vault_id + capture
-    def open_dispute(self, capture_id: str, reason: str = "UNAUTHORISED") -> DisputeRef
+    def get_status(self, external_ref: str) -> Receipt                  # [0020] estados no-terminales (async)
+    def respond_dispute(self, dispute_id: str, evidence: EvidencePack) -> DisputeRef  # [0020] disputas son entrantes
+    def open_dispute(self, capture_id: str, reason: str = "UNAUTHORISED") -> DisputeRef  # DEPRECADO [0020]: solo simulación sandbox
     def verify_webhook(self, headers: dict, body: bytes) -> WebhookEvent | None
 
 # [Dev 3] MandateRegistry — emisión/verificación SD-JWT
@@ -110,6 +114,8 @@ class Ledger(Protocol):
 ```
 
 **`trustlib` además provee (compartido, propiedad común):** modelos Pydantic de TODO lo anterior, `ReasonCode` (enum), `canonical_json()` (JCS), helpers detached-JWS Ed25519, y **`fake.mandate() / fake.intent() / fake.offer() / fake.spend()`** con semillas — los generadores que hacen posible que cada dev testeé sin los demás.
+
+`idempotency_key` = **HMAC(`jti`)** — derivada del intent, nunca inventada por el caller (R-IDEM, plan F1.1): la misma clave vive en el constraint local y en el header del rail; TTL local 45 días.
 
 ## 4. Catálogo de eventos (outbox → SSE / bot / webhook merchant)
 
@@ -131,11 +137,17 @@ Envelope único: `{event_id, type, aggregate_id, payload, created_at}` (+ `seq` 
 | `escalation.expired` | 3 | escalation_id (timeout fail-closed) | 2 (compensa), 1 |
 | `dispute.opened` / `dispute.resolved` | 4 | capture_id, dispute_id, outcome | 2 (evidence bundle), SSE |
 | `root.checkpoint` | 2 | root_hash, root_sig, seq_range | GCS witness |
+| `risk.stepup_required` | 2 | purchase_id, level (L2/L3+), reason_code | 4 (UI UV), SSE |
+| `agent.paused_cooldown` | 2 | mandate_jti, until, cause | 1 (replanifica), SSE |
+| `fraud.alert` | 2 | kind, purchase_id?, mandate_jti?, detail | SSE, 4 (dashboard) |
+| `payment.refunded.auto` | 3 | purchase_id, refund_id, cause | 2 (ledger), SSE |
+| `webhook.rejected` | 3 | source, reason | 2 (ledger) |
+| `recon.divergence` | 3 | scope, detail | 2 (pausa mandato), SSE |
 
 ## 5. Semántica de "escalation resume" (contrato 3↔2↔1 — el más delicado)
 
 1. Gate devuelve `ESCALATED` → 2 crea `purchase` en `awaiting_escalation` + evento `purchase.escalated` → NO hay reserva de presupuesto todavía.
-2. 4 (bot/UI) resuelve dentro de `timeout_at` (120 s):
+2. 4 (bot/UI) resuelve dentro de `timeout_at` (L3: 120 s · L3+ con UV: 300 s, semántica RFC 9470 `max_age` — decisión 0021; ambos fail-closed):
    - `APPROVE` → 3 emite `escalation.resolved` con `receipt_sig` → **2 re-ejecuta el gate** (estado puede haber cambiado — nunca confía en el approval como bypass) → si APPROVED ahora sí reserva y cobra. El approval autoriza a reintentar, **no** a saltarse el gate.
    - `REJECT` o timeout → `escalation.expired` → 2 compensa la compra (`rejected`/`compensated`) → 1 replanifica.
 3. `sticky: true` → 3 emite **mini-mandato derivado** (nuevo SD-JWT con `parent_jti`, límites acotados) → el agente debe usar el nuevo mandato para reintentos.
@@ -181,6 +193,8 @@ CREATE TABLE purchases (
 );
 CREATE TABLE idempotency_keys (
   key TEXT PRIMARY KEY, scope TEXT NOT NULL, response JSONB,
+  derived_from TEXT,                              -- jti del intent: clave = HMAC(jti) [0020, R-IDEM]
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '45 days',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE audit_events (
@@ -192,6 +206,37 @@ CREATE TABLE outbox (
   seq BIGSERIAL PRIMARY KEY, event_id TEXT UNIQUE NOT NULL, type TEXT NOT NULL,
   aggregate_id TEXT NOT NULL, payload JSONB NOT NULL,
   relayed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- [2] riesgo determinista (0022): velocity/listas P0 + baselines P1 — features auditadas,
+-- JAMÁS producen REJECT solas (regla de oro: corroborativas solo escalan)
+CREATE TABLE risk_subjects (
+  subject_id UUID PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('human','agent')),
+  agent_build TEXT,                               -- versiona el baseline del agente por deploy
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE velocity_counters (
+  mandate_id TEXT NOT NULL, counter TEXT NOT NULL, window TEXT NOT NULL,   -- intents|escalations|amount_sum
+  bucket_start TIMESTAMPTZ NOT NULL, val NUMERIC NOT NULL DEFAULT 0,
+  PRIMARY KEY (mandate_id, counter, window, bucket_start)
+);
+CREATE TABLE baseline_metrics (
+  subject_id UUID NOT NULL REFERENCES risk_subjects, metric TEXT NOT NULL,
+  ewma DOUBLE PRECISION NOT NULL, ewma_var DOUBLE PRECISION NOT NULL,
+  lambda DOUBLE PRECISION NOT NULL DEFAULT 0.15, n_obs BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (subject_id, metric)
+);
+CREATE TABLE baseline_hists (
+  subject_id UUID NOT NULL REFERENCES risk_subjects, dim TEXT NOT NULL,
+  value_h TEXT NOT NULL,                          -- HMAC(merchant_id) u otro identificador (nunca crudo)
+  count BIGINT NOT NULL DEFAULT 1, last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (subject_id, dim, value_h)
+);
+CREATE TABLE risk_lists (
+  subject_type TEXT NOT NULL, subject_id_h TEXT NOT NULL,
+  list TEXT NOT NULL CHECK (list IN ('block','allow')), reason TEXT, expires_at TIMESTAMPTZ,
+  PRIMARY KEY (subject_type, subject_id_h, list)
 );
 
 -- [1] runs del agente — checkpointing del grafo propio (ADR-006): cada transición de nodo persiste
@@ -209,7 +254,15 @@ CREATE TABLE agent_runs (
 CREATE TABLE payment_instruments (
   token_ref TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL,
   rail TEXT NOT NULL DEFAULT 'paypal', status TEXT NOT NULL DEFAULT 'active',
+  fraudnet_session TEXT,                          -- sesión de riesgo de la aprobación del setup (R-metadata, F1.7)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- [3] evidencia de webhooks (0020/0022): crudo append-only; pull del recurso ANTES de mutar estado
+CREATE TABLE webhook_archive (
+  id BIGSERIAL PRIMARY KEY, source TEXT NOT NULL,             -- paypal|yuno_mock
+  headers JSONB NOT NULL, raw_body BYTEA NOT NULL,
+  signature_valid BOOLEAN, resource_pulled BOOLEAN,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE offers (
   id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, category TEXT NOT NULL,
@@ -232,6 +285,10 @@ Convención de escritura cruzada: `verify` [2] es el ÚNICO escritor de `mandate
 | `DUPLICATE_JTI` / `NONCE_REUSED` | Replay | verify |
 | `ESCALATION_TIMEOUT_DENIED` | Timeout 120 s fail-closed | A |
 | `RAIL_ERROR` / `RAIL_TOKEN_DELETED` | PayPal falla / token borrado (revocación a nivel rail) | PaymentRail |
+| `VELOCITY_BURST` | >3 intents/60 s ⇒ ESCALATED + cooldown 10 min (R-BURST) | gate |
+| `STEPUP_AMOUNT_THRESHOLD` / `STEPUP_BUDGET_USAGE` | Monto ≥ 0.7×`max_per_txn` ∨ budget ≥ 80 % ⇒ L3+ con UV (0021) | gate |
+| `PRICE_MISMATCH_AUTO_REFUND` | capture ≠ amount aprobado ⇒ refund + `fraud.alert` (R-PRICE) | verify |
+| `WEBHOOK_INVALID` | Firma/host inválido ⇒ evento descartado sin mutar estado (R-WEBHOOK) | PaymentRail |
 
 ## 8. Estrategia de mocks (la que habilita el paralelismo)
 
@@ -240,6 +297,7 @@ Convención de escritura cruzada: `verify` [2] es el ÚNICO escritor de `mandate
 | `mock-api` | `POST /mandates/:id/verify`, `POST /purchases`, `GET /.well-known/jwks.json` | **Decide según el fixture**: dado `fake.mandate(limits=…)` + `fake.intent(amount=…)`, aplica la MISMA tabla de decisiones que el gate real (aprobado/rejected/escalated + reason_code). Prohibido "aprueba todo". |
 | `mock-merchant` | `GET /catalog/offers`, `POST /checkout/charge` | Sirve `fake.offer()`s (incluyendo `description` con inyecciones para C); charge rechaza si `VerifyResponse.decision != APPROVED` (respeta el 402 del contrato). |
 | `mock-jwks` | JWKS del issuer | Sirve la clave pública de prueba de trustlib (la privada está en fixtures para firmar mandatos de prueba). |
+| `mock-yuno` | API de pagos Yuno (decisión 0020) | Fiel al contrato documentado: `X-Idempotency-Key` con los 4 comportamientos reales, estados `PENDING/{IN_PROCESS, PENDING_FRAUD_REVIEW, AUTHORIZED}`, webhook v2 con HMAC real y `mock_mode` inyectable (approve\|decline\|fraud_decline\|async\|timeout). |
 
 Los mocks corren en `docker-compose` junto a Postgres desde el Día 0 — **cada workstream desarrolla 100% contra mocks hasta su milestone de integración (M1–M3)**, y los contract-tests (mismos tests, parametrizados mock vs real) garantizan que el real se comporta como el mock.
 

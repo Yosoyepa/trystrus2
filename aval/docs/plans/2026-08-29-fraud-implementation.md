@@ -1,7 +1,7 @@
 # Plan de implementación — Defensa antifraude Aval
 
 **Base:** [`../research/2026-08-29-fraud-transaction-research.md`](../research/2026-08-29-fraud-transaction-research.md) (dictamen del comité, D-01..D-10).
-**Rama:** `dev3/fraud-transaction-research` · **Fecha:** 2026-08-29 · **Estado:** plan listo para ejecutar; Fase 0 requiere ratificación de equipo.
+**Rama:** `dev3/fraud-transaction-research` · **Fecha:** 2026-08-29 · **Estado:** **Fase 0 ratificada** (0020 en variante solo-mock — F2.2 descartada · 0021 120/300 s · 0022 tal cual). Contratos en v1.1. Ejecución liberada.
 **Cómo leer:** task cards por fase con dueño (carril Dev 1–4 de PLAN-PARALELO v3), milestone objetivo (M1–M4), touchpoints, DoD, tests y estimación. Los IDs de test nuevos continúan la numeración existente (hoy hasta T18).
 
 ---
@@ -28,6 +28,8 @@ Tres decisiones propuestas por la investigación que tocan contrato congelado. B
 **Delta exacto de contrato (Apéndice B tiene el detalle):** schemas §3 (Protocol +2 métodos), §4 (+6 eventos `risk.*`/`fraud.*`/`webhook.*`), §6 (DDL `webhook_archive` [3], `risk_subject`/`velocity_counter`/`baseline_*`/`risk_list` [2], nota TTL 45 d en `idempotency_keys`); api.yaml (+`GET /purchases/{id}/evidence-pack`).
 
 **DoD Fase 0:** registros 0020–0022 en `docs/decisions/`, `DECISIONS.md` con 22 entradas, `docs-guard` en verde, trustlib con los modelos nuevos compilando.
+
+> **RATIFICADA 2026-08-29.** 0020 aceptada en variante *solo mock* (no hay credenciales sandbox de Yuno y el gate de 48 h no es alcanzable: el demo corre `AVAL_RAIL=paypal|yuno_mock` y F2.2 pasa a Fase 4); 0021 aceptada con 120/300 s; 0022 aceptada tal cual. El delta de contrato del Apéndice B ya está aplicado (contratos v1.1, mismo commit que los registros — protocolo #17).
 
 ---
 
@@ -86,11 +88,11 @@ Tres decisiones propuestas por la investigación que tocan contrato congelado. B
 ### F2.1 — Mock fiel de Yuno · **Dev 3** · 4 h · M2/M3
 Servicio en `contracts/mocks/` + docker-compose: auth (`public-api-key`/`private-secret-key`), `X-Idempotency-Key` con los 4 comportamientos reales (misma respuesta / `REQUEST_IN_PROCESS` / `IDEMPOTENCY_DUPLICATED` / normal), estados reducidos fieles (`CREATED → PENDING/{IN_PROCESS, PENDING_FRAUD_REVIEW, AUTHORIZED} → SUCCEEDED|DECLINED/FRAUD_DECLINED|ERROR/TIMEOUT`), webhook v2 con HMAC real y reintentos comprimibles, `mock_mode` inyectable (`approve|decline|fraud_decline|async|timeout`), disputa entrante `payment.chargeback` + endpoint de evidencia. **DoD:** contract-tests parametrizados mock↔PayPal pasan los mismos casos (patrón del repo).
 
-### F2.2 — `YunoRail` real · **Dev 3** · 10–16 h · condicionada a credenciales
-Enrollment vía Testing Gateway (sin PCI), `POST /payments` con `vaulted_token` + `stored_credentials{reason:CARD_ON_FILE, usage}` + `network_transaction_id`, `unenroll` como kill switch, Receipt no-terminal (PENDING → webhook/polling `get_status`). **Gate de decisión:** solo si hay credenciales sandbox ≥ 48 h antes del demo; si no, el mock ES la historia Yuno del demo.
+### F2.2 — ~~`YunoRail` real~~ · **DESCARTADA** (decisión 0020: sin credenciales sandbox; el gate de 48 h no es alcanzable)
+Movida a Fase 4. El diseño queda en la investigación §9.2 (enrollment vía Testing Gateway, `stored_credentials` CIT/MIT, `unenroll` como kill switch, Receipt no-terminal con `get_status`): cuando existan credenciales, el adapter real es un cambio de configuración, no de diseño. El mock ES la historia Yuno del demo.
 
 ### F2.3 — Switch de rail + paridad · **Dev 3** · 4 h
-`AVAL_RAIL=yuno|yuno_mock|paypal` por env; suite completa (T2/T8/T14/T17/T19/T21) parametrizada por rail. Verificar contra sandbox el casing de headers de auth y la URL de server (inconsistencias detectadas en la doc — D-06/nota C).
+`AVAL_RAIL=paypal|yuno_mock` por env (0020; el valor `yuno` real queda reservado a Fase 4); suite completa (T2/T8/T14/T17/T19/T21) parametrizada por rail.
 
 ---
 
@@ -128,7 +130,7 @@ R-KEY-ROTATION (rotación de `cnf.jwk` con re-aprobación passkey) · R-CONTEXT-
 | F1.7 | metadata rail | 3 | M2 | 2 h | T17 ext |
 | F1.8 | fixtures ataque | 1+2+4 | M4 | 3 h | T25 (smoke) |
 | F2.1 | mock Yuno | 3 | M2/M3 | 4 h | paridad |
-| F2.2 | YunoRail real | 3 | condicional | 10–16 h | paridad |
+| ~~F2.2~~ | ~~YunoRail real~~ | 3 | **descartada (0020)** | — | — |
 | F2.3 | switch rail | 3 | M3 | 4 h | suite ×rail |
 
 **Totales F1:** ~35 h (Dev 2 ≈ 12 h · Dev 3 ≈ 16 h · Dev 1+4 ≈ 7 h). La Fase 2 no bloquea: si Yuno no llega, PayPal + mock sostienen el demo completo.
@@ -155,7 +157,7 @@ R-KEY-ROTATION (rotación de `cnf.jwk` con re-aprobación passkey) · R-CONTEXT-
 |---|---|
 | F1.2/F1.8 dependen del catálogo (mitigación #19: fixtures → Dev 1) | F1.8 se agenda con Dev 1 en la ventana de ~2 h ya acordada |
 | UV por deep-link rompe el presupuesto de 120 s | F0.2 TTL por nivel; medir latencia real en M3; fallback: L3 con diff si UV no llega |
-| Configuración no-código de Yuno (risk conditions/routing) falla el día del demo | Capturas del dashboard como respaldo + mock como plan A alternativo |
+| Configuración no-código de Yuno (risk conditions/routing) | Fuera del demo (0020): el demo usa `yuno_mock`; las capturas del dashboard quedan como material de roadmap |
 | Disputas sandbox no ponderan evidencia (`adjudicate` sandbox-only) | El demo muestra el bundle generado, no el outcome de PayPal |
 | Fatiga del aprobador en ensayos | F1.4 cooldown desde el primer día; guion de demo con ráfaga controlada |
 

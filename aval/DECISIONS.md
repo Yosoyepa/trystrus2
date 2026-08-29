@@ -420,12 +420,87 @@ layer cut (its symptom was C's overload, which C1/C2/C3 only patched);
 keeping the subdivision (a patch for a cut that no longer exists).
 
 **Why:** Capability lanes match how failures are investigated on demo day:
-one dev owns every anti-fraud invariant, one owns everything the agent does,
-one owns every API surface, one owns what the judges touch. Contracts,
-milestones and tests are untouched — parallelism never depended on which dev
-held which component.
+one dev owns every anti-fraud invariant end to end, one owns everything the
+agent does, one owns every API surface, one owns what the judges touch.
+Contracts, milestones and tests are untouched — parallelism never depended on
+which dev held which component.
 
 **Does not solve:** Dev 3 is the heaviest lane (identity + store + rail);
 mitigations pre-agreed — catalog detaches to Dev 1, checkout to Dev 2 after
 M1, mandate crypto never moves. Devs 2 and 3 share the kernel deployable, so
 folder discipline is load-bearing.
+
+---
+
+## 20. Yuno behind PaymentRail: mock in the demo, real integration out of scope
+
+**Chose:** Extend `PaymentRail` with `get_status()` (non-terminal states)
+and `respond_dispute()` (disputes are inbound on every rail); deprecate
+`open_dispute`. Add `YunoMockRail` built from Yuno's documented contract
+(auth, `X-Idempotency-Key` four behaviors, faithful state machine, webhook
+v2 with real HMAC, injectable `mock_mode`); rail selection via
+`AVAL_RAIL=paypal|yuno_mock`. The demo runs PayPal as the real rail and the
+mock as the sponsor story — the real Yuno integration is descarted (no
+sandbox credentials; the 48 h gate cannot be met). Full record:
+`docs/decisions/0020-yunorail-adapter.md`.
+
+**Rejected:** real Yuno now (credential provisioning on the critical path);
+Yuno as primary rail (same problem + PCI/Testing Gateway enrollment);
+ignoring Yuno (it is the sponsor).
+
+**Why:** The protocol was designed for the swap: the kernel never knows who
+charges. The mock is not throwaway — when credentials exist, real `YunoRail`
+is a configuration change. And the two gaps Yuno exposed are real for PayPal
+too (async captures, inbound disputes).
+
+**Does not solve:** We cannot claim "running on Yuno" — only "integrated
+against the documented contract, demonstrated via a faithful mock". The doc
+inconsistencies found (auth header casing, production URL, idempotency TTL)
+stay untested until real credentials. Fase 4 roadmap.
+
+---
+
+## 21. Escalation TTL by level: 120 s standard, 300 s with passkey UV
+
+**Chose:** L3 (standard bot approval) keeps 120 s fail-closed. L3+
+(amount ≥ 0.7 × `max_per_txn`, budget ≥ 80 %, first escalation, or fresh
+agent key) gets 300 s with RFC 9470 `max_age` semantics and requires WebAuthn
+`userVerification:"required"` signing the hash of the diff. Both levels fail
+closed — silence never approves. Full record:
+`docs/decisions/0021-escalation-ttl-by-level.md`.
+
+**Rejected:** uniform 120 s (the UV channel hop would time out, turning a
+security feature into DoS on legitimate buys); uniform 300 s (doubles
+exposure for the common case); minutes/hours cooling-off (demo cannot afford
+— Fase 4).
+
+**Why:** Fail-closed is the invariant; the window is a per-level UX
+parameter. Judges keep the instant live-revocation story while the passkey
+ceremony gets a realistic budget.
+
+**Does not solve:** Coercion inside the 300 s window is mitigated
+(out-of-band, diff, UV biometrics), not eliminated. Channel-hop latency must
+be measured at M3 — if it exceeds 300 s, retune thresholds, not the TTL.
+
+---
+
+## 22. P0 fraud-control ownership split and tests T19–T25
+
+**Chose:** Dev 2 takes R-PRICE, R-BURST, R-STEPUP (the gate's rules) +
+risk-table migrations; Dev 3 takes R-IDEM, R-WEBHOOK, R-EVIDENCE, rail risk
+metadata, the Yuno mock + `webhook_archive` migration; Dev 1 the adversarial
+offer strings; Dev 4 the diff + UV deep-link UI. Tests T19–T25 assigned per
+lane; T25 (integral attack script) doubles as the demo rehearsal gate. Full
+record: `docs/decisions/0022-p0-ownership-split.md`.
+
+**Rejected:** all controls to Dev 2 (rail-surface work would re-create the
+overload 0019 mitigated); all to Dev 3 (would split the gate's anti-fraud
+invariant across lanes); deferring until M1 (F1.1/F1.3 start immediately).
+
+**Why:** Same principle as #19: an attack that survives the gate is Dev 2's
+incident; one that arrives through the rail's surface is Dev 3's. The gold
+rule travels with the gate: corroborative signals only ESCALATE, verdictive
+ones REJECT.
+
+**Does not solve:** P1 hardening has owners in the plan but no schedule —
+post-event by definition. T25 depends on everything else being green.

@@ -8,6 +8,24 @@ BEFORE charging. Scope and day plan:
 
 ---
 
+## 2026-08-29 — Phase 0 ratified: decisions 0020–0022 executed (contracts v1.1)
+- **Why:** team answered the four blocking questions; the plan's Fase 0 gate is green.
+- **Done:** records `0020-yunorail-adapter` (accepted **mock-only variant**: no Yuno
+  sandbox credentials, so the real adapter moves to Fase 4 and the demo runs
+  `AVAL_RAIL=paypal|yuno_mock`), `0021-escalation-ttl-by-level` (L3 120 s · L3+
+  300 s UV, both fail-closed), `0022-p0-ownership-split` (T19–T25 by lane).
+  `DECISIONS.md` → 22 entries; `schemas.md` v1.1 (PaymentRail +`get_status`/
+  `respond_dispute`, `open_dispute` deprecated, HMAC(jti) idempotency note,
+  risk/webhook DDL, step-up reason codes, mock-yuno); `api.yaml`
+  (+`/purchases/{id}/evidence-pack` + `Escalation.level` + TTL docs);
+  PLAN-PARALELO §7 rows for T19–T25; plan doc marked ratified.
+- **Decision:** 0020 (mock-only), 0021, 0022 — full records in `docs/decisions/`.
+- **Contracts touched:** `aval/contracts/schemas.md`, `aval/contracts/api.yaml`
+  (additive v1.1, records in the same commit per protocol #17).
+- **Tests I own:** unchanged set plus T19/T21/T24 confirmed mine by 0022.
+- **Open questions:** measure UV deep-link latency at M3 (validates the 300 s
+  TTL); trustlib `EvidencePack` model lands with F1.6.
+
 ## 2026-08-29 — fraud implementation plan (branch `dev3/fraud-transaction-research`)
 - **Why:** team approved the research; next step was an executable plan.
 - **Done:** [`../plans/2026-08-29-fraud-implementation.md`](../plans/2026-08-29-fraud-implementation.md)

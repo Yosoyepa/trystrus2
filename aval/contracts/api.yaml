@@ -167,6 +167,22 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PurchaseStatus" }
 
+  /purchases/{id}/evidence-pack:
+    get:
+      tags: [audit]
+      summary: |
+        Bundle de evidencia de disputa (decisión 0022; implementa Dev 3, R-EVIDENCE):
+        mandato SD-JWT + ceremonia passkey + intent JWS + decisión del gate + trail +
+        receipts + webhooks archivados. Export PDF en UI.
+      parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+      responses:
+        "200":
+          description: Evidence pack verificable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidencePack" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /escalations:
     get:
       tags: [escalations]
@@ -188,7 +204,8 @@ paths:
       tags: [escalations]
       summary: |
         Resolver escalamiento (bot Telegram o UI). APPROVE con flag sticky=true
-        crea mini-mandato derivado firmado. Timeout 120 s → auto-deny (fail-closed).
+        crea mini-mandato derivado firmado. TTL por nivel (decisión 0021):
+        L3 120 s · L3+ 300 s con UV (RFC 9470 max_age) → auto-deny fail-closed en ambos.
       parameters: [ { $ref: "#/components/parameters/IdPath" } ]
       requestBody:
         required: true
@@ -445,6 +462,20 @@ components:
         receipt: { $ref: "#/components/schemas/Receipt" }
         escalation_id: { type: string }
 
+    EvidencePack:
+      type: object
+      description: bundle criptográfico para respond_dispute / provide-evidence (R-EVIDENCE, decisión 0022)
+      properties:
+        purchase_id: { type: string }
+        mandate_sd_jwt: { type: string }
+        ceremony_log: { type: object, description: verificación passkey de la creación del mandato }
+        intent_jwt: { type: string }
+        gate_decision: { type: object, description: decisión + reason codes + features }
+        trail: { type: array, items: { type: object } }
+        receipts: { type: array, items: { type: object } }
+        webhooks: { type: array, items: { type: object }, description: webhooks archivados (headers + verificación) }
+        generated_at: { type: string, format: date-time }
+
     Escalation:
       type: object
       properties:
@@ -452,6 +483,7 @@ components:
         mandate_id: { type: string }
         purchase_id: { type: string }
         status: { type: string, enum: [pending, resolved, expired] }
+        level: { type: string, enum: [L3, L3+], description: "L3=120 s · L3+=300 s con passkey UV (decisión 0021)" }
         diff: { type: object }
         timeout_at: { type: string, format: date-time }
         resolution:

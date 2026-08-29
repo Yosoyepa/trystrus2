@@ -242,6 +242,9 @@ flowchart LR
 |---|---|---|
 | T1 invariant property-based, T5 race, T6 TOCTOU, T9 hash chain, T10 JsonLogic, T4 verify codes, T13 demo-as-code | **2** | M0→M3 |
 | T2 SD-JWT, T8 state machine, T14 webhooks, T17 rail PayPal, T18 disputa (con 2) | **3** | M1–M4 |
+| T19 idempotencia derivada (retry sin doble cobro), T21 webhook falsificado descartado, T24 evidence-pack verificable | **3** | M1–M3 (0022) |
+| T20 TOCTOU de precio → auto-refund, T22 burst → cooldown, T23 umbral L3+ + timeout UV fail-closed | **2** | M2–M3 (0022) |
+| T25 guion integral de ataques (smoke pre-demo, ensayo general) | **1+2+4** | M4 (0022) |
 | T3 KB-JWT/impersonación, T7 idempotencia reanudación, T11 injection, T12 Presidio | **1** | M1–M4 |
 | T15/T16 smoke contra GCP + bootstrap idempotente | **4** | M2–M5 |
 

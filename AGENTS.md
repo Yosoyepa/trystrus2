@@ -127,10 +127,15 @@ a mock that approves everything is forbidden.
 
 ## Status (as of this commit)
 
-Decided and documented: architecture, crypto formats, contracts v1.0, decision
-log (19 entries — full records in `docs/decisions/`), own-graph agent
+Decided and documented: architecture, crypto formats, contracts v1.1
+(+`get_status`/`respond_dispute`, risk DDL — decision 0020/0022), decision
+log (22 entries — full records in `docs/decisions/`), own-graph agent
 orchestrator (#16), documentation protocol with CI guard (#17), workstreams
-re-cut by capability (#19). Next: the M0 freeze session
+re-cut by capability (#19), fraud P0 with ownership split + escalation TTL
+by level (#20–#22, from the dev3 research on
+`aval/docs/research/2026-08-29-fraud-transaction-research.md` — plan:
+`aval/docs/plans/2026-08-29-fraud-implementation.md`). Next: the M0 freeze
+session
 (see `aval/docs/PLAN-PARALELO.md` §11) — scaffold the services, stand up the
 mocks in `contracts/mocks/`, generate TypeScript types from `api.yaml`, buy the
 domain, run the PayPal smoke test. Until M0 is green, no workstream starts
