@@ -5,6 +5,13 @@
 núcleo, operación de demo). Estado: análisis completo; construir queda pendiente
 de las decisiones Q-R1..Q-R8 (§10).
 
+> **Actualización (mismo día):** la evaluación de
+> [`2026-08-30-dev2-rappi-cli-evaluation.md`](2026-08-30-dev2-rappi-cli-evaluation.md)
+> reordena las vías: existe un cliente auditado de la API web interna de Rappi
+> (`@crafter/rappi-cli`, clone pinneado en `vendor/`) que sustituye la capa
+> Playwright/DOM como ejecución primaria. La arquitectura kernel-gated
+> (capture_token, DRY_RUN, single-flight, caps) no cambia.
+
 ## 0. Veredicto ejecutivo
 
 **Viable como demo de hackathon, con una condición arquitectónica y una

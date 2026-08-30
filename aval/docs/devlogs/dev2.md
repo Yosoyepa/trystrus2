@@ -7,6 +7,36 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — `@crafter/rappi-cli` audited: adoption approved as bridge substrate (not as agent surface)
+- **Why:** teammate shared an npm CLI that orders from Rappi directly via the
+  web-internal API (`services.grability.rappi.com`) with CLI + REST + MCP
+  surfaces. Cloned to `vendor/crafter-station-rappi-cli` (pinned `5c4e5b0`)
+  and audited WITHOUT installing; tarball verified identical to the clone.
+- **Security audit: clean.** Only rappi/grability hosts (+ npmjs version
+  check), no eval/child_process/postinstall, mainstream deps only, token
+  gitignored by the author. Tiny adoption (11 dl/week, 34 stars) ⇒ pin the
+  commit, re-audit on any update.
+- **Key mechanics learned:** login captures the web session token
+  (`Bearer ft.…` Fernet) passively from `/ms/application-user/auth` while the
+  owner does their normal OTP login (browser ONLY for login); place order =
+  POST `shopping-cart-proxy/{storeType}/checkout` with the server-issued
+  `return_key` (cousin of our capture_token) and charges the ALREADY-selected
+  saved card — no CVV in flow; `checkout/detail` gives authoritative totals
+  for a trivially deterministic drift check.
+- **Verdict:** do NOT expose its MCP to the agent (raw `place_order` tool =
+  unguarded money path, violates S2). DO build `aval-rappi-bridge` on top of
+  it (Option A: run CLI's REST on localhost:3100 behind our Python guard
+  layer with DRY_RUN/cap/single-flight/capture_token; Option B later: port
+  the ~10 service files to httpx). API path replaces Playwright/DOM as
+  primary; DOM bridge demoted to plan C if the undocumented API rotates the
+  `app-version` hash. Kernel-gated architecture and decision #29 unchanged.
+- **Artifacts:**
+  [`research/2026-08-30-dev2-rappi-cli-evaluation.md`](../research/2026-08-30-dev2-rappi-cli-evaluation.md)
+  (+ update banner on the bridge analysis). Next: F0′ smoke test on secondary
+  account (login → search → cart → checkout_preview, NO place order).
+
+---
+
 ## 2026-08-30 — Rappi bridge use case evaluated (4 expert agents): merchant-with-embedded-charge, not a rail
 - **Why:** happy-path merchant (Rappi) has no buyer-side API; proposal is to
   operate a real logged-in session (card + address vaulted in Rappi) from the
