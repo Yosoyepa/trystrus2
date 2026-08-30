@@ -17,9 +17,15 @@ outside the gate, resilient to prompt injection. Scope and day plan:
   the buyer request before applying cheapest-match selection. The model still
   has no enforcement authority; the selected offer goes through the unchanged
   deterministic gate.
+- **Prod bridge auth:** `RappiBridgeMcp` accepts the separate tunnel bearer,
+  sends it on health/session/search/capture requests and refuses registration
+  when the authenticated bridge has no vaulted session. With
+  `AVAL_BRIDGE_LOCAL_TOKEN` set, even `/healthz` is closed; the Rappi `ft.`
+  session token remains local and is never the tunnel credential.
 - **Tests:** S4/K1 now exercises the hostile-ontology boundary without network
-  or an LLM key; full invariant and pytest results are recorded in the IaC
-  release entry.
+  or an LLM key; bearer propagation and bridge-surface rejection have focused
+  tests. Full invariant and pytest results are recorded in the IaC release
+  entry.
 - **Decision:** none; this restores the existing proposal contract and S4.
 - **Contracts touched:** none.
 
