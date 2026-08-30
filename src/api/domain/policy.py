@@ -783,8 +783,7 @@ def requires_step_up(
 class UVVerifier(Protocol):
     """Local port for the future WebAuthn user-verification adapter."""
 
-    def verify(self, *args: Any, **kwargs: Any) -> bool:
-        ...
+    def verify(self, *args: Any, **kwargs: Any) -> bool: ...
 
 
 class FailClosedUVVerifier:
@@ -885,6 +884,8 @@ class PolicyGate:
         spend: SpendView | Mapping[str, Any],
         now: datetime,
         offer: Offer | Mapping[str, Any] | None = None,
+        *,
+        approved_stepup: bool = False,
     ) -> Decision:
         """Evaluate one candidate; ``offer`` is optional for port compatibility.
 
@@ -938,8 +939,12 @@ class PolicyGate:
             offer_category = str(_value(intent, "category", ""))
 
         scope = _value(mandate, "scope")
-        if not scope_allows(scope, offer_merchant, offer_category):
-            if offer_merchant not in (_as_scope(scope).merchants if scope is not None else ()):
+        try:
+            normalized_scope = _as_scope(scope)
+        except (TypeError, ValueError):
+            return Decision(DecisionValue.REJECTED, ReasonCode.MERCHANT_NOT_ALLOWED)
+        if not scope_allows(normalized_scope, offer_merchant, offer_category):
+            if offer_merchant not in normalized_scope.merchants:
                 return Decision(DecisionValue.REJECTED, ReasonCode.MERCHANT_NOT_ALLOWED)
             return Decision(DecisionValue.REJECTED, ReasonCode.CATEGORY_FORBIDDEN)
 
@@ -969,14 +974,18 @@ class PolicyGate:
         limits = _value(mandate, "limits")
         max_per_txn = _value(limits, "max_per_txn") if limits is not None else None
         total_budget = _value(limits, "total_budget") if limits is not None else None
-        stepup = evaluate_step_up(
-            amount,
-            max_per_txn,
-            _value(spend, "spent_total", Decimal("0.00")),
-            _value(spend, "reserved_total", Decimal("0.00")),
-            total_budget,
-            current,
-            config=self.stepup_config,
+        stepup = (
+            StepUpDecision(required=False)
+            if approved_stepup
+            else evaluate_step_up(
+                amount,
+                max_per_txn,
+                _value(spend, "spent_total", Decimal("0.00")),
+                _value(spend, "reserved_total", Decimal("0.00")),
+                total_budget,
+                current,
+                config=self.stepup_config,
+            )
         )
 
         escalations: list[Decision] = []

@@ -41,6 +41,25 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — C3 implementation: verify path and escalation saga
+- **Why:** the deterministic policy result must become one durable business
+  branch without allowing approval, infrastructure failure, or a stale offer
+  to bypass enforcement.
+- **Done:** wired the verify use case to mandate and offer ports, velocity
+  observations, atomic conditional reservation, purchase state, escalation
+  TTLs, lazy expiry, trusted UV validation, full re-gating, compensation, and
+  transaction-aware outbox events. Repeated pending idempotency claims now
+  fail closed before business side effects.
+- **Tests:** added English fake-based coverage for approval, every principal
+  rejection/escalation branch, burst cooldown, price TOCTOU, budget races,
+  changed mandate state, trusted and missing UV, timeout compensation,
+  outbox failure, catalog reload, and idempotent replay/conflict.
+- **Decision:** the service never trusts a caller-supplied offer or UV flag
+  when a repository/verifier is configured; the current DDL remains unchanged.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
 - **Why:** start resolving the gap register without colliding with the
   coder-1 run in flight — everything here is NEW files; the gate fixes that
