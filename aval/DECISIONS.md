@@ -657,3 +657,27 @@ allowlist is in-process, so VPC rules remain the production answer. A
 checkpoint signed before the chain was partitioned will not match, which is
 correct and still needs explaining. Merchant-side `pay` remains ungated — that
 is their repo and their call.
+
+## 29 · One schema source of truth
+
+**Chose:** `aval/contracts/fixtures/schema.sql` is the schema; `src/agent/db.py`
+reads it, Alembic applies it, `src/api/db/schema.sql` becomes a pointer. Shared
+tables keep the agent's shape (TEXT money, `jti`-keyed mandates); the api and
+merchant lanes were adapted to it. `root_sig` is the one sanctioned E1
+exception, write-once, on an otherwise byte-identical row. Full record:
+`docs/decisions/0029-one-schema-source-of-truth.md`.
+
+**Rejected:** NUMERIC money; letting the api's shape win; a Postgres namespace
+per lane; enumerating protected columns in the append-only trigger.
+
+**Why:** Four descriptions of one database meant whichever DDL ran first won and
+the other half of the system read its own tables wrongly — six fraud tables
+existed only in a file nothing loaded, and 33 tests died on column mismatches.
+The agent's shape wins on evidence: it is what the 42 property checks and the
+live demo exercise, and its budget reservation is a compare-and-swap on exact
+strings that NUMERIC would break silently.
+
+**Does not solve:** The two audit chains still carry two hash algorithms in one
+partitioned table, with nothing verifying one against the other (F5). Money as
+TEXT needs a cast to sort by price. `src/api/decision/` and `audit/` remain
+wired into tests rather than the running app.

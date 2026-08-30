@@ -213,6 +213,31 @@ export interface AuditVerifyResult {
   actual_hash?: string;
 }
 
+// Mirrors src/api/evidence/models.py EvidencePack.to_dict() exactly — the real shape
+// served by GET /purchases/{purchase_id}/evidence-pack. Every field is either real
+// backend data or an honest null; nothing here is invented on the frontend.
+export interface EvidenceChainVerdict {
+  ok: boolean;
+  first_bad_seq: number | null;
+  reason: string | null;
+}
+
+export interface EvidencePack {
+  purchase_id: string;
+  mandate_jti: string;
+  integrity: 'ok' | 'failed';
+  generated_at: string;
+  digest: string;
+  mandate_claims: Record<string, unknown> | null;
+  intent: Record<string, unknown> | null;
+  decision: Record<string, unknown> | null;
+  receipt: Record<string, unknown> | null;
+  ledger_events: Record<string, unknown>[];
+  chain: EvidenceChainVerdict | null;
+  root_checkpoint: Record<string, unknown> | null;
+  failure_reasons: string[];
+}
+
 export interface Offer {
   offer_id: string;
   merchant_id: string;

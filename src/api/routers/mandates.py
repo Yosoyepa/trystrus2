@@ -121,7 +121,11 @@ async def create_mandate(body: MandateCreate, session: AsyncSession = Depends(ge
         )
     )
 
-    mandate_id = ids.new_id(ids.MANDATE)
+    # `mandates` keys on `jti` (the agent lane's table, shared verbatim — see
+    # aval/contracts/fixtures/schema.sql). Minting a second, separate `id`
+    # here would just be two names for the same row with nothing enforcing
+    # they ever agree, so the mandate's own jti is the identifier throughout.
+    mandate_id = claims.jti
     await repo.create_mandate(session, claims, mandate_id=mandate_id)
 
     credentials = await repo.credentials_for(session, body.user_id)
@@ -227,7 +231,7 @@ async def begin_revoke(mandate_id: str, session: AsyncSession = Depends(get_sess
     record = await repo.get_mandate(session, mandate_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such mandate")
-    claims = MandateClaims.model_validate(record.claims)
+    claims = MandateClaims.model_validate_json(record.claims)
     credentials = await repo.credentials_for(session, record.user_id)
     if not credentials:
         raise HTTPException(
@@ -340,7 +344,7 @@ async def _verify_gesture(session, record, body: PasskeyAssertion, purpose: Purp
     """Shared by activate and revoke — both demand the same proof."""
     from trustlib.models import MandateClaims
 
-    claims = MandateClaims.model_validate(record.claims)
+    claims = MandateClaims.model_validate_json(record.claims)
     presented = body.response.get("clientDataJSON_challenge") or _challenge_from(body)
 
     challenge = await repo.consume_challenge(session, presented, purpose=purpose)
@@ -383,7 +387,9 @@ def _challenge_from(body: PasskeyAssertion) -> str:
 
 
 def _disclosable(record) -> dict:
-    claims = record.claims or {}
+    import json
+
+    claims = json.loads(record.claims) if record.claims else {}
     return {k: claims[k] for k in ("email", "shipping_address") if k in claims}
 
 
@@ -397,16 +403,16 @@ async def _view(session, mandate_id: str) -> MandateView:
 def _to_view(record) -> MandateView:
     from trustlib.models import MandateClaims
 
-    claims = MandateClaims.model_validate(record.claims)
+    claims = MandateClaims.model_validate_json(record.claims)
     return MandateView(
-        mandate_id=record.id,
+        mandate_id=record.jti,
         status=record.status,
         jti=record.jti,
         limits=claims.limits,
         scope=claims.scope,
         spent=record.spent_total,
         reserved=record.reserved_amount,
-        txn_count_period=record.txn_count_period,
+        txn_count_period=record.txn_count,
         payment_method_ref=claims.payment_method_ref,
         parent_jti=record.parent_jti,
         created_at=record.created_at,

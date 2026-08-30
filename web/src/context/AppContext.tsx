@@ -13,7 +13,7 @@ import {
   MandateClaims,
 } from '../types';
 import { engine } from '../services/mockEngine';
-import { api } from '../services/api';
+import { api, BackendUnavailableError } from '../services/api';
 
 interface AppContextType {
   activeTab: 'auditor' | 'buyer' | 'merchant' | 'demo';
@@ -32,11 +32,14 @@ interface AppContextType {
   // Audit Ledger
   auditEvents: AuditEvent[];
   verifyResult: AuditVerifyResult | null;
-  verifyChain: () => Promise<AuditVerifyResult>;
+  verifyChain: () => Promise<AuditVerifyResult | null>;
   tamperBlock: (seq: number, mutatedPayload: Record<string, unknown>) => void;
   restoreLedger: () => Promise<void>;
   redAlert: AuditVerifyResult | null;
   setRedAlert: (res: AuditVerifyResult | null) => void;
+  // Set when the real audit backend could not be reached. The ledger/verdict must never
+  // be presented as valid while this is set — it means we have no real evidence to show.
+  auditBackendError: string | null;
 
   // Escalations
   escalations: Escalation[];
@@ -71,6 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(engine.auditEvents);
   const [verifyResult, setVerifyResult] = useState<AuditVerifyResult | null>(null);
   const [redAlert, setRedAlert] = useState<AuditVerifyResult | null>(null);
+  const [auditBackendError, setAuditBackendError] = useState<string | null>(null);
   const [escalations, setEscalations] = useState<Escalation[]>(engine.escalations);
   const [offers, setOffers] = useState<Offer[]>(engine.offers);
   const [receipts, setReceipts] = useState<Receipt[]>(engine.receipts);
@@ -88,14 +92,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updated = engine.mandates.find((m) => m.jti === activeMandate.jti);
       if (updated) setActiveMandate({ ...updated });
     }
-    setAuditEvents([...engine.auditEvents]);
+    // Audit evidence is the one thing the engine must NOT drive while a real backend is
+    // live — that path is owned by refreshAuditEvents() below, sourced from
+    // api.getAuditEvents(). Only mirror the local sandbox ledger in simulated mode.
+    if (!isLiveBackend) {
+      setAuditEvents([...engine.auditEvents]);
+    }
     setEscalations([...engine.escalations]);
     setOffers([...engine.offers]);
     setReceipts([...engine.receipts]);
     setVaultTokens([...engine.vaultTokens]);
     setDisputes([...engine.disputes]);
     setTelemetry({ ...engine.telemetry });
-  }, [activeMandate]);
+  }, [activeMandate, isLiveBackend]);
 
   useEffect(() => {
     const unsubscribe = engine.subscribe(syncWithEngine);
@@ -116,6 +125,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Surface every silent-before-now mock fallback as a visible toast. Non-evidence calls
+  // (mandates, escalations, offers, agent chat) may still simulate when the backend is
+  // down, but that must never happen quietly.
+  useEffect(() => {
+    const unsubscribe = api.onFallback((context) => {
+      addToast(
+        'warning',
+        'Simulated Response',
+        `${context}() could not reach the backend — showing a local simulation, not live data.`
+      );
+    });
+    return () => unsubscribe();
+  }, [addToast]);
+
+  // Evidence-critical: populates auditEvents from the real backend when live, and NEVER
+  // from the mock engine in that case. On failure the table is cleared and
+  // auditBackendError is set — a stale or fabricated ledger is worse than an empty one.
+  const refreshAuditEvents = useCallback(async (live: boolean) => {
+    if (!live) {
+      setAuditEvents([...engine.auditEvents]);
+      setAuditBackendError(null);
+      return;
+    }
+    try {
+      const events = await api.getAuditEvents();
+      setAuditEvents(events);
+      setAuditBackendError(null);
+    } catch (err) {
+      const message =
+        err instanceof BackendUnavailableError
+          ? err.message
+          : 'Backend unreachable. Start the stack with `docker compose up` and try again.';
+      setAuditEvents([]);
+      setAuditBackendError(message);
+    }
+  }, []);
+
   const checkBackendStatus = async (): Promise<boolean> => {
     const isUp = await api.checkBackendHealth();
     setIsLiveBackend(isUp);
@@ -123,6 +169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isUp) {
       addToast('success', 'Backend Connected', 'Live FastAPI backend on :8001 / :8002 / :8003 detected.');
     }
+    await refreshAuditEvents(isUp);
     return isUp;
   };
 
@@ -141,17 +188,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   };
 
-  const handleVerifyChain = async (): Promise<AuditVerifyResult> => {
-    const res = await api.verifyAuditChain();
-    setVerifyResult(res);
-    if (!res.valid) {
-      setRedAlert(res);
-      addToast('error', 'Audit Verification FAILED', res.error || 'Cryptographic mismatch detected!');
-    } else {
+  const handleVerifyChain = async (): Promise<AuditVerifyResult | null> => {
+    try {
+      const res = await api.verifyAuditChain();
+      setAuditBackendError(null);
+      setVerifyResult(res);
+      if (isLiveBackend) {
+        // Keep the ledger table in step with what was just verified.
+        void refreshAuditEvents(true);
+      }
+      if (!res.valid) {
+        setRedAlert(res);
+        addToast('error', 'Audit Verification FAILED', res.error || 'Cryptographic mismatch detected!');
+      } else {
+        setRedAlert(null);
+        addToast('success', 'Audit Chain Verified (100%)', `Checked ${res.events_checked} events across 1 chain. Valid root.`);
+      }
+      return res;
+    } catch (err) {
+      // Never fabricate a verdict. No backend, no chain, no "valid" — just the truth.
+      const message =
+        err instanceof BackendUnavailableError
+          ? err.message
+          : 'Backend unreachable. Start the stack with `docker compose up` and try again.';
+      setVerifyResult(null);
       setRedAlert(null);
-      addToast('success', 'Audit Chain Verified (100%)', `Checked ${res.events_checked} events across 1 chain. Valid root.`);
+      setAuditBackendError(message);
+      addToast('error', 'Audit Backend Unreachable', message);
+      return null;
     }
-    return res;
   };
 
   const handleTamperBlock = (seq: number, mutatedPayload: Record<string, unknown>) => {
@@ -219,6 +284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         restoreLedger: handleRestoreLedger,
         redAlert,
         setRedAlert,
+        auditBackendError,
         escalations,
         resolveEscalation: handleResolveEscalation,
         offers,

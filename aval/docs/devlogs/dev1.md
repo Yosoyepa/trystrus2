@@ -7,6 +7,61 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — one schema, and the console stops inventing evidence
+
+- **Why:** the database had four descriptions that disagreed, and the console
+  fell back to a 990-line mock engine on any backend failure — including on the
+  two calls that render the audit chain. Decision
+  [#29](../decisions/0029-one-schema-source-of-truth.md).
+- **Built:**
+  - `aval/contracts/fixtures/schema.sql` is now the only schema. `src/agent/db.py`
+    reads it instead of inlining a copy; Alembic applies it; `src/api/db/schema.sql`
+    is a pointer. The six fraud tables it defined — `velocity_counters`,
+    `risk_lists`, `risk_subjects`, `baseline_metrics`, `baseline_hists`,
+    `webhook_archive` — are now actually created; the composed stack had none of
+    them while `decision/repository_postgres.py` wrote to them.
+  - api and merchant adapted to the agent's shape for shared tables: `jti`-keyed
+    mandates, `mandate_jti` on children, TEXT money. `src/merchant/catalog.py`
+    sorts price with an explicit `CAST(... AS NUMERIC)`.
+  - `"window"` quoted in all 8 SQL sites (a Postgres keyword — every velocity
+    write raised a syntax error), and the idempotency `response` dict now
+    round-trips through `json.dumps`/`loads` instead of failing to adapt.
+- **Tests:** agent 42/42; Python suite 376 passed / 1 failed / 2 skipped against
+  a database built from the canonical file (was 373/4). The remaining failure is
+  the hardcoded-DSN test in `test_webhooks_and_mcp.py`, untouched.
+  `test_concurrent_relays_do_not_duplicate_skip_locked` flakes at file scope
+  (~1 in 5) on `21 == 20` — a second drain of one event, which is the
+  at-least-once delivery the relay documents, asserted as exactly-once.
+- **Found and fixed in review:** the first cut of the E1 trigger listed nine
+  protected columns, which left `actor`, `agent_id`, `run_id` and `mandate_jti`
+  mutable on a committed audit row. They are inside the hash, so a replay would
+  have caught it — but E1 says the database refuses, not that the auditor
+  notices later. The trigger now compares whole rows and `root_sig` is
+  write-once. Also: `TABLES` still listed only the agent's 20, so `cli reset`
+  quietly left 14 identity, rail and fraud tables full of yesterday's rows.
+- **Open questions:** the two chains still have two hash algorithms in one
+  partitioned table (F5). The buyer purchase flow in `web/` never calls the
+  backend, so the evidence viewer honestly reports "no pack" for it.
+
+---
+
+## 2026-08-30 — `offers.active` broke seed and 38 property checks
+
+- **Why:** `main` could not run `cli seed` from a clean clone: the catalog insert
+  crashed with `column "active" is of type integer but expression is of type
+  boolean`. The property suite was at 4/42 on *any* database, private or shared —
+  so this was never the shared-schema collision it looked like.
+- **Built:** one word. `db.py` declared `active INTEGER NOT NULL DEFAULT 1` while
+  `mocks/merchant.py` had moved to boolean semantics (`active=TRUE`,
+  `WHERE active IS TRUE`). The DDL now says `BOOLEAN NOT NULL DEFAULT TRUE`.
+- **Tests:** 42/42 green again; `reset` → `seed` → `demo` runs end to end.
+- **Found:** the agent lane contradicted *itself*, and Alembic 0001 applies
+  `db.SCHEMA` verbatim, so the migration carried the same mismatch. The cheapest
+  possible instance of the four-schema problem, and the argument for fixing the
+  root cause rather than the symptom.
+
+---
+
 ## 2026-08-30 — Frontend-to-Backend Agent Bridge, PostgreSQL schema unification & Gemini live integration
 
 - **Why:** wired frontend chat directly to real `/api/agent/ask` backed by Google Gemini and unified PostgreSQL database schemas.

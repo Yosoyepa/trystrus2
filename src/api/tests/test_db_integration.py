@@ -122,14 +122,16 @@ def test_reservation_update_allows_only_one_competing_connection(database_connec
 
     mandate_id = f"db-race-{uuid4()}"
     with database_connection.cursor() as cursor:
+        # `mandates` is the agent lane's table (jti-keyed, TEXT money) shared
+        # verbatim — see aval/contracts/fixtures/schema.sql's header.
         cursor.execute(
             """
             INSERT INTO mandates
-                (id, jti, user_id, agent_id, status, claims, reserved_amount, spent_total,
-                 txn_count_period)
-            VALUES (%s, %s, %s, %s, 'active', '{}'::jsonb, 0, 0, 0)
+                (jti, user_id, agent_id, status, claims, reserved_amount, spent_total,
+                 txn_count, created_at, updated_at)
+            VALUES (%s, %s, %s, 'active', '{}', '0.00', '0.00', 0, now()::text, now()::text)
             """,
-            (mandate_id, mandate_id, "db-test-user", "db-test-agent"),
+            (mandate_id, "db-test-user", "db-test-agent"),
         )
     database_connection.commit()
 
@@ -147,15 +149,15 @@ def test_reservation_update_allows_only_one_competing_connection(database_connec
         assert sum(result is not None for result in results) == 1
         with database_connection.cursor() as cursor:
             cursor.execute(
-                "SELECT reserved_amount, txn_count_period FROM mandates WHERE id = %s",
+                "SELECT reserved_amount, txn_count FROM mandates WHERE jti = %s",
                 (mandate_id,),
             )
-            reserved_amount, txn_count_period = cursor.fetchone()
-        assert reserved_amount == Decimal("60.00")
-        assert txn_count_period == 1
+            reserved_amount, txn_count = cursor.fetchone()
+        assert Decimal(reserved_amount) == Decimal("60.00")
+        assert txn_count == 1
     finally:
         with database_connection.cursor() as cursor:
-            cursor.execute("DELETE FROM mandates WHERE id = %s", (mandate_id,))
+            cursor.execute("DELETE FROM mandates WHERE jti = %s", (mandate_id,))
         database_connection.commit()
 
 
