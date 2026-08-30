@@ -24,13 +24,43 @@ def recent_events(conn, mandate_jti: str, limit: int = 50) -> list[dict]:
 
 
 def purchase_history(conn, mandate_jti: str, limit: int = 20) -> list[dict]:
+    """History for one mandate, wherever the purchase was made.
+
+    This used to join `offers`, which only holds the in-process merchant's
+    catalog -- so a flight bought through a merchant's MCP had no title and no
+    destination, and the buyer's own history quietly excluded the purchases
+    that came from real merchants. The receipt is the right source: every
+    settlement writes one, whichever port produced it.
+    """
     rows = conn.execute(
-        "SELECT p.*, o.title, o.destination FROM purchases p "
+        "SELECT p.*, o.title AS local_title, o.destination AS local_destination "
+        "FROM purchases p "
         "LEFT JOIN purchase_intents i ON i.jti = p.intent_jti "
         "LEFT JOIN offers o ON o.id = (i.intent::jsonb ->> 'offer_id') "
         "WHERE p.mandate_jti=? ORDER BY p.created_at DESC LIMIT ?",
         (mandate_jti, limit)).fetchall()
-    return [dict(r) for r in rows]
+    history = []
+    for row in rows:
+        item = dict(row)
+        receipt = json.loads(item["receipt"]) if item.get("receipt") else {}
+        item["title"] = receipt.get("title") or item.pop("local_title", None)
+        item["merchant_id"] = receipt.get("merchant_id")
+        item["destination"] = (item.pop("local_destination", None)
+                               or _destination_from(item["title"]))
+        history.append(item)
+    return history
+
+
+def _destination_from(title: str | None) -> str | None:
+    """Remote merchants do not return a destination field; their titles carry
+    the route ("VY-1001 BOG-MDE ..."). Parsing a title is a heuristic, so it is
+    used for a hint in the prompt and never for a decision."""
+    if not title:
+        return None
+    for token in title.split():
+        if len(token) == 7 and token[3] == "-" and token.replace("-", "").isalpha():
+            return token.split("-")[1].upper()
+    return None
 
 
 def summarise(conn, mandate_jti: str) -> dict[str, Any]:

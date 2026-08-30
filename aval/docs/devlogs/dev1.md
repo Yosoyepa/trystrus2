@@ -7,6 +7,44 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — ports, live merchants, console auth, egress
+
+- **Why:** everything on the open list that did not need another lane.
+- **Decision:** [#22](../decisions/0022-postgres-ports-and-console-auth.md).
+- **Built:**
+  - `ports/` — protocols and registries for merchants, rails, models, channels.
+    `ToolRegistry` refuses any effect but `read`/`submit` at construction, so S2
+    is one assertion. Adapters for the real `vuela-ya` and `mami` MCP servers,
+    plus the in-process mock behind the same interface.
+  - `auth.py` — bearer tokens hashed at rest, four roles, enforced at the CLI
+    and `service.py` edges. The console recorded who *claimed* to make a change;
+    it now records an authenticated principal. Closes P7.
+  - `net.py` — egress allowlist checked before any outbound call. Closes the
+    in-process half of P6; VPC rules are still the production answer.
+  - `service.py` — one module for `src/api/` to import: `ask`,
+    `resolve_escalation`, `tick`, `publish_ontology`, `trail`, `verify`.
+- **Empirical:** bought a real flight (VY-5F24E1, 165000 COP) and a grocery
+  order through the live MCP servers, both through the gate, both refused after
+  revocation. Both servers expose a `pay` tool that settles with no mandate;
+  ours records it as refused and never calls it.
+- **Found and fixed:**
+  1. `submit_purchase` had callers passing no merchant (the watcher, escalation
+     retries) and the registry was empty unless `setup()` ran. Merchant id now
+     travels in the intent and the audit event.
+  2. `memory.purchase_history()` joined the local `offers` table, so purchases
+     made through a merchant's MCP were missing from the buyer's own history.
+     It reads receipts now. Test A5.
+  3. `auth` modelled roles without agent attachment, so an owner who was also
+     the named approver could not resolve their own escalation. The role grants
+     the capability, the attachment grants the instance; both are checked.
+- **Contracts touched:** `people.token_hash` (migration 0004).
+- **Tests:** X1–X5, A1–A5, G9 added. 42/42, including X4 which runs against the
+  live merchant MCP and skips cleanly when it is not up.
+- **Open questions:** merchant-side `pay` is still ungated — their repo, their
+  call, written up in `../MCP-HANDOFF.md`. Bearer tokens have no rotation.
+
+---
+
 ## 2026-08-29 — guardrails, quotas and a sandbox (`limits.py`, `deploy/`)
 
 - **Why:** asked what stops a malicious prompt polling the merchant every

@@ -45,7 +45,7 @@ see them live with `uv run python -m src.agent.cli limits`.
 | `max_offers_in_prompt` / `max_offer_text_chars` | 12 / 400 | a hostile catalog flooding the context |
 | `max_ontology_chars` | 4000 | a hostile ontology doing the same |
 | `max_escalations_per_hour` | 12 | drowning the one human who can say no |
-| `tick_lock_ttl_s` | 55 | overlapping cron ticks |
+| `tick_lock_ttl_s` | 55 | overlapping cron ticks (superseded by advisory locks) |
 
 Two properties hold across all of them:
 
@@ -61,10 +61,13 @@ silent.
 ### The cron overlap problem
 
 A one-minute schedule with a ninety-second job becomes two jobs, then three,
-then a stampede. `limits.single_flight` takes a database lock with a TTL: a
-second tick sees the lock and **skips** — it does not queue, because a queued
-backlog is the stampede with extra steps. The TTL means a crashed holder
-releases the lock on its own rather than wedging the system.
+then a stampede. `limits.single_flight` takes a **Postgres advisory lock**: a second tick sees it
+and **skips** — it does not queue, because a queued backlog is the stampede with
+extra steps. No TTL is needed, because the lock dies with the session: a crashed
+holder releases immediately rather than wedging the system until a timeout
+expires. The lock is taken on a connection of its own, because advisory locks
+are re-entrant within a session and a process must not be able to grant itself
+a lock it already holds.
 
     $ uv run python -m src.agent.cli tick     # while another tick runs
     {"skipped": "another tick holds the lock", "watches_checked": 0}
@@ -99,13 +102,19 @@ systemd equivalent — `ProtectSystem=strict`, `ProtectHome=yes`,
 `CPUQuota=50%` and `TimeoutStartSec=50` so a hung tick is killed rather than
 left to overlap.
 
-### What the sandbox does not do
+### Egress
 
-Network egress is still open — the agent must reach the model and the merchant.
-A determined injection could still make outbound requests to those hosts. In
-production that becomes an egress allowlist (VPC egress rules, or Cloud Run with
-a serverless VPC connector and Cloud NAT restricted to the two API domains). We
-have not built it; it is named, not solved.
+Every outbound call the agent makes goes through the model client or the MCP
+transport, and both check `net.check()` first. The allowlist defaults to the
+model API and localhost, and grows only from configured URLs
+(`TT_ALLOWED_HOSTS`, `LLM_BASE_URL`, `TT_*_MCP_URL`, `TT_WEBHOOK_URL`). An
+injected instruction that talks the agent into calling an attacker's URL fails
+there and leaves an `egress.denied` event (test G9).
+
+This is not network-level control: a compromised process can still open a
+socket directly. VPC egress rules — Cloud Run with a serverless connector and
+Cloud NAT restricted to the known domains — remain the production answer. What
+changed is that the in-process path is enforced rather than promised.
 
 ## 4. Evidence
 
@@ -120,12 +129,12 @@ agent version pinned to the run, and `audit_events` refusing `UPDATE` and
 
 ## Honest gaps
 
-- **Egress allowlist** — named above, not implemented.
-- **No auth on the console.** Anyone who can run the CLI can publish an ontology
-  or create a watch. The edit is attributed and permanent, but not authorised.
-  This is the biggest open item.
-- **Rate limits are per agent, not per mandate or per person.** An attacker with
-  many agent ids gets many buckets. `max_watches_total` is the only global cap.
-- **SQLite locking is process-local to one machine.** On Cloud Run with several
-  instances the single-flight lock needs Postgres advisory locks; the code shape
-  is the same, the backend is not.
+- **Bearer tokens have no rotation or expiry.** A leaked token works until
+  someone reissues. There is no revocation list.
+- **The egress allowlist is in-process**, as described above.
+- **A settling tool on the merchant side is still ungated.** Both merchant MCP
+  servers expose `pay` with no mandate check. Our agent refuses to call it, so
+  *our* agent cannot buy unauthorised — but any other client can. Fixing that
+  is `aval/docs/MCP-HANDOFF.md` and belongs to the merchants repo.
+- **Rate limits key on the agent and the mandate.** Minting agent ids no longer
+  buys a fresh budget, but nothing ties buckets to a person across mandates.

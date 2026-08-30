@@ -42,6 +42,11 @@ def complete(system: str, user: str, *, max_tokens: int | None = None,
              json_object: bool = True) -> str:
     if not LLM_API_KEY:
         raise LLMUnavailable("LLM_API_KEY is not set")
+    from .net import EgressDenied, check
+    try:
+        check(f"{LLM_BASE_URL}/chat/completions", reason="llm")
+    except EgressDenied as exc:
+        raise LLMUnavailable(str(exc)) from exc
     body: dict[str, Any] = {
         "model": LLM_MODEL,
         "messages": [{"role": "system", "content": system},

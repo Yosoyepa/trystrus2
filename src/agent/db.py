@@ -33,7 +33,9 @@ SCHEMA = """
 -- ── configuration: editable, with an immutable record of every edit ──────────
 CREATE TABLE IF NOT EXISTS people (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT,
-  role TEXT NOT NULL DEFAULT 'member', created_at TEXT NOT NULL
+  role TEXT NOT NULL DEFAULT 'member',
+  token_hash TEXT UNIQUE,              -- console credential, hashed (see auth.py)
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, name TEXT NOT NULL,

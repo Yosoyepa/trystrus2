@@ -5,7 +5,7 @@ import json
 import sys
 from typing import Any
 
-from . import (audit, chat, db, escalation, graph, jsonlogic, limits,
+from . import (audit, auth, chat, db, escalation, graph, jsonlogic, kernel, limits,
                mandate as mandate_mod, memory, registry, relay, watcher)
 from .config import LLM_MODEL, PRODUCT_DOMAIN, PRODUCT_NAME
 from .mocks import merchant
@@ -119,11 +119,19 @@ def cmd_agent_show(args) -> None:
 def cmd_agent_publish(args) -> None:
     conn = _conn()
     from .ontology import load_file
+    who = auth.require(conn, args.token, "agent.publish", args.agent_id)
     version = registry.publish_version(
-        conn, args.agent_id, load_file(args.file), changed_by=args.by,
+        conn, args.agent_id, load_file(args.file), changed_by=who.person_id,
         reason=args.reason)
     print(f"published v{version} for {args.agent_id}")
     print("running runs keep the version they started with (K3).")
+
+
+def cmd_token(args) -> None:
+    """Mint a console credential. Shown once; only its hash is stored."""
+    conn = _conn()
+    token = auth.issue_token(conn, args.person_id)
+    print(f"  {token}\n\n  Shown once. Use it with:  export TT_TOKEN={token}")
 
 
 def cmd_people(args) -> None:
@@ -134,9 +142,10 @@ def cmd_people(args) -> None:
 
 def cmd_assign(args) -> None:
     conn = _conn()
+    who = auth.require(conn, args.token, "agent.people", args.agent_id)
     registry.set_people(conn, args.agent_id, owner_id=args.owner,
                         approver_id=args.approver, auditor_id=args.auditor,
-                        actor=args.by)
+                        actor=who.person_id)
     print("updated; the change is in the audit trail (E12).")
 
 
@@ -155,6 +164,8 @@ def cmd_watches(args) -> None:
 def cmd_watch_add(args) -> None:
     conn = _conn()
     agent_id, mandate_jti = _default_session(conn)
+    who = auth.require(conn, args.token, "watch.create", agent_id)
+    args.by = who.person_id
     result = watcher.create_watch(
         conn, agent_id=agent_id, mandate_jti=mandate_jti,
         query={"destination": args.destination, "category": args.category},
@@ -193,7 +204,8 @@ def cmd_price(args) -> None:
 def cmd_revoke(args) -> None:
     conn = _conn()
     jti = args.jti or _default_session(conn)[1]
-    _print(mandate_mod.revoke(conn, jti, actor=args.by))
+    who = auth.require(conn, args.token, "mandate.revoke")
+    _print(mandate_mod.revoke(conn, jti, actor=who.person_id))
 
 
 def cmd_mandate(args) -> None:
@@ -270,8 +282,14 @@ def cmd_escalations(args) -> None:
 
 def cmd_resolve(args) -> None:
     conn = _conn()
+    esc_row = escalation.get(conn, args.escalation_id)
+    agent_row = conn.execute("SELECT agent_id FROM mandates WHERE jti=?",
+                             (esc_row["mandate_jti"],)).fetchone()
+    who = auth.require(conn, args.token, "escalation.resolve",
+                       agent_row["agent_id"] if agent_row else None)
     result = escalation.resolve(conn, args.escalation_id, decision=args.decision.upper(),
-                                approver=args.by, channel="cli", sticky=args.sticky)
+                                approver=who.person_id, channel="cli",
+                                sticky=args.sticky)
     esc = escalation.get(conn, args.escalation_id)
     if esc["run_id"]:
         graph.resume(conn, esc["run_id"])
@@ -336,35 +354,77 @@ def cmd_mcp_check(args) -> None:
 
 
 def cmd_mcp_demo(args) -> None:
-    """Buy through a real MCP server, then try an injected listing."""
-    from .ports.mcp_client import McpMerchant
-    conn = _conn()
-    agent_id, mandate_jti = _default_session(conn)
-    m = McpMerchant(args.url)
+    """Buy from a real merchant MCP, through the gate."""
+    import json as _json
+    from .ports.base import TOOLS, search_all
+    from .ports.setup import setup
 
-    print("1. search over MCP")
-    offers = m.search_offers(conn, destination=args.destination, category="flights",
-                             agent_id=agent_id, mandate_jti=mandate_jti)
+    conn = _conn()
+    url = args.url or "http://localhost:3000/api/mcp"
+    which = "mami_url" if args.merchant == "mami" else "vuelaya_url"
+    report = setup(**{which: url})
+    merchant_id = "mami" if args.merchant == "mami" else "vuelaya-mcp"
+    if "unreachable" in report.get(merchant_id, {}):
+        raise SystemExit(f"  {merchant_id}: {report[merchant_id]['unreachable']}")
+
+    print(f"merchant {merchant_id} at {url}")
+    print(f"  callable : {TOOLS.callable_names(merchant_id)}")
+    print(f"  refused  : {[r['name'] for r in TOOLS.refused if r['merchant_id'] == merchant_id]}"
+          "   <- settles with no mandate; the kernel settles instead")
+
+    row = conn.execute(
+        "SELECT claims FROM mandates WHERE claims::jsonb->>'currency'=? "
+        "AND status='active' LIMIT 1", (args.currency,)).fetchone()
+    if row is None:
+        raise SystemExit(f"  no active {args.currency} mandate; run seed first")
+    claims = _json.loads(row["claims"])
+    print(f"\nmandate {claims['jti']}  {claims['currency']}  "
+          f"max/txn {claims['limits']['max_per_txn']}")
+
+    print("\n1. search")
+    offers = [o for o in search_all(conn, allowed=claims["scope"]["merchants"],
+                                    destination=args.destination,
+                                    query=args.query)
+              if o["merchant_id"] == merchant_id]
     for o in offers[:4]:
-        print(f"   {o['offer_id']:<16}{o['price']:>8} {o['currency']}  {o['title']}")
+        print(f"   {o['price']:>12} {o['currency']}  {o['title'][:52]}")
     if not offers:
-        raise SystemExit("   the merchant returned nothing to buy")
+        raise SystemExit("   the merchant returned nothing this mandate may buy")
 
     print("\n2. buy the cheapest, through the gate")
-    result = m.request_purchase(conn, offer_id=offers[0]["offer_id"],
-                                mandate_jti=mandate_jti)
-    print(f"   {result['status'].upper()} {result.get('reason_code') or ''}")
+    pick = min(offers, key=lambda o: float(o["price"]))
+    result = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                    mandate_jti=claims["jti"],
+                                    merchant_id=merchant_id)
+    print(f"   {result['status'].upper()} {result.get('reason_code') or ''} "
+          f"{result.get('detail', '')}")
     if result.get("receipt"):
-        print(f"   {result['receipt']['title']} at {result['receipt']['amount']}")
+        r = result["receipt"]
+        print(f"   {r['receipt_id']}  {r['amount']} {r['currency']}  "
+              f"under mandate {r['mandate_jti']}")
 
-    if args.injected:
-        print(f"\n3. now obey the injected listing {args.injected}")
-        bad = m.request_purchase(conn, offer_id=args.injected, mandate_jti=mandate_jti)
-        print(f"   {bad['status'].upper()}: {bad.get('reason_code')} — "
-              f"{bad.get('detail', '')}")
-        if bad["status"] == "captured":
-            raise SystemExit("   an injected listing was PAID. Stop the demo.")
-        print("   the model can be fooled; the gate cannot.")
+    if args.revoke:
+        print("\n3. revoke, then try the same purchase again")
+        mandate_mod.revoke(conn, claims["jti"], actor="cli")
+        after = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                       mandate_jti=claims["jti"],
+                                       merchant_id=merchant_id)
+        print(f"   {after['status'].upper()}: {after.get('reason_code')}")
+
+
+def cmd_merchants(args) -> None:
+    from .ports.base import MERCHANTS, TOOLS
+    from .ports.setup import setup
+    report = setup(vuelaya_url=args.vuelaya, mami_url=args.mami)
+    print(f"{'merchant':<16}{'currency':<10}{'callable tools':<44}refused")
+    print(BAR)
+    for merchant_id, merchant in MERCHANTS.items():
+        refused = [r["name"] for r in TOOLS.refused if r["merchant_id"] == merchant_id]
+        tools = ", ".join(TOOLS.callable_names(merchant_id))[:42]
+        print(f"{merchant_id:<16}{merchant.currency:<10}{tools:<44}{refused or ''}")
+    for merchant_id, info in report.items():
+        if "unreachable" in info:
+            print(f"{merchant_id:<16}{'-':<10}unreachable: {info['unreachable'][:44]}")
 
 
 def cmd_protocols(args) -> None:
@@ -401,6 +461,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("agent_id"); p.add_argument("file")
     p.add_argument("--by", default=None); p.add_argument("--reason", default="")
     add("people", cmd_people, "list people")
+    p = add("token", cmd_token, "mint a console credential for a person")
+    p.add_argument("person_id")
     p = add("assign", cmd_assign, "set owner / approver / auditor")
     p.add_argument("agent_id"); p.add_argument("--owner"); p.add_argument("--approver")
     p.add_argument("--auditor"); p.add_argument("--by")
@@ -442,15 +504,27 @@ def main(argv: list[str] | None = None) -> None:
     add("limits", cmd_limits, "guardrails: quotas, rate buckets, counters, locks")
     p = add("mcp-check", cmd_mcp_check, "does a merchant's MCP honour the contract?")
     p.add_argument("--url", default=None)
-    p = add("mcp-demo", cmd_mcp_demo, "buy through a real MCP server")
+    p = add("mcp-demo", cmd_mcp_demo, "buy from a real merchant MCP, through the gate")
     p.add_argument("--url", default=None)
-    p.add_argument("--destination", default="COR")
-    p.add_argument("--injected", default="ofr_inj_1")
+    p.add_argument("--merchant", default="vuelaya", choices=["vuelaya", "mami"])
+    p.add_argument("--destination", default="MDE")
+    p.add_argument("--query", default="")
+    p.add_argument("--currency", default="COP")
+    p.add_argument("--revoke", action="store_true")
+    p = add("merchants", cmd_merchants, "who the agent can reach, and what it refuses")
+    p.add_argument("--vuelaya", default=None); p.add_argument("--mami", default=None)
     add("protocols", cmd_protocols, "how TryTrust maps onto AP2, ACP and friends")
+
+    for action in sub._name_parser_map.values():
+        action.add_argument("--token", default=None,
+                            help="console credential (or set TT_TOKEN)")
 
     args = parser.parse_args(argv)
     try:
         args.func(args)
+    except auth.AuthError as exc:
+        sys.exit(f"refused [{exc.code}]: {exc.detail}\n"
+                 f"mint one with:  uv run python -m src.agent.cli token <person_id>")
     except limits.LimitExceeded as exc:
         # A guardrail is a normal outcome, not a crash. Say which one and why.
         sys.exit(f"refused by a guardrail [{exc.code}]: {exc.detail}\n"

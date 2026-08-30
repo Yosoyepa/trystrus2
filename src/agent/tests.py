@@ -10,8 +10,9 @@ import sys
 import time
 from typing import Callable
 
-from . import (audit, chat, db, escalation, graph, jsonlogic, kernel, limits,
-               mandate as mandate_mod, registry, relay, watcher)
+from . import (audit, auth, chat, db, escalation, graph, jsonlogic, kernel,
+               limits, mandate as mandate_mod, memory, registry, relay,
+               watcher)
 from .crypto import jws
 from .crypto.keys import load_or_create
 from .mocks import merchant, rail
@@ -26,15 +27,41 @@ def case(prop: str, name: str):
     return wrap
 
 
-def fresh():
-    """A clean database per test. Cheap, and no test can poison another.
+_OPEN: list = []
 
-    Postgres has no "delete the file" -- dropping and recreating the schema is
-    the equivalent, and it exercises the same DDL the migration applies.
+
+def fresh():
+    """A clean database per test. No test may poison another.
+
+    Postgres has no "delete the file": dropping and recreating the schema is the
+    equivalent, and it exercises the same DDL the migration applies. Two things
+    that do not matter with SQLite matter here:
+
+      * Connections must be closed. A connection left open holds locks, and the
+        next test's DROP TABLE deadlocks against it rather than failing loudly.
+      * The merchant registry is process-global. A test that registered a remote
+        merchant would otherwise leave later tests calling it over the network.
     """
-    conn = db.connect()
-    db.drop_all(conn)
+    from .ports.setup import setup
+
+    while _OPEN:
+        try:
+            _OPEN.pop().close()
+        except Exception:
+            pass
+
+    # Drop on a throwaway connection, then build the schema on a fresh one.
+    # (An earlier attempt used pg_terminate_backend to clear stragglers; the
+    # signal arrives asynchronously and killed the harness's own connection
+    # mid-DDL. Closing what we opened is enough, and it is honest about which
+    # connections exist.)
+    admin = db.connect()
+    db.drop_all(admin)
+    admin.close()
+
     conn = db.init()
+    _OPEN.append(conn)
+    setup(local=True)                    # registry back to just the in-process mock
     from .seed import seed_all
     ctx = seed_all(conn)
     return conn, ctx
@@ -494,7 +521,7 @@ def _g8():
                 cap=limits.QUOTA.llm_calls_per_day,
                 amount=limits.QUOTA.llm_calls_per_day - 1)
     conn.close()
-    conn = db.connect()                               # a fresh process would see this
+    conn = db.connect(); _OPEN.append(conn)           # a fresh process would see this
     limits.guard_llm_call(conn, ctx["agent_id"])      # the last one allowed
     try:
         limits.guard_llm_call(conn, ctx["agent_id"])
@@ -514,13 +541,13 @@ def _n1():
         conditions=True, limits={"max_per_txn": "50.00", "total_budget": "50.00"},
         validity={"exp": 4102444800})["jti"]
 
-    holder = db.connect()                       # a second process
+    holder = db.connect(); _OPEN.append(holder)  # a second process
     holder.execute("BEGIN")
     holder.execute("SELECT head_hash FROM chains WHERE chain_key=? FOR UPDATE",
                    (ctx["mandate_jti"],))       # holds Marta's chain open
     try:
         # A different mandate's chain is untouched by that lock.
-        writer = db.connect()
+        writer = db.connect(); _OPEN.append(writer)
         out = audit.append(writer, "test.parallel", {"x": 1}, mandate_jti=other)
         assert out["chain_key"] == other, out
 
@@ -547,6 +574,7 @@ def _n1():
 def _n4():
     conn, _ = fresh()
     a, b = db.connect(), db.connect()
+    _OPEN.extend([a, b])
     try:
         with limits.single_flight(a, "test.lock") as first:
             assert first is True
@@ -772,6 +800,133 @@ def _x4():
     after = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
                                    mandate_jti=cop["jti"], merchant_id="vuelaya-mcp")
     assert after["reason_code"] == "MANDATE_REVOKED", after
+
+
+# ── A: console authentication ────────────────────────────────────────────────
+@case("A1", "the console is not anonymous: no token changes nothing")
+def _a1():
+    conn, ctx = fresh()
+    before = registry.get_agent(conn, ctx["agent_id"])["current_version"]
+    for action in ("agent.publish", "watch.create", "mandate.revoke"):
+        try:
+            auth.require(conn, None, action, ctx["agent_id"])
+            raise AssertionError(f"{action} allowed with no token")
+        except auth.AuthError as exc:
+            assert exc.code == "NO_TOKEN", exc
+    try:
+        auth.require(conn, "tt_not_a_real_token", "agent.publish", ctx["agent_id"])
+        raise AssertionError("a forged token was accepted")
+    except auth.AuthError as exc:
+        assert exc.code == "BAD_TOKEN", exc
+    assert registry.get_agent(conn, ctx["agent_id"])["current_version"] == before
+
+
+@case("A2", "an auditor cannot publish an ontology; the owner can")
+def _a2():
+    conn, ctx = fresh()
+    owner_token = auth.issue_token(conn, ctx["people"]["marta"])
+    auditor_token = auth.issue_token(conn, ctx["people"]["sergio"])
+
+    try:
+        auth.require(conn, auditor_token, "agent.publish", ctx["agent_id"])
+        raise AssertionError("the auditor published")
+    except auth.AuthError as exc:
+        assert exc.code == "FORBIDDEN", exc
+
+    who = auth.require(conn, owner_token, "agent.publish", ctx["agent_id"])
+    assert who.person_id == ctx["people"]["marta"]
+    version = registry.publish_version(conn, ctx["agent_id"], {"domain": "flights"},
+                                       changed_by=who.person_id, reason="authenticated")
+    assert version == 2, version
+    # the recorded actor is now an authenticated principal, not a claimed string
+    row = conn.execute("SELECT changed_by FROM agent_versions WHERE agent_id=? "
+                       "AND version=2", (ctx["agent_id"],)).fetchone()
+    assert row["changed_by"] == ctx["people"]["marta"]
+
+
+@case("A3", "only the named approver may resolve that agent's escalation")
+def _a3():
+    conn, ctx = fresh()
+    outsider = registry.add_person(conn, "Outsider", "o@x.z", "owner")
+    outsider_token = auth.issue_token(conn, outsider)
+    approver_token = auth.issue_token(conn, ctx["people"]["marta"])
+
+    result = kernel.submit_purchase(conn, offer_id="ofr_cor_300",
+                                    mandate_jti=ctx["mandate_jti"])
+    assert result["status"] == "escalated", result
+
+    try:
+        auth.require(conn, outsider_token, "escalation.resolve", ctx["agent_id"])
+        raise AssertionError("an unattached person approved a purchase")
+    except auth.AuthError as exc:
+        assert exc.code == "FORBIDDEN", exc
+    captured = conn.execute(
+        "SELECT COUNT(*) c FROM purchases WHERE status='captured'").fetchone()["c"]
+    assert captured == 0, captured
+
+    who = auth.require(conn, approver_token, "escalation.resolve", ctx["agent_id"])
+    assert who.person_id == ctx["people"]["marta"]
+
+
+@case("A4", "tokens are stored hashed, and refusals are on the record")
+def _a4():
+    conn, ctx = fresh()
+    token = auth.issue_token(conn, ctx["people"]["sergio"])
+    stored = conn.execute("SELECT token_hash FROM people WHERE id=?",
+                          (ctx["people"]["sergio"],)).fetchone()["token_hash"]
+    assert token not in stored and stored == auth.hash_token(token)
+    assert len(stored) == 64
+
+    try:
+        auth.require(conn, token, "agent.publish", ctx["agent_id"])
+    except auth.AuthError:
+        pass
+    denied = conn.execute(
+        "SELECT COUNT(*) c FROM audit_events WHERE type='auth.denied'").fetchone()["c"]
+    assert denied >= 1, "a refused console action left no trace"
+
+
+@case("A5", "buying through a remote merchant still lands in the buyer's history")
+def _a5():
+    """purchase_history used to join the local catalog, so purchases made
+    through a merchant's MCP were missing from the buyer's own record."""
+    conn, ctx = fresh()
+    out = kernel.submit_purchase(conn, offer_id="ofr_cor_130",
+                                 mandate_jti=ctx["mandate_jti"])
+    assert out["status"] == "captured", out
+    conn.execute("UPDATE purchase_intents SET intent = "
+                 "jsonb_set(intent::jsonb, '{offer_id}', '\"remote_only\"')::text "
+                 "WHERE jti=?", (out["receipt"]["capture_id"] and
+                                 conn.execute("SELECT intent_jti FROM purchases "
+                                              "WHERE id=?", (out["purchase_id"],)
+                                              ).fetchone()["intent_jti"],))
+    history = memory.purchase_history(conn, ctx["mandate_jti"])
+    assert history and history[0]["title"], "a settled purchase has no title"
+    summary = memory.summarise(conn, ctx["mandate_jti"])
+    assert summary["purchases_made"] == 1, summary
+    assert summary["total_spent"] == "130.00", summary
+
+
+@case("G9", "the agent cannot call a host that is not on the allowlist")
+def _g9():
+    from . import net
+    from .ports.mcp_client import McpTransport
+    conn, _ = fresh()
+    assert net.check("http://localhost:3000/api/mcp") == "localhost"
+    for hostile in ("http://evil.example.com/mcp", "https://169.254.169.254/latest",
+                    "http://attacker.internal:8080/x"):
+        try:
+            McpTransport(hostile)
+            raise AssertionError(f"{hostile} was reachable")
+        except net.EgressDenied:
+            pass
+    try:
+        net.check("https://exfiltrate.example/collect", conn=conn, reason="test")
+    except net.EgressDenied:
+        pass
+    logged = conn.execute(
+        "SELECT COUNT(*) c FROM audit_events WHERE type='egress.denied'").fetchone()["c"]
+    assert logged >= 1, "a blocked egress attempt left no trace"
 
 
 def main() -> int:

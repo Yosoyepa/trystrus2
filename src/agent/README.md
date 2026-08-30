@@ -38,6 +38,20 @@ escalation; anything else is guidance and the agent replans. `:audit` and
 A watch fires through the same gate as a chat purchase. See [`../deploy/`](../deploy)
 for cron, systemd and Cloud Scheduler.
 
+## Talking to real merchants
+
+    cd ../trytrust-merchants/apps/vuela-ya && pnpm dev --port 3000
+    cd ../trytrust-merchants/apps/mami     && pnpm dev --port 3001
+
+    export TT_VUELAYA_MCP_URL=http://localhost:3000/api/mcp
+    export TT_MAMI_MCP_URL=http://localhost:3001/api/mcp
+    uv run python -m src.agent.cli mcp-check --url $TT_VUELAYA_MCP_URL
+
+Both servers expose a `pay` tool that settles with no mandate. The agent records
+it as refused and never calls it; settlement goes through the gate and then
+`MerchantPort.settle()`. Their prices are COP, so the seed issues a COP mandate —
+currencies are not converted inside the enforcement path.
+
 ## The configuration console
 
     uv run python -m src.agent.cli agents

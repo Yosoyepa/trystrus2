@@ -460,3 +460,53 @@ The demo is exactly that: set the ontology to "approve everything, limit
 bad proposals inside the mandate. It remains an injection surface (fenced, not
 sanitised). Memory is per-mandate, not per-buyer. Publishing a version is
 attributed and permanent but not approved by anyone.
+
+---
+
+## 21. Guardrails and containment
+
+**Chose:** Four layers, each assuming the one above failed. Structural (the
+model has no verb for scheduling or spending), quota (persisted token buckets,
+windowed counters, single-flight locks), containment (bubblewrap, hardened
+systemd unit), evidence (every trip is an audit event). Full record:
+`docs/decisions/0021-guardrails-and-containment.md`.
+
+**Rejected:** clamping a bad polling interval silently; in-memory rate limits;
+queueing overlapping cron ticks; trusting the prompt to refuse.
+
+**Why:** The first layer is the answer and the other three are the admission
+that first layers fail. Rate limits do not make the agent safe — the gate does
+that — they make it survivable: a compromised agent wastes tokens instead of
+exhausting a merchant, a budget, or a human approver's patience.
+
+**Does not solve:** Network egress (partly closed in #22). Bearer-token
+authorisation on the console (closed in #22).
+
+---
+
+## 22. Postgres, ports, partitioned chains, and console auth
+
+**Chose:** Postgres in dev and prod behind a thin `db.Conn` wrapper; one hash
+chain per mandate with signed checkpoints over every head; protocol-and-registry
+ports for merchants, rails, models and channels, with a `ToolRegistry` where a
+tool may only declare `read` or `submit`; bearer tokens on every console
+mutation; an in-process egress allowlist. Full record:
+`docs/decisions/0022-postgres-ports-and-console-auth.md`.
+
+**Rejected:** a dual SQLite/Postgres backend; NUMERIC for money; a global chain
+with a dedicated sequencer; converting currencies inside the gate; flattening
+each merchant's vocabulary into our three generic tools; putting auth in the
+registry layer rather than at the edge.
+
+**Why:** A single global chain made every event in the system queue on one row.
+A console that recorded who *claimed* to make a change gave an audit trail only
+as trustworthy as whoever typed the name. And the agent now buys from real
+merchant MCP servers — vuela-ya and mami — which both expose a `pay` tool that
+settles with no mandate; the ports layer is what lets the agent see that tool,
+refuse it, and still buy through the gate.
+
+**Does not solve:** Bearer tokens have no rotation or expiry. The egress
+allowlist is in-process, so VPC rules remain the production answer. A
+checkpoint signed before the chain was partitioned will not match, which is
+correct and still needs explaining. Merchant-side `pay` remains ungated — that
+is their repo and their call.

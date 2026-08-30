@@ -49,6 +49,8 @@ class McpTransport:
     """
 
     def __init__(self, url: str, timeout: float = 25.0):
+        from ..net import check
+        check(url, reason="mcp")     # refuse before a socket is ever opened
         self.url = url
         self.timeout = timeout
 
@@ -80,7 +82,9 @@ class McpMerchant:
 
     def __init__(self, url: str | None = None, merchant_id: str = "vuelaya",
                  timeout: float = 20.0):
+        from ..net import check
         self.url = url or DEFAULT_URL
+        check(self.url, reason="mcp")
         self.merchant_id = merchant_id
         self.timeout = timeout
 
