@@ -212,6 +212,34 @@ class CapturePort(Protocol):
         """Optional downstream capture hook; payment rails remain DEV3-owned."""
 
 
+class MerchantBridge(Protocol):
+    """Execution edge for a merchant with an embedded charge (decision 0030).
+
+    Unlike a payment rail, the bridge clicks checkout on a vaulted-card
+    session: the click IS the capture. Implementations live on the credential
+    machine and verify a kernel-minted capture token before acting.
+    """
+
+    def quote(self, *, purchase_id: str, store_type: str = "restaurant") -> Any:
+        """Canonical quote (total, cart_hash, return_key) of the current cart."""
+
+    def place_order(
+        self,
+        *,
+        purchase_id: str,
+        amount: Decimal,
+        cart_hash: str,
+        capture_token: str,
+        idempotency_key: str,
+        expected_address_id: str | None = None,
+        store_type: str = "restaurant",
+    ) -> Any:
+        """Guarded click; replay-safe by Idempotency-Key. Returns a receipt."""
+
+    def order_status(self, idempotency_key: str) -> Any:
+        """Poll the bridge checkpoint machine (never re-clicks `uncertain`)."""
+
+
 __all__ = [
     "AtomicReservationStore",
     "CapturePort",
@@ -220,6 +248,7 @@ __all__ = [
     "EscalationStore",
     "IdempotencyStore",
     "MandateReader",
+    "MerchantBridge",
     "OfferCatalog",
     "OutboxEvent",
     "OutboxWriter",

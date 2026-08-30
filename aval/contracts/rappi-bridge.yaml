@@ -1,0 +1,181 @@
+# Aval Rappi Bridge — contract v1.0 (additive; `api.yaml` stays frozen)
+#
+# Decision: 0030 ("the Rappi bridge is a merchant-rail, not a rail").
+# Surface exposed by `src/rappi_bridge/` ON THE CREDENTIAL MACHINE ONLY
+# (binds 127.0.0.1; the Rappi session token never leaves this host).
+# The kernel is the only intended client. Every money-moving path requires
+# a kernel-minted capture token (`capture-token+jwt`, TTL <= 120 s) whose
+# claims bind purchase_id + reservation_id + amount + cart_hash + dry_run.
+
+openapi: 3.1.0
+info:
+  title: Aval Rappi Bridge
+  version: 1.0.0
+  description: >
+    Guarded execution edge for Rappi. DRY_RUN is the default: without an
+    explicit live flag the flow stops before the paying click and returns a
+    `dry_run: true` receipt. Amounts are canonical TEXT money ("18300.00",
+    COP, 2 decimals). Canonical JSON and sha256_hex follow src/api/canonical.py.
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness + configuration echo (dry_run, cap — never secrets)
+      responses:
+        "200": { description: OK }
+
+  /v1/rappi/session/preflight:
+    get:
+      summary: Session freshness probe (must run before any flow)
+      description: >
+        Loads the authenticated home/whoami. Fails closed on login redirect:
+        the owner must re-login (OTP) on this machine; the bridge never
+        resolves OTP itself.
+      responses:
+        "200":
+          description: Session alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, account_label]
+                properties:
+                  ok: { type: boolean, const: true }
+                  account_label: { type: string, description: redacted account hint }
+                  address_active:
+                    type: object
+                    description: active delivery address projection (id + coarse label)
+        "409":
+          description: Session expired or login required (fail-closed)
+
+  /v1/rappi/quote:
+    post:
+      summary: Canonical quote of the CURRENT cart (post store/address resolution)
+      description: >
+        Recalculates the cart and reads the checkout detail. The quote is the
+        ONLY price source allowed downstream — never search results (a live
+        run measured search COP 9,400 vs checkout COP 10,300 after store
+        re-resolution and a service fee invisible to search).
+      responses:
+        "200":
+          description: Quote object
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [quote_id, merchant_id, currency, total, cart_hash, items, delivery_address_id, quoted_at, expires_at]
+                properties:
+                  quote_id: { type: string }
+                  merchant_id: { type: string, const: rappi }
+                  currency: { type: string, const: COP }
+                  total: { type: string, pattern: '^[0-9]+\.[0-9]{2}$' }
+                  cart_hash: { type: string, description: sha256_hex(canonical(cart+checkout_detail)) }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [sku, title, qty, unit_amount]
+                      properties:
+                        sku: { type: string }
+                        title: { type: string }
+                        qty: { type: integer }
+                        unit_amount: { type: string, pattern: '^[0-9]+\.[0-9]{2}$' }
+                  delivery_address_id: { type: string }
+                  return_key: { type: string, description: server-issued binding quoted-cart→checkout }
+                  quoted_at: { type: string, format: date-time }
+                  expires_at: { type: string, format: date-time, description: <= quoted_at + 300s }
+
+  /v1/rappi/place_order:
+    post:
+      summary: Guarded purchase click (the ONLY money-moving endpoint)
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+          description: kernel-derived, opaque (HMAC(idem_secret, jti) never leaves the kernel)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purchase_id, amount, cart_hash, capture_token]
+              properties:
+                purchase_id: { type: string }
+                reservation_id: { type: string }
+                amount: { type: string, pattern: '^[0-9]+\.[0-9]{2}$', description: kernel-approved total }
+                cart_hash: { type: string }
+                expected_address_id: { type: string, description: mandate-authorized address }
+                capture_token: { type: string, description: compact JWS, typ=capture-token+jwt }
+      responses:
+        "200":
+          description: Order confirmed (live) or dry-run receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, dry_run]
+                properties:
+                  state:
+                    type: string
+                    enum: [confirmed, dry_run_confirmed]
+                  dry_run: { type: boolean }
+                  order_id: { type: [string, "null"] }
+                  total_captured: { type: string }
+                  cart_hash: { type: string }
+        "402":
+          description: Rappi rejected the order pre-capture (e.g. store minimum) — replan, no money moved
+        "409":
+          description: >
+            Guard rejection — body carries `reason`: BRIDGE_PRICE_DRIFT (re-quote
+            required; kernel releases the reservation and the agent must build a
+            NEW intent), BRIDGE_ADDRESS_MISMATCH, BRIDGE_CAP_EXCEEDED,
+            BRIDGE_CART_NOT_CLEAN, BRIDGE_APPROVAL_INVALID, BRIDGE_APPROVAL_EXPIRED
+        "423":
+          description: Bridge disabled (kill switch) or DRY_RUN mismatch with token claim
+        "502":
+          description: BRIDGE_UNCERTAIN — clicked without confirmation; NEVER re-click; poll order status / reconcile
+        "409_dupe":
+          description: replay of a settled Idempotency-Key returns the ORIGINAL receipt (same state, same order_id)
+
+  /v1/rappi/orders/{idem_key}:
+    get:
+      summary: Poll bridge order state (checkpoint machine, idempotent)
+      parameters:
+        - in: path
+          name: idem_key
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: >
+            state machine: received → session_ok → cart_ok → approval_verified
+            → armed → (dry_run_confirmed | clicked → confirmed | failed(stage)
+            | uncertain). `uncertain` requires human reconciliation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  idem_key: { type: string }
+                  state: { type: string }
+                  order_id: { type: [string, "null"] }
+                  receipt: { type: object }
+
+events:
+  outbox_types_additive:
+    - rappi.quote.created
+    - purchase.placed
+    - bridge.price_drift
+    - bridge.reconciled
+    - purchase.dry_run_captured
+  purchase_status_additive:
+    - dry_run_confirmed
+
+invariants:
+  - one money path: place_order fires only with a verified capture_token; the CLI's own MCP is never agent-facing
+  - DRY_RUN default true; the live flag is machine-local env, never prompt-negotiable
+  - token dry_run claim must equal bridge dry_run config (423 on mismatch)
+  - session/OTP/CVC never automated; login redirects and CVC fields abort fail-closed
+  - screenshots/PII stay on this machine; only hashes and canonical JSON leave it

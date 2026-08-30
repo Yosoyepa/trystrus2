@@ -7,6 +7,32 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Rappi bridge BUILT (decision 0030): guard edge + capture tokens, 30 tests, suite 307 green
+- **What shipped:** `src/rappi_bridge/` — the guarded execution edge running
+  on the credential machine only. Native httpx port of the audited CLI
+  endpoints (no Bun in prod); kill switch; DRY_RUN default-on; hardcoded COP
+  cap; clean-cart precondition; delivery-address binding; cent-exact drift
+  rejection; SQLite single-flight with checkpoint machine that NEVER
+  re-clicks an `uncertain` order and treats Rappi's store-minimum rejection
+  as retryable `failed`. Kernel side: `decision/capture_token.py` (mint,
+  `typ=capture-token+jwt`, TTL 120 s, binds purchase+reservation+amount+
+  cart_hash+dry_run) and the additive `MerchantBridge` port.
+  Contract `aval/contracts/rappi-bridge.yaml` (api.yaml untouched);
+  DECISIONS #30; full record `docs/decisions/0030-…`.
+- **Tests:** 30 new (token roundtrip + 8 rejections incl. expired/tampered/
+  wrong-key/dry-run-mismatch; guards; single-flight + ARMED→CLICKED race;
+  dry-run never clicks; live clicks once; replay returns the original
+  receipt; uncertain refuses the retry; min-amount retryable; kill switch).
+  Full suite: 307 passed, 68 db-skipped, ruff clean. One real bug found by
+  the state tests: claim() self-deadlocked a non-reentrant Lock — now RLock.
+- **Integration/prod plan:** `plans/2026-08-30-dev2-rappi-integration-prod-plan.md`
+  — flow diagram, topologies (A local demo / B Cloud Run + outbound tunnel /
+  C pull-worker), env vars, runbook, and the remaining Dev 3 brief (mint on
+  pending_capture, `POST /purchases/{id}/capture`, outbox events,
+  bridge_artifacts in the evidence pack). Estimate 1–1.5 days pairing.
+
+---
+
 ## 2026-08-30 — First LIVE run analyzed: real order placed via CLI; HITL pattern mapped to Aval; 4 new guardrails
 - **What happened:** a Claude Code session drove `@crafter/rappi-cli`
   end-to-end on the owner's machine and placed a REAL paid order
