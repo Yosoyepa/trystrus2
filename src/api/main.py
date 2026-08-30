@@ -83,21 +83,6 @@ def create_app(custom_settings: Settings | None = None, service: object | None =
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    # TEMP diagnostic (dev only — remove after root-causing the session 500s):
-    # surface the real traceback in the response body.
-    @application.middleware("http")
-    async def debug_exceptions(request, call_next):
-        import traceback as _tb
-
-        from fastapi.responses import PlainTextResponse
-
-        try:
-            return await call_next(request)
-        except Exception as exc:
-            return PlainTextResponse(
-                f"{type(exc).__name__}: {exc}\n\n{_tb.format_exc()}", status_code=500
-            )
-
     return application
 
 
