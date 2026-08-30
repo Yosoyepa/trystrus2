@@ -95,6 +95,28 @@ rechaza). Todas las adiciones son fail-closed.
   explícito `allow_degraded=True` que emita warning y quede en el evento.
 - **Test:** construir el servicio sin velocity_store lanza `TypeError`.
 
+## Tarjeta 7 (RT-1-hermana, 2 h) — `approved_stepup` solo interno
+
+- **Dónde:** `src/api/domain/policy.py` (`PolicyGate.evaluate`, nuevo parámetro
+  `approved_stepup: bool = False` observado en el WIP del 2026-08-29).
+- **Problema:** el flag tiene la misma forma de bypass que RT-1: si el path de
+  `verify` (o el wiring futuro de Dev 3) puede pasarlo en `True`, el step-up
+  completo (L3+/UV en montos ≥ 0.7×max o budget ≥ 80%) es esquivable con un
+  argumento.
+- **Fix (razonable si se acota):** `approved_stepup` es legítimo SOLO para el
+  re-gate interno de `resolve_escalation`. Exigir: (1) `verify` jamás lo pasa
+  (test que lo afirme, p. ej. inspección de la llamada o firma privada
+  `_approved_stepup`); (2) `resolve_escalation` lo deriva del registro de
+  escalación aprobado (status approved + binding al mismo intent/jti + TTL
+  vigente), no de un argumento externo; (3) cuando el flag esté activo, la
+  decisión resultante queda anotada en el diff del evento con
+  `stepup_satisfied_by: escalation_id` para que el trail explique por qué no
+  se exigió UV.
+- **Test de regresión:** `evaluate(..., approved_stepup=True)` desde el path
+  de verify es imposible (firma/llamada); un re-gate con escalación aprobada
+  aprueba y el evento porta `stepup_satisfied_by`; un re-gate sin escalación
+  aprobada vuelve a exigir step-up.
+
 ## Tarjeta 5 (RT-6/C-8, 3 h) — Ratios de step-up dentro de la reserva
 
 - **Dónde:** `src/api/decision/repository_postgres.py` (`reserve`), fake análogo.
