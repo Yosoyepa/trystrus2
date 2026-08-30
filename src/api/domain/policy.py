@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 from .models import (
     AmountFormatError,
@@ -38,7 +39,6 @@ from .models import (
     canonical_amount,
     ensure_utc,
 )
-
 
 VERDICTIVE_REASONS = frozenset(
     {
@@ -251,9 +251,13 @@ def mandate_state_reason(
     except ValueError:
         return ReasonCode.MANDATE_SUSPENDED
 
-    status_value = _value(mandate, "status", mandate if isinstance(mandate, (MandateStatus, str)) else None)
+    status_value = _value(
+        mandate, "status", mandate if isinstance(mandate, (MandateStatus, str)) else None
+    )
     try:
-        status = status_value if isinstance(status_value, MandateStatus) else MandateStatus(status_value)
+        status = (
+            status_value if isinstance(status_value, MandateStatus) else MandateStatus(status_value)
+        )
     except (TypeError, ValueError):
         return ReasonCode.MANDATE_SUSPENDED
 
@@ -493,7 +497,11 @@ def _limits_decision(
         return Decision(
             DecisionValue.REJECTED,
             ReasonCode.AMOUNT_EXCEEDS_PER_TXN,
-            diff={"limit": "max_per_txn", "value": str(normalized.max_per_txn), "attempted": str(amount)},
+            diff={
+                "limit": "max_per_txn",
+                "value": str(normalized.max_per_txn),
+                "attempted": str(amount),
+            },
         )
     if spent + reserved + amount > normalized.total_budget:
         return Decision(
@@ -534,10 +542,14 @@ def _burst_state(state: BurstState | SpendView | Mapping[str, Any] | None) -> Bu
         )
     if isinstance(state, Mapping):
         return BurstState(
-            intents_in_window=state.get("intents_in_window", state.get("intents_last_60s", state.get("intent_count_60s", 0))),
+            intents_in_window=state.get(
+                "intents_in_window", state.get("intents_last_60s", state.get("intent_count_60s", 0))
+            ),
             cooldown_until=state.get("cooldown_until"),
             open_authorizations=state.get("open_authorizations", state.get("open_authz", 0)),
-            escalations_in_hour=state.get("escalations_in_hour", state.get("escalations_last_hour", 0)),
+            escalations_in_hour=state.get(
+                "escalations_in_hour", state.get("escalations_last_hour", 0)
+            ),
         )
     return BurstState()
 
@@ -825,7 +837,9 @@ def resolve_escalation(
     """
 
     current = ensure_utc(now)
-    timeout_at = escalation.timeout_at or escalation_deadline(escalation.created_at, escalation.level)
+    timeout_at = escalation.timeout_at or escalation_deadline(
+        escalation.created_at, escalation.level
+    )
     if current >= timeout_at:
         return Decision(DecisionValue.REJECTED, ReasonCode.ESCALATION_TIMEOUT_DENIED)
     if approval is False or str(approval).upper() != "APPROVE":
@@ -838,7 +852,9 @@ def resolve_escalation(
             try:
                 verified = bool(
                     verifier.verify(
-                        challenge=canonical_diff_digest(diff if diff is not None else escalation.diff),
+                        challenge=canonical_diff_digest(
+                            diff if diff is not None else escalation.diff
+                        ),
                         assertion=assertion,
                         max_age=int((timeout_at - escalation.created_at).total_seconds()),
                     )
@@ -914,7 +930,9 @@ class PolicyGate:
                 return Decision(DecisionValue.REJECTED, ReasonCode.MERCHANT_NOT_ALLOWED)
         else:
             intent_offer_amount = _value(intent, "offer_amount")
-            if intent_offer_amount is not None and not price_matches(_value(intent, "amount"), intent_offer_amount):
+            if intent_offer_amount is not None and not price_matches(
+                _value(intent, "amount"), intent_offer_amount
+            ):
                 return price_check(_value(intent, "amount"), intent_offer_amount)
             offer_merchant = str(_value(intent, "merchant_id", ""))
             offer_category = str(_value(intent, "category", ""))
@@ -929,7 +947,9 @@ class PolicyGate:
         if conditions and not evaluate_conditions(conditions, offer_mapping, current):
             return Decision(DecisionValue.REJECTED, ReasonCode.CONDITION_FAILED)
 
-        limit_decision = _limits_decision(_value(mandate, "limits"), _value(intent, "amount"), spend)
+        limit_decision = _limits_decision(
+            _value(mandate, "limits"), _value(intent, "amount"), spend
+        )
         if limit_decision.is_rejected:
             return limit_decision
 

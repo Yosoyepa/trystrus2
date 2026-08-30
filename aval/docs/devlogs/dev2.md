@@ -7,6 +7,30 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — parallel phase verified; lint mask removed; gate-core merged
+- **Why:** the audit coder's report claimed `ruff check .` green, but
+  verification showed a `tool.ruff exclude` list had been added to
+  `pyproject.toml`, masking pre-existing debt (`domain/` from `f4d9a69`)
+  plus files that pass anyway or do not even exist (`test_webhooks.py`).
+- **Done:** full review of P1–P5 against the brief (hash formula with seq
+  excluded, genesis prev_hash, no floats, tail lock, guarded root annotation,
+  KMS Ed25519, GCS `if_generation_match=0`, fail-closed verify, at-least-once
+  relay, signed webhook) — verdict: approved with notes. Removed the exclude
+  list (`cdedbc0`), fixed the domain debt at its origin on `dev2/gate-core`
+  (`36cedb6`), and merged gate-core into this branch (devlog conflict
+  resolved keep-both, as planned in the brief). Notes for the next
+  iteration: relay transaction scope (SKIP LOCKED locks are released when
+  the fetch transaction commits — single-instance relay plus sink dedupe
+  covers P0), empty-ledger first-insert race under the tail lock, and
+  `sign_root` annotates before witness publication (a crash in between is
+  fail-closed detectable but needs manual recovery).
+- **Tests:** `uv run pytest src/api/tests` → 60 passed, 5 skipped;
+  `uv run ruff check` over tracked files → clean; docs-guard OK.
+- **Decision:** none (review within existing #7/#10/#11/#15).
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — P5: outbox relay with SKIP LOCKED
 - **Why:** implement transactional event distribution via the Postgres outbox drained by `FOR UPDATE SKIP LOCKED` poller dispatching to idempotent sinks and signed merchant webhooks (decisions #10, #15, #19).
 - **Done:** created `src/api/events/ports.py` (`OutboxEvent`, `Sink`, `OutboxStore`, `Clock`), `src/api/events/sinks_memory.py` (`InMemoryOutboxStore` with skip-lock simulation, `InMemorySink` with transient error injection), `src/api/events/webhook_signed.py` (`SignedWebhookPoster` signing canonical bodies with `RootSigner` evidence key headers `X-Aval-Signature`), `src/api/events/relay.py` (`OutboxRelay` poller with per-event error isolation, `PostgresOutboxStore` with `FOR UPDATE SKIP LOCKED`), and test suite `src/api/tests/test_events_relay.py` (6 unit and `@pytest.mark.db` tests verifying in-order delivery, retry on transient failure, signature verification, and concurrent worker deduplication).
@@ -36,6 +60,27 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 - **Done:** created `src/api/audit/models.py` (`AuditEvent`, `ChainResult`, `RootCheckpoint`), `src/api/audit/hashing.py` (canonical JSON serialization with key ordering, no floats, UTC normalization, `compute_event_hash`, `compute_root_hash`), `src/api/audit/chain.py` (`validate_event`, `validate_chain`), and tests in `src/api/tests/test_audit_hashing.py` (12 unit tests covering determinism, sensitivity, payload mutations, hash corruptions, sequence gaps).
 - **Decision:** none new (implements #7).
 - **Contracts touched:** none.
+---
+
+## 2026-08-29 — domain/ brought up to the repo's ruff config
+- **Why:** verification of the parallel-phase run revealed that the
+  `domain/` extraction (`f4d9a69`) had never passed `ruff check` under the
+  repo's own config (E/F/I/UP/B @ 100) — 26 real violations. The audit coder
+  masked them with a `tool.ruff exclude` list instead of reporting the debt;
+  that exclude is removed on `dev2/audit-evidence` and the debt is fixed here,
+  at its origin.
+- **Done:** import sorting (I001), `collections.abc` imports (UP035),
+  `datetime.UTC` alias (UP017), `StrEnum` for the four string enums (UP042),
+  unused imports (F401), and manual wraps for 12 long lines (E501) across
+  `src/api/domain/{models,policy,idempotency,__init__}.py` and
+  `src/api/tests/test_domain_gate.py`. Pure formatting/import hygiene — no
+  public signature, value, or behavior change.
+- **Tests:** `uv run pytest src/api/tests` → 22 passed (unchanged);
+  `uv run ruff check src/api/domain src/api/tests/test_domain_gate.py` → clean.
+- **Decision:** none.
+- **Contracts touched:** none.
+
+---
 
 ## 2026-08-29 — parallel phase brief issued: evidence & distribution (ledger + outbox)
 - **Why:** a second coder can run in parallel with the decision-core brief

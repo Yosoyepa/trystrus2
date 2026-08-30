@@ -69,7 +69,6 @@ from .policy import (
     ttl_for_level,
 )
 
-
 __all__ = [
     "AmountFormatError",
     "AmountLike",

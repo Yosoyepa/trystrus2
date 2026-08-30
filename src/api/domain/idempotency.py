@@ -6,12 +6,12 @@ import dataclasses
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Mapping
-
+from typing import Any
 
 IDEMPOTENCY_TTL = timedelta(days=45)
 
@@ -52,7 +52,7 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() is None:
             raise TypeError("canonical JSON requires aware datetimes")
-        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, Enum):
         return value.value
     if dataclasses.is_dataclass(value):
@@ -94,7 +94,7 @@ class IdempotencyConflict(ValueError):
 def _ensure_utc(value: datetime) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("idempotency timestamps must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)
