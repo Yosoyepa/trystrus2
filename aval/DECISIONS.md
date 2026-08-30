@@ -432,6 +432,153 @@ folder discipline is load-bearing.
 
 ---
 
+## 20. Python code lives under `src/`, and the docs guard follows it
+
+**Chose:** The Python deployables sit at the repo root — `src/trustlib`,
+`src/api`, `src/merchant`, `src/yuno_sim`, `src/agent` — and
+`scripts/docs-guard.sh` gained a `^src/` alternative in the same commit. Full
+record: `docs/decisions/0020-python-code-lives-under-src.md`.
+
+**Rejected:** moving the code to `aval/kernel/` to match the written plan
+(fights every Python tool's default import root); leaving the guard alone.
+
+**Why:** the guard was recognising code only under `aval/…`, so everything in
+`src/` would have merged **without a devlog entry** — silently disabling
+decision #17 for every Python change. The folder name was the cheap half;
+keeping the documentation obligation attached to the code was the point.
+
+**Does not solve:** two documents now describe the layout and nothing enforces
+that either is true — the guard checks that docs were *touched*, not that they
+are *correct*.
+
+---
+
+## 21. The DDL had no table for passkeys
+
+**Chose:** `webauthn_credentials` (credential id, COSE public key, signature
+counter) plus a single-use `webauthn_challenges` table, both owned by Dev 3.
+Full record: `docs/decisions/0021-webauthn-credentials-table.md`.
+
+**Rejected:** stuffing credentials into `mandates.claims` (they belong to a
+person and outlive any mandate); a stateless challenge (replayable, which
+would downgrade "this gesture signed this exact permission" to "at some point").
+
+**Why:** decision #3 makes the passkey the proof of human intent and gate G1
+depends on it, but `schemas.md` §6 had nowhere to store a credential — so the
+ceremony was unbuildable. Found and closed before writing the code rather than
+halfway through it.
+
+**Does not solve:** lost-passkey recovery (already out of scope in #3), and
+credential portability — passkeys are bound to `rpId`, so changing the domain
+invalidates all of them.
+
+---
+
+## 22. Dev 3 writes to Dev 2's outbox through a shared helper
+
+**Chose:** Dev 2 keeps the `outbox` DDL; Dev 3 appends through one typed
+`trustlib` helper that joins the caller's transaction. Full record:
+`docs/decisions/0022-cross-workstream-outbox-writes.md`. **Status: ratified**.
+
+**Rejected:** a second outbox for Dev 3 (two relays, no total ordering); Dev 3
+POSTing events to a Dev 2 endpoint (breaks the same-transaction atomicity that
+decision #10 exists for); raw SQL from Dev 3 (breaks on Dev 2's next migration).
+
+**Why:** `schemas.md` §4 makes Dev 3 the emitter of eight event types while
+§6 gives the table to Dev 2 and PLAN-PARALELO §6.4 forbids touching another's
+table. Splitting *schema ownership* from *write access* satisfies all three.
+
+**Does not solve:** Dev 2 can still break every producer with a required new
+column; and nothing enforces which workstream may emit which type.
+
+---
+
+## 23. AP2 realigned to the current mandate model
+
+**Chose:** our mandate is declared as an AP2 Open Payment Mandate (`vct` +
+a derived `constraints[]` projection); VuelaYa now signs a **Checkout JWT** and
+checkout verifies `checkout_hash`; that one artefact is signed with **ES256**.
+Full record: `docs/decisions/0023-ap2-current-mandate-model.md`.
+
+**Rejected:** full conformance now (rewrites the crypto contract on day 1 and
+drags Dev 1 and Dev 2); documentation-only alignment; depending on an AP2 SDK —
+Google's is unpublished and the `ap2` package on PyPI is a third-party mirror.
+
+**Why:** ADR-001 and #2 still describe "Intent → Cart → Payment", which is the
+Sept 2025 framing; the spec now has Checkout and Payment mandates in open and
+closed variants. Most of it we already had. What we did **not** have is a
+merchant that commits to the cart cryptographically — comparing amounts field by
+field can be fooled by whatever the comparison forgot to check; a hash over the
+merchant's own signed bytes cannot. And the spec forbids our default curve:
+*"the Checkout JWT MUST be signed using a digital signature scheme (e.g.,
+ECDSA) and not a deterministic signature (e.g., Ed25519)."*
+
+**Does not solve:** we are conformant on the objects, not the choreography;
+nobody third-party validates that; and the binding is one-sided until the
+agent's intent carries `checkout_hash` (proposed as additive v1.1, deliberately
+not forced on Dev 1 and Dev 2 mid-freeze).
+
+---
+
+## 24. The rail becomes a Yuno-style AP2 orchestrator we simulate
+
+**Supersedes #8.**
+
+**Chose:** `src/yuno_sim/` — a Yuno-style payment orchestrator, **simulated**,
+speaking AP2, as its own deployable with a real network boundary. It maps
+one-to-one onto `PaymentRail`, whose signatures do not change. Before settling
+it independently verifies the mandate SD-JWT against our JWKS, the
+`checkout_hash` binding, and possession of the `cnf` key. Everything it emits is
+labelled `simulated: true`. Full record:
+`docs/decisions/0024-yuno-style-ap2-orchestrator-instead-of-paypal.md`.
+
+**Rejected:** the PayPal sandbox (decision #8's choice — but **no provider has
+shipped a public AP2 endpoint**: PayPal, Adyen, Worldpay, Mastercard and Amex
+have all announced support and published none, so we would have demoed ordinary
+Vault REST while claiming AP2); x402 as primary rail (irreversible, kills the
+dispute flow — ADR-014); an in-process fake (tests our imagination, not an
+integration).
+
+**Why:** the parts of AP2 that matter here — accepting a Payment Mandate,
+verifying it *before* moving money, binding it to a signed checkout — are
+exactly the parts nobody has shipped. Controlling both sides is what lets us
+implement them at all. It also deletes assumptions S1 and S13 and the "PayPal
+sandbox down" risk, and it puts a proposed AP2 surface for a payment
+orchestrator in front of judges who run a payment orchestrator.
+
+**Does not solve:** **no real money moves** — and #8's reasoning was not wrong:
+a real rail produces a dispute object we did not author and fails a payment for
+reasons outside our control. Our tests cannot discover what we failed to
+imagine (partial captures, settlement latency, network partitions). And our
+conformance is self-asserted; x402 on day 3 is the only path to being checked
+by a rail we did not write.
+
+---
+
+## 25. Make the merchant's cryptographic checks and revoke ceremony expressible
+
+**Chose:** contract v1.1 carries the canonical payload alongside the detached
+intent JWS, the persisted ES256 Checkout JWT, and the mandate id needed for
+live verify; VuelaYa gets catalogue/detail/price routes and signed Yuno-style
+webhooks. WebAuthn challenges use `(challenge, purpose)` so activation and
+revocation can independently sign the same exact mandate hash. Full record:
+`docs/decisions/0025-merchant-checkout-and-revocation-contract-completion.md`.
+
+**Rejected:** trying to verify a detached JWS with no payload, creating the
+cart after the agent's intent, title-string filters, reusing a consumed
+activation challenge for revocation, and unsigned rail webhooks.
+
+**Why:** the merchant must verify evidence it actually received before it
+calls the rail; the former transport could not express that proof. The new
+revoke ceremony preserves the mandated hash binding while remaining
+independently single-use.
+
+**Does not solve:** the frozen two-argument MCP `request_purchase` has no
+carrier for the agent's signed intent; it safely cannot charge, but Dev 1/2
+still need to agree on the handoff context for a live purchase.
+
+---
+
 ## 26. Agent memory, ontology, and the configuration console
 
 **Chose:** Ontology (domain knowledge) and transaction history feed the

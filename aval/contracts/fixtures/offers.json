@@ -1,0 +1,50 @@
+[
+  {
+    "offer_id": "ofr_COR_130",
+    "merchant_id": "vuelaya",
+    "category": "flights",
+    "title": "BOG->COR morning flight",
+    "amount": "130.00",
+    "currency": "USD",
+    "origin": "BOG",
+    "destination": "COR",
+    "date": "2026-08-30",
+    "description": null
+  },
+  {
+    "offer_id": "ofr_MDE_95",
+    "merchant_id": "vuelaya",
+    "category": "flights",
+    "title": "BOG->MDE afternoon flight",
+    "amount": "95.00",
+    "currency": "USD",
+    "origin": "BOG",
+    "destination": "MDE",
+    "date": "2026-08-30",
+    "description": null
+  },
+  {
+    "offer_id": "ofr_MIA_300",
+    "merchant_id": "vuelaya",
+    "category": "flights",
+    "title": "BOG->MIA direct",
+    "amount": "300.00",
+    "currency": "USD",
+    "origin": "BOG",
+    "destination": "MIA",
+    "date": "2026-08-31",
+    "description": null
+  },
+  {
+    "offer_id": "ofr_HTL_120",
+    "merchant_id": "vuelaya",
+    "category": "hotels",
+    "title": "Hotel Cartagena, 2 nights",
+    "amount": "120.00",
+    "currency": "USD",
+    "origin": "BOG",
+    "destination": "CTG",
+    "date": "2026-08-30",
+    "description": null
+  }
+]

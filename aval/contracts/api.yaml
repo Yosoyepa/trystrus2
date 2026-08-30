@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: Aval Contracts (api + merchant)
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Contrato de APIs para construcción paralela (M0). Dos servicios:
     - `api` (Canal de Confianza): mandates [A], verify/purchases/audit/events [B], escalations/bot [A]
-    - `merchant` (VuelaYa): catálogo + checkout + webhooks PayPal [D]
+    - `merchant` (VuelaYa): catálogo + checkout + webhooks del rail Yuno-style simulado [D]
     Reglas: cambios aditivos = v1.x (PR + mock + trustlib en el mismo commit). Cambios rompibles solo antes de M2.
 servers:
   - url: https://api.{domain}
@@ -36,7 +36,7 @@ paths:
   /mandates:
     post:
       tags: [mandates]
-      summary: Crear mandato (inicia ceremonia passkey + enrollment PayPal)
+      summary: Crear mandato (inicia ceremonia passkey + enrollment del rail simulado)
       requestBody:
         required: true
         content:
@@ -110,6 +110,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MandateView" }
         "409": { $ref: "#/components/responses/Rejection" }
+
+  /mandates/{id}/revoke/options:
+    post:
+      tags: [mandates]
+      summary: Inicia la ceremonia passkey de revocación para ese mandato
+      parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+      responses:
+        "200":
+          description: Opciones WebAuthn cuyo challenge es el hash del mandato
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasskeyOptions" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /mandates/{id}/verify:
     post:
@@ -263,12 +276,60 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Offer" }
 
+  /catalog/offers/{id}:
+    get:
+      tags: [merchant]
+      summary: Una oferta activa de VuelaYa por id
+      parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+      responses:
+        "200":
+          description: Oferta
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Offer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/offers/{id}/price:
+    post:
+      tags: [merchant]
+      summary: Actualiza el precio de una oferta activa para el demo/watcher
+      parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PriceUpdate" }
+      responses:
+        "200":
+          description: Oferta con el nuevo precio
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Offer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /checkout/quote:
+    post:
+      tags: [merchant]
+      summary: Firma y persiste el Checkout JWT de una oferta antes del intent del agente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckoutQuoteRequest" }
+      responses:
+        "201":
+          description: Checkout JWT ES256 y su hash AP2
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutQuote" }
+
   /checkout/charge:
     post:
       tags: [merchant]
       summary: |
         Cobrar una compra verificada. El merchant: (1) verifica SD-JWT contra JWKS,
-        (2) llama /mandates/{id}/verify, (3) SOLO si APPROVED cobra con vault_id.
+        (2) verifica el JWS detached del intent, precio y Checkout JWT,
+        (3) llama /mandates/{id}/verify, (4) SOLO si APPROVED cobra con vault_id.
       requestBody:
         required: true
         content:
@@ -285,13 +346,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Rejection" }
+        "500":
+          description: El rail pudo haber capturado; reintentar con el mismo purchase_id para reconciliar
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rejection" }
 
   /webhooks/paypal:
     post:
       tags: [merchant]
-      summary: Webhooks PayPal (PAYMENT.CAPTURE.COMPLETED, CUSTOMER.DISPUTE.*) — firma verificada
+      deprecated: true
+      summary: Compatibilidad heredada; el rail activo es Yuno-style simulado
       responses:
-        "200": { description: OK }
+        "410": { description: PayPal ya no es el rail activo }
+
+  /webhooks/yuno:
+    post:
+      tags: [merchant]
+      summary: Webhooks del orquestador Yuno-style simulado — firma Ed25519 obligatoria
+      responses:
+        "200": { description: Evento aceptado }
+        "401": { $ref: "#/components/responses/Rejection" }
 
 components:
   parameters:
@@ -383,7 +458,7 @@ components:
         payment_enroll:
           type: object
           properties:
-            approve_url: { type: string, description: link de aprobación PayPal (setup token) }
+            approve_url: { type: string, description: link de aprobación del setup token del rail simulado }
 
     MandateActive:
       type: object
@@ -409,6 +484,12 @@ components:
       type: object
       description: AuthenticationResponse de WebAuthn (verifica UV=true + challenge = hash del mandato)
       additionalProperties: true
+
+    PasskeyOptions:
+      type: object
+      properties:
+        options: { type: object, additionalProperties: true }
+        challenge: { type: string }
 
     VerifyRequest:
       type: object
@@ -508,15 +589,59 @@ components:
         title: { type: string, example: BOG→COR morning flight }
         amount: { type: string, example: "130.00" }
         currency: { type: string, example: USD }
+        origin: { type: string, example: BOG }
+        destination: { type: string, example: COR }
+        date: { type: string, format: date, example: "2026-08-30" }
         description: { type: string, description: puede contener inyecciones para el demo adversarial }
+
+    PriceUpdate:
+      type: object
+      required: [amount]
+      properties:
+        amount: { type: string, example: "99.00", description: Decimal fijo a 2 dígitos }
+
+    CheckoutQuoteRequest:
+      type: object
+      required: [offer_id]
+      properties:
+        offer_id: { type: string }
+
+    CheckoutQuote:
+      type: object
+      required: [order_id, offer, checkout_jwt, checkout_hash]
+      properties:
+        order_id: { type: string }
+        offer: { $ref: "#/components/schemas/Offer" }
+        checkout_jwt: { type: string, description: Checkout JWT firmado ES256 por VuelaYa }
+        checkout_hash: { type: string, description: base64url(sha-256(checkout_jwt)) }
+
+    PurchaseIntent:
+      type: object
+      required: [typ, mandate_jti, agent, merchant_id, offer_id, amount, currency, nonce, jti, iat, exp]
+      properties:
+        typ: { type: string, const: purchase_intent_v1 }
+        mandate_jti: { type: string }
+        agent: { type: string }
+        merchant_id: { type: string }
+        offer_id: { type: string }
+        amount: { type: string, example: "130.00" }
+        currency: { type: string, example: USD }
+        nonce: { type: string }
+        jti: { type: string }
+        iat: { type: integer }
+        exp: { type: integer }
+        checkout_hash: { type: string }
 
     ChargeRequest:
       type: object
-      required: [purchase_id, mandate_sd_jwt, intent_jwt, payment_method_ref, amount, currency]
+      required: [purchase_id, mandate_id, mandate_sd_jwt, intent, intent_jwt, checkout_jwt, payment_method_ref, amount, currency]
       properties:
         purchase_id: { type: string }
+        mandate_id: { type: string, description: id interno del mandato usado por /verify }
         mandate_sd_jwt: { type: string }
+        intent: { $ref: "#/components/schemas/PurchaseIntent" }
         intent_jwt: { type: string }
+        checkout_jwt: { type: string, description: JWT de /checkout/quote al que el intent se ata }
         payment_method_ref: { type: string, description: payment_token_id (vault) }
         amount: { type: string, example: "130.00" }
         currency: { type: string, example: USD }
@@ -526,11 +651,12 @@ components:
       type: object
       properties:
         purchase_id: { type: string }
-        paypal_capture_id: { type: string }
+        capture_id: { type: string }
         amount: { type: string }
         currency: { type: string }
         captured_at: { type: string, format: date-time }
         mandate_jti: { type: string }
+        simulated: { type: boolean }
 
     Rejection:
       type: object

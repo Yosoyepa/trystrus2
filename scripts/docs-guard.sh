@@ -18,7 +18,9 @@ CHANGED=$({ git diff --name-only "$BASE"...HEAD 2>/dev/null || true
             git ls-files --others --exclude-standard; } | sort -u)
 [ -z "$CHANGED" ] && { echo "docs-guard: no changes against $BASE"; exit 0; }
 
-CODE=$(echo "$CHANGED" | grep -E '^((aval/)?(kernel|agent|merchant|web|packages|services|infra|src)/).*\.(py|ts|tsx|js|jsx|sh|sql|go|toml)$' || true)
+# `src/` holds the Python deployables (api, merchant, yuno_sim, agent) plus trustlib —
+# see decision 0020. The aval/* prefixes stay for web/ and infra/.
+CODE=$(echo "$CHANGED" | grep -E '^(src/|(aval/)?(kernel|agent|merchant|web|packages|services|infra)/).*\.(py|ts|tsx|js|jsx|sh|sql|go|toml)$' || true)
 CONTRACTS=$(echo "$CHANGED" | grep -E '^aval/contracts/' || true)
 DEVLOGS=$(echo "$CHANGED" | grep -E '^aval/docs/devlogs/' || true)
 DECISIONS=$(echo "$CHANGED" | grep -E '^aval/docs/decisions/' || true)
@@ -26,7 +28,7 @@ DECISIONS=$(echo "$CHANGED" | grep -E '^aval/docs/decisions/' || true)
 status=0
 if [ -n "$CODE" ] && [ -z "$DEVLOGS" ]; then
   echo "FAIL docs-guard: code changed but no devlog entry was touched."
-  echo "      Append an entry to your workstream's aval/docs/devlogs/<A|B|C1|C2|C3|D>.md in this same PR (decision 0017)."
+  echo "      Append an entry to your workstream's aval/docs/devlogs/dev<1-4>.md in this same PR (decision 0017)."
   status=1
 fi
 if [ -n "$CONTRACTS" ] && [ -z "$DECISIONS" ]; then

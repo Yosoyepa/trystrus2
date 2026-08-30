@@ -1,0 +1,12 @@
+{
+  "kid": "v1",
+  "alg": "EdDSA",
+  "private_pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEILCEV4j4gitOewmIHcIyKgkEsnzD9q6hs962WK9JZWkh\n-----END PRIVATE KEY-----\n",
+  "public_jwk": {
+    "crv": "Ed25519",
+    "kty": "OKP",
+    "x": "7VNpW_pFhFuuEVoOc4URIVGKUDJ_8AYtH8sQ-SZkal8",
+    "kid": "v1"
+  },
+  "note": "Test issuer. Real keys live in Secret Manager (decision #15)."
+}

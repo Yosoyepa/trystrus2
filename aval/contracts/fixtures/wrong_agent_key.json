@@ -1,0 +1,10 @@
+{
+  "alg": "EdDSA",
+  "private_pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIEOB/L8JbrQS4BoUiBjeRBWKtesR4u/Ls8TFP3JnF6Cu\n-----END PRIVATE KEY-----\n",
+  "public_jwk": {
+    "crv": "Ed25519",
+    "kty": "OKP",
+    "x": "w7ZAr8Zz3c_ZI9htSIXRPn_qwt0csncPtDkdk-Jdiog"
+  },
+  "note": "Not bound by any mandate -> INVALID_PROOF_OF_POSSESSION."
+}

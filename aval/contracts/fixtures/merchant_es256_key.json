@@ -1,0 +1,13 @@
+{
+  "kid": "m1",
+  "alg": "ES256",
+  "private_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgeohwKOtdp9gX57CA\nzZPaCHITsYVfpe8qpw9BLFmHSMWhRANCAARayKqr+ce84uYvEh2RTHNEq8xv+gKs\nqkvameKDx5jkIb4p+EjQIcSWifaA316v15Gfqv61J5Q9gADhdU+z9WGk\n-----END PRIVATE KEY-----\n",
+  "public_jwk": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "Wsiqq_nHvOLmLxIdkUxzRKvMb_oCrKpL2pnig8eY5CE",
+    "y": "vin4SNAhxJaJ9oDfXq_XkZ-q_rUnlD2AAOF1T7P1YaQ",
+    "kid": "m1"
+  },
+  "note": "AP2 forbids Ed25519 for the Checkout JWT (decision 0023)."
+}
