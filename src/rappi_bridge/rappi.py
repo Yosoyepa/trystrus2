@@ -133,14 +133,17 @@ class RappiClient:
         if response.status_code in (401, 403):
             raise SessionExpired(f"rappi rejected the session ({path})")
         if response.status_code >= 400:
-            snippet = response.text[:200]
+            snippet = response.text[:500]
+            print(f"RAPPI API ERROR [{response.status_code}] on {path}: {response.text}")
             lowered = snippet.lower()
             if "min_amount" in lowered or "mínimo" in lowered or "minimo" in lowered:
                 raise MinAmountRejected(
                     f"store minimum not met on {path}", detail={"body": snippet}
                 )
+            if response.status_code == 404 and ("stores" in lowered or "search" in path):
+                return {"stores": []}
             raise RappiError(
-                f"rappi {method} {path} -> {response.status_code}",
+                f"rappi {method} {path} -> {response.status_code}: {snippet}",
                 detail={"body": snippet},
             )
         if not response.content:
@@ -167,10 +170,10 @@ class RappiClient:
         return data if isinstance(data, list) else data.get("carts", [])
 
     def resolve_store_type(self, preferred: str) -> str:
-        """turbo and friends are stored as `restaurant` server-side."""
+        """Keep the exact store_type ('turbo', 'express', 'restaurant', etc.)."""
         for cart in self.get_carts():
             if cart.get("store_type") == preferred:
-                return cart.get("store_type_origin") or preferred
+                return preferred
         return preferred
 
     def recalculate(self, store_type: str) -> dict[str, Any]:

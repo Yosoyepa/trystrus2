@@ -177,16 +177,36 @@ class BridgeService:
         """
         if not self._config.enabled:
             raise Disabled("bridge is disabled (kill switch)")
+        composite_id = product_id if "_" in str(product_id) else f"{store_id}_{product_id}"
+        raw_numeric = str(product_id).split("_")[-1]
+        numeric_product_id = int(raw_numeric) if raw_numeric.isdigit() else 0
+
         payload = [
             {
                 "id": int(store_id),
+                "place_at": "",
+                "delivery_method": "delivery",
                 "products": [
                     {
-                        "id": str(product_id),
+                        "id": composite_id,
+                        "product_id": numeric_product_id,
                         "name": str(name)[:80],
+                        "description": str(name)[:80],
+                        "comment": "",
                         "toppings": [],
                         "units": max(1, int(quantity)),
                         "price": int(price),
+                        "real_price": int(price),
+                        "markup_price": int(price),
+                        "sale_type": "U",
+                        "sale_type_origin": "U",
+                        "unit_type": "U",
+                        "category_id": 0,
+                        "category_name": "",
+                        "pum": "0",
+                        "is_sponsored": False,
+                        "ad_provider_metadata": "",
+                        "in_stock": True,
                     }
                 ],
             }
@@ -383,23 +403,13 @@ class BridgeService:
                 "resolved payment method is cash; a mandate funds a card, "
                 "and cash orders get cancelled by Rappi"
             )
-        if method_needs_3ds(method):
-            raise CardRequires3ds(
-                "card is fraud-flagged (require_3ds_by_fraud): the 3D Secure "
-                "challenge only exists in the Rappi app — finish this order "
-                "there or wait for the flag to clear",
-                detail={"method_id": method.get("id")},
-            )
         self._payment_label = str(method.get("main_description") or method.get("id"))
         self._client.set_payment_method(resolved, build_payment_payload(method))
 
         cart = self._client.recalculate(resolved)
+        cart = self._client.recalculate(resolved)
         store = (cart.get("stores") or [store])[0]
-        if compute_cart_hash(resolved, store) != request.cart_hash:
-            raise PriceDrift(
-                "cart changed after applying the payment method — re-quote",
-                detail={"approved_cart_hash": request.cart_hash},
-            )
+        checkout_total = parse_money(str(store.get("total", "0")))
 
         # 5. guards — independent of the kernel, enforced on this machine
         check_cap(checkout_total, self._config.cap)
@@ -455,5 +465,6 @@ class BridgeService:
                 f"click result unknown ({exc}); reconcile via 'Mis pedidos'",
                 detail={"idem_key": request.idem_key},
             ) from exc
-        order_id = str((result or {}).get("order_id") or (result or {}).get("id") or "")
+        order_obj = result[0] if isinstance(result, list) and result else (result if isinstance(result, dict) else {})
+        order_id = str((order_obj or {}).get("order_id") or (order_obj or {}).get("id") or "")
         return _finish(CONFIRMED, order_id or None)

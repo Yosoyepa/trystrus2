@@ -51,12 +51,14 @@ services:
       AVAL_BRIDGE_PAYMENT_METHOD_ID: ${AVAL_BRIDGE_PAYMENT_METHOD_ID:-}
       AVAL_BRIDGE_ALLOW_CASH: ${AVAL_BRIDGE_ALLOW_CASH:-false}
       AVAL_BRIDGE_CORS_ORIGINS: ${AVAL_BRIDGE_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      DISPLAY: ${DISPLAY:-:0}
       PYTHONPATH: /app/src:/app
     ports:
       - "127.0.0.1:8010:8010"
     volumes:
       - ./secrets:/app/secrets
       - ./var/rappi-bridge:/app/var/rappi-bridge
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8010/healthz || exit 1"]
       interval: 5s
@@ -86,7 +88,7 @@ services:
       AVAL_RP_ORIGIN: http://localhost:3000
       AVAL_RP_ID: localhost
       AVAL_ISSUER: http://localhost:8001
-      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://rappi_bridge:8010}
+      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://host.containers.internal:8010}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}

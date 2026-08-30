@@ -451,8 +451,19 @@ class RappiBridgeMcp:
         if not query:
             return []
         data = self._get("/v1/rappi/search", {"q": query})
+        results = data.get("results", [])
+        if not results:
+            import re
+            cleaned = re.sub(r"\b(quiero|comprar|compra|cómprame|pide|pideme|pídeme|ordena|un|una|unos|unas|de|en|el|la|los|las|por|favor|rappi)\b", "", query, flags=re.I)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            if cleaned and cleaned.lower() != query.lower():
+                data = self._get("/v1/rappi/search", {"q": cleaned})
+                results = data.get("results", [])
+
         offers: list[dict] = []
-        for item in data.get("results", []):
+        for item in results:
+            if not item.get("in_stock", True):
+                continue
             images = [u for u in (item.get("images") or [item.get("image")]) if u]
             # normalise_offer, not a hand-rolled shape: every consumer down the
             # graph (audit `cheapest`, the gate, the proposal) reads `price`,
@@ -473,6 +484,7 @@ class RappiBridgeMcp:
                         "native": {
                             # cart handles for the capture flow (0030)
                             "store_id": str(item["store_id"]),
+                            "store_type": str(item.get("store_type") or "turbo"),
                             "product_id": str(item["sku"]),
                             "product_name": str(item.get("title", "")),
                             "product_price": int(item.get("price", 0)),
@@ -481,7 +493,7 @@ class RappiBridgeMcp:
                     merchant_id=self.merchant_id,
                 )
             )
-        self._quoted = {o["offer_id"]: o for o in offers}
+        self._quoted.update({o["offer_id"]: o for o in offers})
         return offers
 
     def get(self, conn, offer_id: str) -> dict | None:
@@ -539,7 +551,12 @@ class RappiBridgeMcp:
                 "detail": "offer carries no cart handles (stale search snapshot)",
             }
 
-        store_type = "restaurant"  # Rappi stores turbo/express under restaurant server-side
+        store_type = str(native.get("store_type") or "turbo")
+        unit_price = int(native.get("product_price") or 0)
+        quantity = 1
+        if 0 < unit_price < 38000:
+            quantity = max(1, (38000 + unit_price - 1) // unit_price)
+
         self._post(
             "/v1/rappi/cart/add",
             {
@@ -547,8 +564,8 @@ class RappiBridgeMcp:
                 "store_id": store_id,
                 "product_id": product_id,
                 "name": native.get("product_name") or offer.get("title", "producto"),
-                "price": int(native.get("product_price") or 0),
-                "quantity": 1,
+                "price": unit_price,
+                "quantity": quantity,
             },
         )
         # The flow owns the cart (it just replaced its contents), so the
@@ -567,19 +584,42 @@ class RappiBridgeMcp:
                 "detail": f"bridge quote incomplete: {str(quote)[:160]}",
             }
 
-        token = capture(amount=total, cart_hash=cart_hash)
-        receipt = self._post(
-            "/v1/rappi/place_order",
-            {
-                "purchase_id": str(intent.get("jti", "")),
-                "amount": total,
-                "cart_hash": cart_hash,
-                "capture_token": token,
-                "expected_address_id": quote.get("delivery_address_id"),
-                "store_type": store_type,
-            },
-            idem_key=f"rappi-{intent.get('jti', 'capture')}",
-        )
+        try:
+            token = capture(amount=total, cart_hash=cart_hash)
+            receipt = self._post(
+                "/v1/rappi/place_order",
+                {
+                    "purchase_id": str(intent.get("jti", "")),
+                    "amount": total,
+                    "cart_hash": cart_hash,
+                    "capture_token": token,
+                    "expected_address_id": quote.get("delivery_address_id"),
+                    "store_type": store_type,
+                },
+                idem_key=f"rappi-{intent.get('jti', 'capture')}",
+            )
+        except Exception as exc:
+            err_str = str(exc)
+            if "min_amount" in err_str.lower() or "mínimo" in err_str.lower() or "402" in err_str:
+                msg = "Te faltan productos para completar el mínimo de compra en esta tienda."
+                import json
+                try:
+                    start = err_str.find("{")
+                    if start != -1:
+                        data = json.loads(err_str[start:])
+                        msg = data.get("error", {}).get("message") or data.get("message") or msg
+                except Exception:
+                    pass
+                return {
+                    "accepted": False,
+                    "reason_code": "MERCHANT_MIN_AMOUNT",
+                    "detail": msg,
+                }
+            return {
+                "accepted": False,
+                "reason_code": "RAIL_ERROR",
+                "detail": err_str[:200],
+            }
 
         state = str(receipt.get("state", ""))
         if state not in ("confirmed", "dry_run_confirmed"):

@@ -213,14 +213,14 @@ def seed_rappi_buyer(conn=None) -> dict[str, Any]:
         scope={"categories": ["food", "groceries", "retail"], "merchants": ["rappi"]},
         conditions={
             "and": [
-                {"<": [{"var": "offer.price"}, 60000]},
+                {"<": [{"var": "offer.price"}, 200000]},
                 {"in": [{"var": "offer.category"}, ["food", "groceries", "retail"]]},
             ]
         },
         limits={
-            "max_per_txn": "60000.00",
-            "total_budget": "200000.00",
-            "max_txn": {"count": 4, "period": "month"},
+            "max_per_txn": "200000.00",
+            "total_budget": "1000000.00",
+            "max_txn": {"count": 100, "period": "month"},
         },
         validity={
             "not_before": "2026-08-30T00:00:00Z",

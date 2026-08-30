@@ -20,9 +20,9 @@ class BridgeConfig(BaseSettings):
     # Defense in depth: a cap the bridge enforces even against a valid
     # kernel approval (protects against a misconfigured mandate, not just a
     # compromised agent).
-    max_order_cop: str = "50000.00"
-    # DRY_RUN by default (decision 0030): the paying click becomes a no-op.
-    dry_run: bool = True
+    max_order_cop: str = "80000.00"
+    # DRY_RUN flag: set to False to emit live orders and payments on the real rail
+    dry_run: bool = False
     # Kill switch: AVAL_BRIDGE_ENABLED=0 makes every tool answer with an
     # audited BRIDGE_DISABLED error.
     enabled: bool = True

@@ -38,17 +38,21 @@ class LocalMerchant:
         limit: int = 12,
         **_: Any,
     ) -> list[dict]:
+        if category in ("groceries", "food"):
+            return []
+        results = _mock.search_offers(
+            conn,
+            origin=origin,
+            destination=destination,
+            date=date,
+            category=category or "flights",
+            merchant_id=self.merchant_id,
+            limit=limit,
+        )
         return [
             self._to_offer(o)
-            for o in _mock.search_offers(
-                conn,
-                origin=origin,
-                destination=destination,
-                date=date,
-                category=category,
-                merchant_id=self.merchant_id,
-                limit=limit,
-            )
+            for o in results
+            if o.get("category") in ("flights", "hotels")
         ]
 
     def get(self, conn, offer_id: str) -> dict | None:
