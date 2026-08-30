@@ -7,6 +7,21 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — Partial demo seed no longer leaves the dispatcher without authority
+
+- **Why:** a local volume could retain `flights_marta`/`rappi_comprador` while
+  losing every `mandates` row. The dispatcher correctly found no eligible
+  pair, but the frontend only surfaced its generic 404.
+- **Built:** `needs_demo_seed()` distinguishes a fresh or recognisably partial
+  demo dataset from real mandate state. It restores the standard seed only in
+  the former case; any existing mandate row, including revoked, suspended, or
+  expired, remains fail-closed and is never replaced. Candidate lookup now
+  precedes the optional LLM classification, so missing authority fails quickly
+  instead of consuming a model timeout.
+- **Tests:** empty and partial demo datasets recover; a custom agent without a
+  mandate and a revoked mandate do not trigger reseeding; no-candidate routing
+  proves the LLM is not called.
+
 ## 2026-08-30 — Telegram talks to the same /agent conversation
 
 - **Why:** the buyer console already hits `/agent/ask` and `/agent/dispatch`;

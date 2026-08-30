@@ -1,6 +1,6 @@
 """Dispatcher scoring: deterministic agent/mandate selection."""
 
-from src.agent.router import score_candidates
+from src.agent.router import score_candidates, select_agent
 
 FLIGHTS = {
     "agent_id": "agt_a",
@@ -21,6 +21,14 @@ RAPPI = {
     },
     "currency": "COP",
 }
+
+
+class _NoCandidateConn:
+    def execute(self, _sql: str):
+        return self
+
+    def fetchall(self) -> list[dict]:
+        return []
 
 
 def test_rappi_request_prefers_rappi_agent() -> None:
@@ -59,3 +67,12 @@ def test_no_match_scores_zero_everywhere() -> None:
         "quiero ir a la luna",
     )
     assert all(item["score"] == 0 for item in scored)
+
+
+def test_no_candidate_returns_before_calling_the_model(monkeypatch) -> None:
+    def model_must_not_run(_text: str) -> dict:
+        raise AssertionError("no active mandate should short-circuit before the LLM")
+
+    monkeypatch.setattr("src.agent.router.llm.parse_request", model_must_not_run)
+
+    assert select_agent(_NoCandidateConn(), "busca una botella de agua") is None

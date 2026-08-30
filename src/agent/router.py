@@ -130,8 +130,6 @@ def score_candidates(
 
 def select_agent(conn, text: str) -> dict[str, Any] | None:
     """Pick the best active (agent, mandate) pair for `text`, or None."""
-    criteria = llm.parse_request(text)
-    category = criteria.get("category")
     rows = conn.execute(
         "SELECT a.id AS agent_id, a.name AS agent_name, m.jti AS mandate_jti,"
         " m.claims AS claims, m.created_at AS created_at"
@@ -153,6 +151,10 @@ def select_agent(conn, text: str) -> dict[str, Any] | None:
         )
     if not candidates:
         return None
+    # There is no reason to spend an LLM call (or wait for its timeout) when
+    # no active mandate can possibly be selected.
+    criteria = llm.parse_request(text)
+    category = criteria.get("category")
     ranked = score_candidates(candidates, criteria, text)
     best = ranked[0]
     if best["score"] <= 0 and len(ranked) > 1:
