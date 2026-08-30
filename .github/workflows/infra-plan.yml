@@ -51,10 +51,7 @@ jobs:
 
       - name: Tofu plan (dev)
         id: plan
-        # -refresh=false until the deploy SA holds roles/secretmanager.viewer
-        # (pending grant in iam.tf): a full refresh 403s on secret metadata.
-        # The gate still validates config and diffs vs last-applied state.
-        run: tofu plan -var-file=environments/dev.tfvars -input=false -no-color -refresh=false -out=plan.out
+        run: tofu plan -var-file=environments/dev.tfvars -input=false -no-color -out=plan.out
 
       - name: Comment plan on the PR
         if: github.event_name == 'pull_request'
