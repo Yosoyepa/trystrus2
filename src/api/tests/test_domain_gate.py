@@ -9,8 +9,7 @@ path integration) is still Dev 2's pending work.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -32,7 +31,7 @@ from src.api.domain.policy import (
     ttl_for_level,
 )
 
-NOW = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 29, 12, 0, tzinfo=UTC)
 
 
 # ── T20 (núcleo): integridad de monto punta a punta ─────────────────────────

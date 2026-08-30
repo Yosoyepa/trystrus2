@@ -9,11 +9,12 @@ path.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from enum import Enum
-from typing import Any, Mapping, Sequence
+from enum import StrEnum
+from typing import Any
 
 
 class AmountFormatError(ValueError):
@@ -90,16 +91,16 @@ def ensure_utc(value: datetime) -> datetime:
 
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("domain timestamps must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
-class DecisionValue(str, Enum):
+class DecisionValue(StrEnum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     ESCALATED = "ESCALATED"
 
 
-class ReasonCode(str, Enum):
+class ReasonCode(StrEnum):
     """Reason codes frozen by ``contracts/schemas.md`` v1.1."""
 
     AMOUNT_EXCEEDS_PER_TXN = "AMOUNT_EXCEEDS_PER_TXN"
@@ -127,7 +128,7 @@ class ReasonCode(str, Enum):
     WEBHOOK_INVALID = "WEBHOOK_INVALID"
 
 
-class MandateStatus(str, Enum):
+class MandateStatus(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     SUSPENDED = "suspended"
@@ -136,7 +137,7 @@ class MandateStatus(str, Enum):
     EXHAUSTED = "exhausted"
 
 
-class EscalationLevel(str, Enum):
+class EscalationLevel(StrEnum):
     L3 = "L3"
     L3_PLUS = "L3+"
 
@@ -355,13 +356,21 @@ class Decision:
 
     def __post_init__(self) -> None:
         try:
-            decision = self.decision if isinstance(self.decision, DecisionValue) else DecisionValue(self.decision)
+            decision = (
+                self.decision
+                if isinstance(self.decision, DecisionValue)
+                else DecisionValue(self.decision)
+            )
         except (TypeError, ValueError) as exc:
             raise ValueError("unknown decision") from exc
         object.__setattr__(self, "decision", decision)
         if self.reason_code is not None:
             try:
-                reason = self.reason_code if isinstance(self.reason_code, ReasonCode) else ReasonCode(self.reason_code)
+                reason = (
+                    self.reason_code
+                    if isinstance(self.reason_code, ReasonCode)
+                    else ReasonCode(self.reason_code)
+                )
             except (TypeError, ValueError) as exc:
                 raise ValueError("unknown reason code") from exc
             object.__setattr__(self, "reason_code", reason)
@@ -392,7 +401,11 @@ class BurstConfig:
     max_escalations_per_hour: int = 5
 
     def __post_init__(self) -> None:
-        if self.max_intents < 0 or self.max_open_authorizations < 0 or self.max_escalations_per_hour < 0:
+        if (
+            self.max_intents < 0
+            or self.max_open_authorizations < 0
+            or self.max_escalations_per_hour < 0
+        ):
             raise ValueError("burst limits cannot be negative")
         if self.window <= timedelta(0) or self.cooldown <= timedelta(0):
             raise ValueError("burst durations must be positive")

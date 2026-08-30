@@ -7,6 +7,26 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — domain/ brought up to the repo's ruff config
+- **Why:** verification of the parallel-phase run revealed that the
+  `domain/` extraction (`f4d9a69`) had never passed `ruff check` under the
+  repo's own config (E/F/I/UP/B @ 100) — 26 real violations. The audit coder
+  masked them with a `tool.ruff exclude` list instead of reporting the debt;
+  that exclude is removed on `dev2/audit-evidence` and the debt is fixed here,
+  at its origin.
+- **Done:** import sorting (I001), `collections.abc` imports (UP035),
+  `datetime.UTC` alias (UP017), `StrEnum` for the four string enums (UP042),
+  unused imports (F401), and manual wraps for 12 long lines (E501) across
+  `src/api/domain/{models,policy,idempotency,__init__}.py` and
+  `src/api/tests/test_domain_gate.py`. Pure formatting/import hygiene — no
+  public signature, value, or behavior change.
+- **Tests:** `uv run pytest src/api/tests` → 22 passed (unchanged);
+  `uv run ruff check src/api/domain src/api/tests/test_domain_gate.py` → clean.
+- **Decision:** none.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — parallel phase brief issued: evidence & distribution (ledger + outbox)
 - **Why:** a second coder can run in parallel with the decision-core brief
   without sharing a single code file — the ledger and the outbox relay are
