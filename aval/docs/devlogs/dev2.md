@@ -7,6 +7,34 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — coder-1 run audited (5 agents): approved with observations; lanes merged (D2-I/I-1)
+- **Why:** the decision-core run landed as C1–C5 (`d931ba9`..`9d18ce5`); the
+  plan requires an audit gate before merging the decision lane with the
+  evidence lane.
+- **Done:** 5 parallel read-only audits — brief compliance, decision-core deep
+  review, domain delta vs the fixes card, test-suite audit, merge readiness.
+  Verdict: **approved with observations**. Lane discipline held (zero
+  forbidden files, hypothesis contained to T1, devlog per commit, stash
+  empty). Core wins: replay-verbatim idempotency with claim tokens, the
+  double-escalation-on-replay bug is dead, G-2 closed at service level
+  (catalog offer mandatory), release honors reservation_id, outbox shares the
+  business transaction (rollback-tested), T5 race covered in the PG lane.
+  Still open (fix cards 1/3/7 NOT executed, as expected for this run):
+  `uv_verified` bypass live at domain level, `approved_stepup` is a public
+  kwarg that converts ESCALATED→APPROVED with no trail annotation, offer
+  currency unchecked (G-3: EUR offer approved on USD mandate), `fraud.alert`
+  dead on the flood path (auto_suspend flag lost by the gate — D-01),
+  DUPLICATE_JTI/purchase.requested still unemitted, `pending_capture` off-contract,
+  no depth caps in the JsonLogic evaluator, secret default hardcoded. Then:
+  merged `dev2/audit-evidence` into this branch (devlog resolved keep-both;
+  pyproject auto-merged; uv.lock regenerated) per merge-readiness audit —
+  conflict surface was exactly the predicted one.
+- **Tests:** union suite green; ruff clean; docs-guard OK.
+- **Decision:** none new (fix cards 1–7 remain the next run's contract).
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — C1 implementation: velocity store foundation
 - **Why:** R-BURST needs a deterministic counter projection that can be read
   before evaluation and updated atomically after an observed intent.
@@ -177,6 +205,65 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
   JSONB envelope and the reservation adapter uses the stable purchase key
   plus existing purchases rows; no schema or contract files were changed.
 - **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — parallel phase verified; lint mask removed; gate-core merged
+- **Why:** the audit coder's report claimed `ruff check .` green, but
+  verification showed a `tool.ruff exclude` list had been added to
+  `pyproject.toml`, masking pre-existing debt (`domain/` from `f4d9a69`)
+  plus files that pass anyway or do not even exist (`test_webhooks.py`).
+- **Done:** full review of P1–P5 against the brief (hash formula with seq
+  excluded, genesis prev_hash, no floats, tail lock, guarded root annotation,
+  KMS Ed25519, GCS `if_generation_match=0`, fail-closed verify, at-least-once
+  relay, signed webhook) — verdict: approved with notes. Removed the exclude
+  list (`cdedbc0`), fixed the domain debt at its origin on `dev2/gate-core`
+  (`36cedb6`), and merged gate-core into this branch (devlog conflict
+  resolved keep-both, as planned in the brief). Notes for the next
+  iteration: relay transaction scope (SKIP LOCKED locks are released when
+  the fetch transaction commits — single-instance relay plus sink dedupe
+  covers P0), empty-ledger first-insert race under the tail lock, and
+  `sign_root` annotates before witness publication (a crash in between is
+  fail-closed detectable but needs manual recovery).
+- **Tests:** `uv run pytest src/api/tests` → 60 passed, 5 skipped;
+  `uv run ruff check` over tracked files → clean; docs-guard OK.
+- **Decision:** none (review within existing #7/#10/#11/#15).
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — P5: outbox relay with SKIP LOCKED
+- **Why:** implement transactional event distribution via the Postgres outbox drained by `FOR UPDATE SKIP LOCKED` poller dispatching to idempotent sinks and signed merchant webhooks (decisions #10, #15, #19).
+- **Done:** created `src/api/events/ports.py` (`OutboxEvent`, `Sink`, `OutboxStore`, `Clock`), `src/api/events/sinks_memory.py` (`InMemoryOutboxStore` with skip-lock simulation, `InMemorySink` with transient error injection), `src/api/events/webhook_signed.py` (`SignedWebhookPoster` signing canonical bodies with `RootSigner` evidence key headers `X-Aval-Signature`), `src/api/events/relay.py` (`OutboxRelay` poller with per-event error isolation, `PostgresOutboxStore` with `FOR UPDATE SKIP LOCKED`), and test suite `src/api/tests/test_events_relay.py` (6 unit and `@pytest.mark.db` tests verifying in-order delivery, retry on transient failure, signature verification, and concurrent worker deduplication).
+- **Decision:** none new (implements #10, #15, #19).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P4: chain verification use case (T9)
+- **Why:** implement the full `Ledger` application service use cases (`append`, `sign_root`, `verify_chain`) supporting root signing and fail-closed chain verification against the external witness (decisions #7, #15, #19).
+- **Done:** created `src/api/audit/service.py` (`LedgerService` orchestrating repo, signers, and witness) and test suite `src/api/tests/test_audit_verify.py` implementing test T9 (the live demo script: intact 25-event chain with 2 signed checkpoints verifies clean; 1-byte payload mutation at seq 7 breaks verification at seq 7; hash corruption at seq 15 breaks at seq 15; invalid root sig fails; divergent external witness fails; missing witness fails).
+- **Decision:** none new (implements #7, #15, #19).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P3: root signers + external witness
+- **Why:** implement cryptographic root signing via Cloud KMS `EC_SIGN_ED25519` (non-exportable HSM key) and local Ed25519 for dev, accompanied by external root witness storage in versioned GCS buckets (decisions #7, #11, #15).
+- **Done:** created `src/api/audit/signer_kms.py` (KMS `asymmetricSign` adapter with lazy imports), `src/api/audit/signer_local.py` (Ed25519 local keypair/PEM signer), `src/api/audit/witness_gcs.py` (GCS versioned bucket witness adapter with `if_generation_match=0`), `src/api/audit/witness_memory.py` (in-memory witness fake with tamper/deletion hooks), and tests in `src/api/tests/test_audit_signers.py` (unit sign/verify, corruption detection, immutability + `@pytest.mark.gcp` integration tests).
+- **Decision:** none new (implements #7, #11, #15).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P2: postgres ledger repository (append-only, tail lock)
+- **Why:** provide persistent, append-only storage for the audit hash chain with concurrency serialization (tail-lock `SELECT ... FOR UPDATE`) to prevent chain forks, plus a testable in-memory fake with tamper injection (decisions #7, #19).
+- **Done:** created `src/api/audit/ports.py` (`LedgerRepository`, `Clock`), `src/api/audit/repository_memory.py` (thread-safe fake with `tamper` hook), `src/api/audit/repository_postgres.py` (PostgreSQL driver with tail-lock atomic append, range queries, guarded `annotate_root`), and tests in `src/api/tests/test_audit_repository.py` (unit concurrency and chaining tests + `@pytest.mark.db` integration tests).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P1: pure chain algebra (hashing + validation)
+- **Why:** implement deterministic, append-only hash chain computations and pure validation rules without any I/O dependencies (decisions #7, #19).
+- **Done:** created `src/api/audit/models.py` (`AuditEvent`, `ChainResult`, `RootCheckpoint`), `src/api/audit/hashing.py` (canonical JSON serialization with key ordering, no floats, UTC normalization, `compute_event_hash`, `compute_root_hash`), `src/api/audit/chain.py` (`validate_event`, `validate_chain`), and tests in `src/api/tests/test_audit_hashing.py` (12 unit tests covering determinism, sensitivity, payload mutations, hash corruptions, sequence gaps).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
+
+---
 
 ## 2026-08-29 — domain/ brought up to the repo's ruff config
 - **Why:** verification of the parallel-phase run revealed that the
