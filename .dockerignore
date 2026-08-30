@@ -1,0 +1,16 @@
+.venv
+.git
+.pytest_cache
+.hypothesis
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+node_modules
+web/node_modules
+web/dist
+var
+secrets
+avalstarter.zip

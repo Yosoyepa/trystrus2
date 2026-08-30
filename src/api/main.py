@@ -18,7 +18,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, settings
-from .routers import escalations, mandates
+from .routers import (
+    agent_bridge,
+    audit,
+    decision,
+    escalations,
+    evidence,
+    mandates,
+)
 from .services.escalations import sweep_forever
 
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +70,10 @@ def create_app(custom_settings: Settings | None = None, service: object | None =
 
     application.include_router(mandates.router)
     application.include_router(escalations.router)
+    application.include_router(decision.router)
+    application.include_router(audit.router)
+    application.include_router(evidence.router)
+    application.include_router(agent_bridge.router)
 
     @application.get("/health", tags=["ops"])
     async def health() -> dict:

@@ -16,3 +16,7 @@ __pycache__/
 *.pem
 
 .DS_Store
+node_modules/
+dist/
+web/dist/
+web/node_modules/

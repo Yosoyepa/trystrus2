@@ -7,6 +7,18 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Unified HTTP routers mounted in `src/api/` (Decision, Audit, Evidence, Agent Bridge)
+- **Why:** Connect all underlying subsystems (policy gate, idempotency, atomic reservation, audit hash chain, canonical evidence pack, agent orchestrator) to the HTTP surface for the web frontend and external callers.
+- **Implemented:**
+  - `src/api/routers/decision.py`: `POST /mandates/{mandate_id}/verify` and `POST /purchases/verify` connected to `DecisionService`.
+  - `src/api/routers/audit.py`: `GET /audit/events`, `POST /audit/verify`, `GET /audit/verify`, and `POST /audit/tamper`.
+  - `src/api/routers/evidence.py`: `GET /purchases/{purchase_id}/evidence-pack` connected to `EvidenceService.assemble()`.
+  - `src/api/routers/agent_bridge.py`: `POST /agent/ask`, `GET /agent/transcript`, `GET /agent/runs`, `GET /agent/watches`, `POST /agent/watches`, `GET /agent/limits`.
+  - Mounted all routers in `src/api/main.py` and exported dependencies in `src/api/deps.py`.
+- **Tests:** Added `tests/test_unified_routers.py` exercising 12 comprehensive cases with in-memory/in-process fakes. 100% of test suite passing (307 passed, 68 skipped). All ruff checks clean.
+
+---
+
 ## 2026-08-29 — coder-1 run audited (5 agents): approved with observations; lanes merged (D2-I/I-1)
 - **Why:** the decision-core run landed as C1–C5 (`d931ba9`..`9d18ce5`); the
   plan requires an audit gate before merging the decision lane with the
