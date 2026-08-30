@@ -7,6 +7,36 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Rappi bridge use case evaluated (4 expert agents): merchant-with-embedded-charge, not a rail
+- **Why:** happy-path merchant (Rappi) has no buyer-side API; proposal is to
+  operate a real logged-in session (card + address vaulted in Rappi) from the
+  credential machine so the agent can browse, search under the owner's
+  identity, and place REAL orders end-to-end.
+- **Verdict:** viable for the hackathon demo with hard guardrails. Key
+  structural finding: the bridge is NOT a Yuno-style rail — Rappi vaults the
+  card, so the final click IS the capture. Correct pattern is
+  ChargeService/settle (kernel-only) + a new kernel-minted capture_token
+  (JWT ES256, TTL 120 s, binding purchase_id+amount+cart_hash), NOT
+  AsyncPaymentRail (frozen #24). Closes the saga's missing half
+  (pending_capture → captured).
+- **Choice:** own domain bridge (Playwright headful + persistent profile,
+  6 closed actions, place_order gate-bound, screenshots hashed into the
+  evidence pack), DRY_RUN default-on, 10-item blocking guardrail checklist
+  (storage_state custody, hardcoded COP cap, no direction/card/coupon verbs,
+  CVC fail-closed, never re-click on uncertain). Fallback kept warm:
+  @playwright/mcp. Discarded: Android automation, private-API replay.
+- **Empirical:** rappi.com.co loads with no visible anti-bot; web checkout
+  works without the app; dev portal is B2B-only; ToS §10 silent
+  fraud-check cancellation is the top demo-kill risk (plan B: simulator as
+  primary demo).
+- **Artifacts:** analysis + guardrails + build plan + open decisions
+  Q-R1..Q-R8 in
+  [`research/2026-08-30-dev2-rappi-bridge-analysis.md`](../research/2026-08-30-dev2-rappi-bridge-analysis.md);
+  decision record #29 proposed (bridge as merchant-rail); contract additions
+  live in a NEW `contracts/rappi-bridge.yaml` (api.yaml stays frozen).
+
+---
+
 ## 2026-08-30 — Unified HTTP routers mounted in `src/api/` (Decision, Audit, Evidence, Agent Bridge)
 - **Why:** Connect all underlying subsystems (policy gate, idempotency, atomic reservation, audit hash chain, canonical evidence pack, agent orchestrator) to the HTTP surface for the web frontend and external callers.
 - **Implemented:**
