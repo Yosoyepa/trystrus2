@@ -34,6 +34,13 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     stop = asyncio.Event()
+    from src.agent import service as agent_service
+
+    try:
+        merchants = agent_service.bootstrap()
+        print(f"merchants registered: {sorted(merchants['merchants'])}")
+    except Exception as exc:  # a broken merchant never blocks the kernel
+        print(f"merchant bootstrap skipped: {exc}")
     sweeper = asyncio.create_task(sweep_forever(stop))
     try:
         yield

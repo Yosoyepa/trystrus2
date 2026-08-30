@@ -23,9 +23,11 @@ from .ports.setup import setup as setup_merchants
 
 
 # ── lifecycle ────────────────────────────────────────────────────────────────
-def bootstrap(*, vuelaya_url: str | None = None, mami_url: str | None = None) -> dict[str, Any]:
+def bootstrap(
+    *, vuelaya_url: str | None = None, mami_url: str | None = None, rappi_url: str | None = None
+) -> dict[str, Any]:
     """Call once at process start. Registers merchants and event subscribers."""
-    merchants = setup_merchants(vuelaya_url=vuelaya_url, mami_url=mami_url)
+    merchants = setup_merchants(vuelaya_url=vuelaya_url, mami_url=mami_url, rappi_url=rappi_url)
     relay.default_subscribers()
     return {
         "product": PRODUCT_NAME,

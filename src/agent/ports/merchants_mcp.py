@@ -374,3 +374,71 @@ class MamiMcp:
                 "at": now_iso(),
             },
         }
+
+
+class RappiBridgeMcp:
+    """The Aval Rappi bridge (`src/rappi_bridge/`, decision 0030) as a merchant.
+
+    Search is read-only against the owner's real session. There is NO settle
+    path here on purpose: a Rappi purchase is captured by the bridge's guarded
+    `place_order` with a kernel capture token (the human step-up IS the key),
+    never by a merchant-side charge — a mandate-funded click would be a second
+    road to money.
+    """
+
+    merchant_id = "rappi"
+    currency = "COP"
+    category = "groceries"
+
+    def __init__(self, url: str):
+        self.url = url.rstrip("/")
+
+    def discover(self) -> dict[str, Any]:
+        return {"merchant_id": self.merchant_id, "bridge": self.url}
+
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        import httpx
+
+        response = httpx.get(f"{self.url}{path}", params=params, timeout=20.0)
+        if response.status_code >= 400:
+            raise RuntimeError(f"bridge {path} -> {response.status_code}")
+        return response.json()
+
+    def search(
+        self, conn, *, query: str | None = None, category=None, **_: Any
+    ) -> list[dict]:
+        if not query:
+            return []
+        data = self._get("/v1/rappi/search", {"q": query})
+        offers: list[dict] = []
+        for item in data.get("results", []):
+            offers.append(
+                {
+                    "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
+                    "merchant_id": self.merchant_id,
+                    "category": "groceries",
+                    "title": f"{item['title']} — {item['store_name']}",
+                    "amount": str(int(item.get("price", 0))),
+                    "currency": self.currency,
+                    "eta": item.get("eta"),
+                    "description": (
+                        f"delivery {item.get('shipping_cost', 0)} COP"
+                        f" · {item.get('eta', '')}"
+                    ),
+                }
+            )
+        return offers
+
+    def get(self, conn, offer_id: str) -> dict | None:
+        return None  # search results are the only quoting surface tonight
+
+    def settle(self, conn, **_: Any) -> dict:
+        return {
+            "accepted": False,
+            "reason_code": "CAPTURE_PENDING",
+            "detail": (
+                "Rappi purchases settle through the bridge's guarded "
+                "place_order with a kernel capture token (decision 0030); "
+                "the kernel capture endpoint is pending (Dev 3 brief)."
+            ),
+        }

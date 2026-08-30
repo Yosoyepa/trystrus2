@@ -42,6 +42,44 @@ class CreateWatchRequest(BaseModel):
     created_by: str | None = None
 
 
+class DispatchRequest(BaseModel):
+    text: str
+    session_id: str | None = None
+    person: str = "buyer"
+
+
+@router.post("/dispatch")
+async def dispatch_agent(body: DispatchRequest) -> dict[str, Any]:
+    """Route the request to the active agent whose mandate scope matches.
+
+    Deterministic selection over the LLM's category read: the caller never
+    hardcodes an agent, and the gate still enforces the mandate anyway.
+    """
+    conn = deps.agent_conn()
+    if conn is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Agent storage connection is not available",
+        )
+
+    from src.agent import router as agent_router, service
+
+    picked = agent_router.select_agent(conn, body.text)
+    if picked is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no active agent matches this request"
+        )
+    result = service.ask(
+        conn,
+        text=body.text,
+        agent_id=picked["agent_id"],
+        mandate_jti=picked["mandate_jti"],
+        session_id=body.session_id,
+        person=body.person,
+    )
+    return {**result, "dispatch": picked}
+
+
 @router.post("/ask")
 async def ask_agent(body: AskRequest) -> dict[str, Any]:
     """Forward a turn to the agent orchestrator graph."""

@@ -208,3 +208,27 @@ class LazyRappiClient:
         if name.startswith("_"):
             raise AttributeError(name)
         return getattr(self._ensure(), name)
+
+    def search(self, query: str) -> list[dict[str, Any]]:
+        """Unified catalog search (read-only). POST per the audited CLI."""
+        data = self._request(
+            "POST",
+            "/api/pns-global-search-api/v1/unified-search?is_prime=false",
+            body={"query": query, "lat": self._session.lat, "lng": self._session.lng},
+        )
+        results: list[dict[str, Any]] = []
+        for store in data.get("stores", []) if isinstance(data, dict) else []:
+            for product in store.get("products", []):
+                results.append(
+                    {
+                        "sku": str(product.get("product_id")),
+                        "title": str(product.get("name", "")),
+                        "price": product.get("price", 0),
+                        "in_stock": product.get("in_stock", True),
+                        "store_id": str(store.get("store_id", "")),
+                        "store_name": str(store.get("store_name", "")),
+                        "eta": str(store.get("eta", "")),
+                        "shipping_cost": store.get("shipping_cost", 0),
+                    }
+                )
+        return results

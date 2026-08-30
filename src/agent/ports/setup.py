@@ -11,10 +11,11 @@ from typing import Any
 
 from .base import MERCHANTS, TOOLS, register_merchant
 from .local import LocalMerchant
-from .merchants_mcp import MamiMcp, VuelaYaMcp
+from .merchants_mcp import MamiMcp, RappiBridgeMcp, VuelaYaMcp
 
 VUELAYA_MCP_URL = os.environ.get("TT_VUELAYA_MCP_URL", "")
 MAMI_MCP_URL = os.environ.get("TT_MAMI_MCP_URL", "")
+RAPPI_BRIDGE_URL = os.environ.get("TT_RAPPI_BRIDGE_URL", "")
 
 
 def setup(
@@ -22,6 +23,7 @@ def setup(
     local: bool = True,
     vuelaya_url: str | None = None,
     mami_url: str | None = None,
+    rappi_url: str | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     """Register merchants and enumerate what each one offers.
@@ -42,6 +44,7 @@ def setup(
     for url, cls in (
         (vuelaya_url or VUELAYA_MCP_URL, VuelaYaMcp),
         (mami_url or MAMI_MCP_URL, MamiMcp),
+        (rappi_url or RAPPI_BRIDGE_URL, RappiBridgeMcp),
     ):
         if not url:
             continue

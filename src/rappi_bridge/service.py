@@ -120,6 +120,12 @@ class BridgeService:
     def order_status(self, idem_key: str) -> dict[str, Any] | None:
         return self._state.get(idem_key)
 
+    def search(self, query: str) -> list[dict[str, Any]]:
+        """Read-only catalog search; requires a live session."""
+        if not self._config.enabled:
+            raise Disabled("bridge is disabled (kill switch)")
+        return self._client.search(query)
+
     # -- helpers -----------------------------------------------------------
 
     def _kernel_keys(self) -> dict[str, Any]:

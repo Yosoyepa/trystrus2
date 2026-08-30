@@ -7,6 +7,39 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Agent dispatcher LIVE: request → right agent → right MCP; Rappi registered as a merchant
+- **What shipped:** `src/agent/router.py` — request-to-agent routing.
+  Category from `llm.parse_request` (propose-side, 0016-safe) + a
+  deterministic keyword/scope scorer over every active (agent, mandate) pair;
+  the reply explains WHY it routed ("categoría 'flights' en el scope…
+  palabras ['vuelo']…"). Ambiguity with >1 zero-score candidates refuses to
+  guess. New `POST /agent/dispatch {text}` runs the routed agent and returns
+  the routing decision next to the replies. 4 pure scoring tests.
+- **Rappi is now a first-class merchant:** `RappiBridgeMcp` (merchant_id
+  `rappi`) registered via `ports/setup.py` (`TT_RAPPI_BRIDGE_URL`) — search
+  fans out to the bridge's real session through the new read-only
+  `GET /v1/rappi/search` (audited CLI endpoint); settle is DELIBERATELY
+  refused (`CAPTURE_PENDING`) because a Rappi charge is the bridge's guarded
+  click with a kernel capture token, never a merchant-side charge (0030).
+  Kernel lifespan now calls `agent_service.bootstrap()` so real MCPs register
+  at boot (`merchants registered: ['rappi', 'vuelaya']` in the logs) — until
+  today only the LocalMerchant mock was ever registered, which is what the
+  earlier "Bought" demo actually hit.
+- **Seeded:** `scripts/seed-rappi-agent.py` → agent `rappi_comprador`
+  (agt_7d4c…) with a dual-signed COP mandate (60k/txn, 200k total, scope
+  rappi/food/groceries/retail). Flights mandate re-issued for agt_c124
+  (mdt_0492…). NOTE: one flights mandate pair vanished from the DB between
+  the reset and the rebuild with no DELETE statement in the codebase —
+  re-issued and stable since; watch if it recurs.
+- **E2E verified:** "Buscame un vuelo de BOG a COR" → flights_marta →
+  Bought 130.00 USD (receipt rcp_7797…, Gemini rationale in Spanish);
+  "papas pringles en rappi" → rappi_comprador → routed correctly, search
+  refused safely while no Rappi session exists (fail-closed as designed).
+- **Front:** chat calls `/agent/dispatch` and prefixes replies with the
+  chosen agent; pinned-agent envs remain as fallback only.
+
+---
+
 ## 2026-08-30 — Backend LIVE via podman (user's runtime): three integration bugs found and fixed
 - **Setup:** stack brought up with `podman compose up -d --build db kernel
   yuno_sim merchant` (no Docker on this machine; Podman 5.8.4 is the team

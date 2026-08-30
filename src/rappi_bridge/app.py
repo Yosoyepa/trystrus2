@@ -105,6 +105,14 @@ def create_app(
 
     # -- commerce -------------------------------------------------------------
 
+    @app.get("/v1/rappi/search")
+    def search(
+        q: str,
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        _guard_token(authorization)
+        return {"query": q, "results": service.search(q)}
+
     @app.post("/v1/rappi/quote")
     def quote(
         authorization: str | None = Header(default=None),

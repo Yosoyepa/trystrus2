@@ -53,6 +53,7 @@ services:
       AVAL_RP_ORIGIN: http://localhost:3000
       AVAL_RP_ID: localhost
       AVAL_ISSUER: http://localhost:8001
+      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://host.containers.internal:8010}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
