@@ -376,6 +376,15 @@ resource "google_cloud_run_v2_service" "merchant" {
         name  = "MERCHANT_FIXTURES_DIR"
         value = "/app/aval/contracts/fixtures"
       }
+      # The MCP transport's DNS-rebinding guard ships on with an empty
+      # allowlist, and an empty allowlist rejects every Host with 421. Behind
+      # the LB the Host is the public domain, so it has to be named here or the
+      # deployed MCP answers nothing at all. Direct *.run.app access needs its
+      # own entry via var.mcp_allowed_hosts; the port wildcard covers :443.
+      env {
+        name  = "TT_MCP_ALLOWED_HOSTS"
+        value = var.mcp_allowed_hosts != "" ? var.mcp_allowed_hosts : (var.domain != "" ? "${var.domain},${var.domain}:*" : "")
+      }
       env {
         name = "MERCHANT_DATABASE_URL"
         value_source {

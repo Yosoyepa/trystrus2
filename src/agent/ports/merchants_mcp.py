@@ -263,6 +263,14 @@ class VuelaYaMcp:
         }
 
 
+# What a person calls a bag of crisps, and what this catalogue calls it, are not
+# the same word. The model classifies "comprame un snack" as `food`; Mami files
+# the identical product under `retail`. Exact-matching one label meant every
+# grocery request searched Mami and came back empty, which reads as an empty
+# catalogue rather than a vocabulary mismatch. Translating is the adapter's job.
+MAMI_CATEGORIES = frozenset({"retail", "groceries", "food", "snacks", "supermarket"})
+
+
 class MamiMcp:
     """Groceries. Same boundary, different vocabulary."""
 
@@ -282,13 +290,21 @@ class MamiMcp:
     def search(
         self, conn, *, query=None, category=None, destination=None, limit: int = 12, **_: Any
     ) -> list[dict]:
-        if category and category not in (self.category, None):
+        if category and category.lower() not in MAMI_CATEGORIES:
             return []
+        rows: list[dict] = []
         if query:
             result = self.transport.call("search_products", query=query, limit=limit)
-        else:
-            result = self.transport.call("list_products", limit=limit)
-        return [self._to_offer(p) for p in _rows(result, "products")]
+            rows = _rows(result, "products")
+        # `search_products` matches literally, and the graph hands us the
+        # buyer's whole sentence -- "comprame un snack barato" matches no brand
+        # name, so a literal search returns nothing and the run dies as though
+        # the catalogue were empty. Browsing is the honest fallback: showing the
+        # shelf is what a shop does when it cannot parse what you asked for, and
+        # the gate still decides what may be bought from it.
+        if not rows:
+            rows = _rows(self.transport.call("list_products", limit=limit), "products")
+        return [self._to_offer(p) for p in rows]
 
     def get(self, conn, offer_id: str) -> dict | None:
         for call in (
