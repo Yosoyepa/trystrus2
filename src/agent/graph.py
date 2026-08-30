@@ -200,6 +200,11 @@ def node_search(conn, run: dict) -> str:
         )
     run["state"]["offers"] = limits.clamp_offers(offers)
     offers = run["state"]["offers"]
+    if not offers:
+        from .ports.base import MERCHANTS
+
+        missing = [m for m in (allowed or []) if m not in MERCHANTS]
+        run["state"]["search_error"] = "merchant_offline" if missing else "no_offers"
     _save(conn, run, node="search", event={"offers_found": len(offers)})
     audit.append(
         conn,

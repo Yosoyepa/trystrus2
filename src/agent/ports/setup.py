@@ -12,7 +12,7 @@ from typing import Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .base import MERCHANTS, TOOLS, register_merchant
-from .local import LocalMerchant
+from .local import LocalMerchant, LocalRappi
 from .merchants_mcp import MamiMcp, RappiBridgeMcp, VuelaYaMcp
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -64,7 +64,6 @@ def setup(
     for url, cls in (
         (vuelaya_url or endpoints.tt_vuelaya_mcp_url, VuelaYaMcp),
         (mami_url or endpoints.tt_mami_mcp_url, MamiMcp),
-        (rappi_url or endpoints.tt_rappi_bridge_url, RappiBridgeMcp),
     ):
         if not url:
             continue
@@ -76,4 +75,21 @@ def setup(
             report[merchant.merchant_id] = {"unreachable": str(exc)[:200]}
             if not quiet:
                 print(f"  {merchant.merchant_id}: unreachable ({exc})")
+
+    rappi_url = rappi_url or endpoints.tt_rappi_bridge_url
+    rappi_live = False
+    if rappi_url:
+        merchant = RappiBridgeMcp(rappi_url)
+        try:
+            report["rappi"] = merchant.discover()
+            register_merchant(merchant)
+            rappi_live = True
+        except Exception as exc:
+            report["rappi"] = {"unreachable": str(exc)[:200], "fallback": "fixture"}
+            if not quiet:
+                print(f"  rappi: unreachable ({exc}); using fixture catalog")
+    if not rappi_live:
+        fixture = register_merchant(LocalRappi())
+        report.setdefault("rappi", {"fixture": True})
+        report["rappi"]["tools"] = fixture.discover().get("tools")
     return report

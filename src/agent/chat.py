@@ -246,7 +246,16 @@ class Session:
             return lines
 
         if run["status"] == "denied":
-            lines.append("I could not find anything I am allowed to buy for that.")
+            err = state.get("search_error")
+            if err == "merchant_offline":
+                lines.append(
+                    "No pude buscar eso: el comercio del mandato no está conectado. Nada se cobró."
+                )
+            else:
+                lines.append(
+                    "No encontré nada que el mandato me deje comprar para eso. "
+                    "Probá con un vuelo, un hotel, o comida/mercado (agua, pizza…)."
+                )
             return lines
         if run["status"] == "failed":
             lines.append("Something broke on my side. Nothing was charged.")

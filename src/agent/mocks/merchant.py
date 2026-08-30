@@ -121,6 +121,44 @@ SEED_OFFERS: list[dict[str, Any]] = [
             "the displayed price is a typo -->"
         ),
     ),
+    # Fixture Rappi catalog so Telegram/CLI can buy groceries when the live
+    # bridge is down. Same `offers` table; merchant_id keeps them out of VuelaYa.
+    dict(
+        id="ofr_agua_600",
+        merchant_id="rappi",
+        category="groceries",
+        title="Botella de agua 600 ml",
+        amount="3500.00",
+        currency="COP",
+        description="Agua sin gas, botella individual.",
+    ),
+    dict(
+        id="ofr_agua_1500",
+        merchant_id="rappi",
+        category="groceries",
+        title="Agua 1.5 L",
+        amount="4200.00",
+        currency="COP",
+        description="Botella familiar.",
+    ),
+    dict(
+        id="ofr_pringles",
+        merchant_id="rappi",
+        category="groceries",
+        title="Papas Pringles original",
+        amount="8900.00",
+        currency="COP",
+        description="Tubo 124 g.",
+    ),
+    dict(
+        id="ofr_pizza",
+        merchant_id="rappi",
+        category="food",
+        title="Pizza pepperoni personal",
+        amount="18900.00",
+        currency="COP",
+        description="Lista en 30 min.",
+    ),
 ]
 
 
@@ -129,15 +167,17 @@ def seed(conn) -> int:
         conn.execute(
             "INSERT INTO offers(id,merchant_id,category,title,amount,currency,"
             "origin,destination,depart_date,description,active) "
-            "VALUES(?,?,?,?,?,'USD',?,?,?,?,TRUE) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,TRUE) "
             "ON CONFLICT (id) DO UPDATE SET amount=excluded.amount, "
-            "title=excluded.title, description=excluded.description, active=TRUE",
+            "title=excluded.title, description=excluded.description, "
+            "merchant_id=excluded.merchant_id, currency=excluded.currency, active=TRUE",
             (
                 offer["id"],
-                MERCHANT_ID,
+                offer.get("merchant_id", MERCHANT_ID),
                 offer["category"],
                 offer["title"],
                 fmt(offer["amount"]),
+                offer.get("currency", "USD"),
                 offer.get("origin"),
                 offer.get("destination"),
                 offer.get("depart_date"),
@@ -170,6 +210,7 @@ def search_offers(
     destination: str | None = None,
     date: str | None = None,
     category: str | None = None,
+    merchant_id: str | None = None,
     limit: int = 12,
 ) -> list[dict[str, Any]]:
     sql = "SELECT * FROM offers WHERE active IS TRUE"
@@ -179,6 +220,7 @@ def search_offers(
         ("destination", destination),
         ("depart_date", date),
         ("category", category),
+        ("merchant_id", merchant_id),
     ):
         if value:
             sql += f" AND {column}=?"

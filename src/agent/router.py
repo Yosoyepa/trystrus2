@@ -92,6 +92,18 @@ def _tokens(text: str) -> set[str]:
     return set(text.lower().split())
 
 
+def inferred_category(text: str) -> str | None:
+    """Category from buyer words. Deterministic; beats the model's catalog guess."""
+    tokens = _tokens(text)
+    best: str | None = None
+    best_hits = 0
+    for category, words in CATEGORY_KEYWORDS.items():
+        hits = len(set(words) & tokens)
+        if hits > best_hits:
+            best, best_hits = category, hits
+    return best
+
+
 def score_candidates(
     candidates: list[dict[str, Any]], criteria: dict[str, Any], text: str
 ) -> list[dict[str, Any]]:
@@ -130,7 +142,12 @@ def score_candidates(
 
 def select_agent(conn, text: str) -> dict[str, Any] | None:
     """Pick the best active (agent, mandate) pair for `text`, or None."""
-    criteria = llm.parse_request(text)
+    criteria = dict(llm.parse_request(text))
+    keyword_category = inferred_category(text)
+    if keyword_category:
+        # Buyer words beat the model: "botella de agua" is groceries even if
+        # the parser still thinks in flights (it used to only know those two).
+        criteria["category"] = keyword_category
     category = criteria.get("category")
     rows = conn.execute(
         "SELECT a.id AS agent_id, a.name AS agent_name, m.jti AS mandate_jti,"
@@ -155,8 +172,8 @@ def select_agent(conn, text: str) -> dict[str, Any] | None:
         return None
     ranked = score_candidates(candidates, criteria, text)
     best = ranked[0]
-    if best["score"] <= 0 and len(ranked) > 1:
-        return None  # ambiguous: refuse to guess rather than misroute money
+    if best["score"] <= 0:
+        return None  # refuse to guess rather than send groceries to a flights mandate
     return {
         "agent_id": best["agent_id"],
         "agent_name": best["agent_name"],
