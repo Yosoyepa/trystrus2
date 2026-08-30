@@ -164,8 +164,10 @@ def agent_conn() -> Any:
         from src.agent import db, seed
 
         conn = db.init()
-        # Seed if empty
-        if not conn.execute("SELECT 1 FROM agents LIMIT 1").fetchone():
+        # Restore only an empty or recognisably partial *demo* seed. Existing
+        # mandate rows, even revoked ones, are authority and must stay
+        # fail-closed rather than being replaced at process start.
+        if seed.needs_demo_seed(conn):
             seed.seed_all(conn)
         _agent_conn = conn
         return _agent_conn

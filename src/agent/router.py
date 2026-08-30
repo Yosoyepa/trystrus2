@@ -170,6 +170,10 @@ def select_agent(conn, text: str) -> dict[str, Any] | None:
         )
     if not candidates:
         return None
+    # There is no reason to spend an LLM call (or wait for its timeout) when
+    # no active mandate can possibly be selected.
+    criteria = llm.parse_request(text)
+    category = criteria.get("category")
     ranked = score_candidates(candidates, criteria, text)
     best = ranked[0]
     if best["score"] <= 0:
