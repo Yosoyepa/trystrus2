@@ -78,6 +78,7 @@ resource "google_project_iam_member" "deploy" {
     "roles/cloudsql.admin",
     "roles/artifactregistry.writer",
     "roles/secretmanager.secretAccessor",
+    "roles/secretmanager.viewer",
     "roles/storage.admin",
     "roles/cloudkms.admin",
     "roles/compute.loadBalancerAdmin",

@@ -102,17 +102,22 @@ jobs:
             --image="${{ env.REPO }}/web:${{ github.sha }}" \
             --quiet
 
-      - name: Smoke test
+      - name: Smoke test (verbose: URL, revision, code, body)
         run: |
-          KERNEL_URL=$(gcloud run services describe aval-dev-kernel --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          MERCHANT_URL=$(gcloud run services describe aval-dev-merchant --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          YUNO_URL=$(gcloud run services describe aval-dev-yuno-sim --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          WEB_URL=$(gcloud run services describe aval-dev-web --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-
-          curl -fsS "$KERNEL_URL/healthz" | grep -q ok
-          curl -fsS "$MERCHANT_URL/healthz" | grep -q ok
-          curl -fsS "$YUNO_URL/healthz" | grep -q ok
-          curl -fsS "$WEB_URL/healthz" | grep -q ok
+          set -u
+          fail=0
+          for svc in aval-dev-kernel aval-dev-merchant aval-dev-yuno-sim aval-dev-web; do
+            URL=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
+            REV=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
+            CODE=$(curl -sS -o /tmp/body -w '%{http_code}' "$URL/healthz" 2>/tmp/curlerr || true)
+            echo "== $svc"
+            echo "   url:    $URL/healthz"
+            echo "   ready:  $REV"
+            echo "   status: ${CODE:-ERR} $(tr -d '\n' </tmp/curlerr 2>/dev/null || true)"
+            echo "   body:   $(head -c 300 /tmp/body 2>/dev/null || true)"
+            [ "$CODE" = "200" ] || fail=1
+          done
+          exit $fail
 
       - name: Tick relay + sweeper once (jobs are Scheduler-driven)
         run: |
