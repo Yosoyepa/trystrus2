@@ -77,6 +77,23 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — C5 implementation: DB-marked integration coverage
+- **Why:** the in-memory saga proves decisions locally, while the atomic
+  PostgreSQL paths need executable checks when a development database is
+  available.
+- **Done:** added DB-marked checks for the frozen tables, velocity upserts,
+  derived idempotency round trips, competing reservation connections, and
+  transaction-bound outbox rollback. The module skips cleanly when
+  DATABASE_URL or a PostgreSQL driver is absent.
+- **Tests:** the default environment reports the DB module as skipped; a
+  configured PostgreSQL run exercises the real conditional update and
+  rollback behavior without mutating the schema.
+- **Decision:** no test creates or alters DDL; fixture rows use unique IDs and
+  are cleaned up transactionally.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
 - **Why:** start resolving the gap register without colliding with the
   coder-1 run in flight — everything here is NEW files; the gate fixes that
