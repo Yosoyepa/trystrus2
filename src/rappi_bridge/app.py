@@ -60,6 +60,8 @@ def create_app(
             raise HTTPException(status_code=401, detail="bad bridge token")
 
     @app.get("/healthz")
+    @app.get("/health")
+    @app.get("/")
     def healthz(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         _guard_token(authorization)
         return {
@@ -178,12 +180,15 @@ def create_app(
     return app
 
 
+app = create_app()
+
+
 def main() -> None:  # pragma: no cover — operator entrypoint
     import uvicorn
 
     config = BridgeConfig()
     uvicorn.run(
-        create_app(config),
+        app,
         host=config.bind,
         port=config.port,
         log_level="info",

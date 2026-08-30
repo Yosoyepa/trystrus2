@@ -23,7 +23,7 @@ billing `billing.user`) en la organización.
 Fija estas variables una sola vez y reemplázalas en todos los comandos:
 
 ```bash
-export OWNER_REPO="bysergr/trytrust-backend"        # dueño/repo de GitHub
+export OWNER_REPO="Yosoyepa/trystrus2"        # dueño/repo de GitHub
 export PROJECT_ID="trytrust"                        # proyecto GCP actual
 export REGION="southamerica-east1"
 export DOMAIN="api.trytrust.lat"                    # LB backend; el apex sigue en Vercel
