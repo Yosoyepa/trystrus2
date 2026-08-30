@@ -16,11 +16,13 @@ variable "environment" {
 
 variable "image" {
   type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
   description = "Backend image (kernel/yuno_sim/merchant/jobs share it via APP_MODULE)."
 }
 
 variable "web_image" {
   type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
   description = "SPA image (web/Dockerfile, nginx on :3000)."
 }
 
@@ -67,6 +69,7 @@ variable "deletion_protection" {
 variable "db_password" {
   type        = string
   sensitive   = true
+  default     = ""
   description = "Cloud SQL user password. Provide via TF_VAR_db_password; empty generates a random one (kept in state)."
 }
 

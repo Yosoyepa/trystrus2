@@ -15,6 +15,7 @@ resource "google_sql_database_instance" "postgres" {
 
   settings {
     tier              = var.db_tier
+    edition           = "ENTERPRISE"
     availability_type = var.db_availability_type
     disk_autoresize   = true
 

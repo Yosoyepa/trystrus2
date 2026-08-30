@@ -109,9 +109,10 @@ resource "google_compute_security_policy" "api_armor" {
       }
     }
     rate_limit_options {
-      conform_action = "allow"
-      exceed_action  = "deny(429)"
-      enforce_on_key = "IP"
+      conform_action   = "allow"
+      exceed_action    = "deny(429)"
+      enforce_on_key   = "IP"
+      ban_duration_sec = 300
       rate_limit_threshold {
         count        = 100
         interval_sec = 60
@@ -130,6 +131,8 @@ resource "google_compute_security_policy" "api_armor" {
       }
     }
   }
+
+  depends_on = [google_project_service.apis]
 }
 
 # --- backend services ---

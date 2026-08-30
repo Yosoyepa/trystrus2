@@ -59,7 +59,7 @@ resource "google_monitoring_alert_policy" "sql_cpu" {
     display_name = "Cloud SQL CPU utilization"
 
     condition_threshold {
-      filter          = "metric.type=\"cloudsql.googleapis.com/database/cpu/total_utilization\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${var.project_id}:${google_sql_database_instance.postgres.name}\""
+      filter          = "metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\" resource.type=\"cloudsql_database\" resource.label.database_id=\"${var.project_id}:${google_sql_database_instance.postgres.name}\""
       comparison      = "COMPARISON_GT"
       threshold_value = 0.8
       duration        = "300s"

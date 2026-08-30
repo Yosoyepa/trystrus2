@@ -291,7 +291,7 @@ resource "google_cloud_run_v2_service" "merchant" {
         name = "MERCHANT_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = "${local.name_prefix}-db-url"
+            secret  = "${local.name_prefix}-db-url-async"
             version = "latest"
           }
         }
@@ -347,8 +347,8 @@ resource "google_cloud_run_v2_service" "web" {
 
       resources {
         limits = {
-          cpu    = "500m"
-          memory = "256Mi"
+          cpu    = "1"
+          memory = "512Mi"
         }
       }
 
@@ -532,4 +532,33 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sweeper" {
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.jobs.email}"
+}
+
+# Public invoker permissions for direct Cloud Run access in dev
+resource "google_cloud_run_v2_service_iam_member" "public_kernel" {
+  name     = google_cloud_run_v2_service.kernel.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_merchant" {
+  name     = google_cloud_run_v2_service.merchant.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_yuno_sim" {
+  name     = google_cloud_run_v2_service.yuno_sim.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_web" {
+  name     = google_cloud_run_v2_service.web.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
