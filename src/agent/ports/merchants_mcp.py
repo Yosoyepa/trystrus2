@@ -419,6 +419,10 @@ class RappiBridgeMcp:
         offers: list[dict] = []
         for item in data.get("results", []):
             images = [u for u in (item.get("images") or [item.get("image")]) if u]
+            # normalise_offer, not a hand-rolled shape: every consumer down the
+            # graph (audit `cheapest`, the gate, the proposal) reads `price`,
+            # and a rappi offer with `amount` instead is a KeyError away from
+            # failing the whole run.
             offers.append(
                 normalise_offer(
                     {
