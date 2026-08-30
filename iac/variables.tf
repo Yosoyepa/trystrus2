@@ -32,6 +32,18 @@ variable "domain" {
   description = "Custom domain for the LB + managed cert. Empty = no LB (direct run.app URLs)."
 }
 
+variable "rp_id" {
+  type        = string
+  default     = ""
+  description = "WebAuthn RP ID. Empty derives it from domain; prod uses the apex while the API lives on a subdomain."
+}
+
+variable "rp_origin" {
+  type        = string
+  default     = ""
+  description = "Exact browser origin allowed to complete WebAuthn ceremonies."
+}
+
 variable "yuno_sim_url" {
   type        = string
   default     = ""

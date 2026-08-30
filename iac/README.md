@@ -56,6 +56,9 @@ tofu validate
    Set the ephemeral topology-B tunnel as the environment variable
    `RAPPI_BRIDGE_URL`; its bearer lives only in Secret Manager as
    `aval-prod-rappi-bridge-token`.
+   Production's LB base is `https://api.trytrust.lat`; the apex remains on
+   Vercel. Set `PROD_BASE_URL=https://api.trytrust.lat` in the protected
+   environment and `KERNEL_API_URL=https://api.trytrust.lat/api` in Vercel.
    Until WIF exists, deploy workflows self-skip; until the explicit prod
    switch exists, both prod apply and prod promotion fail before selecting the
    GitHub environment.
@@ -86,7 +89,8 @@ tofu apply -var-file=environments/dev.tfvars
   se imprime ni se comenta en un PR.
 - **Gemini por API key hoy; Vertex/ADC es el endurecimiento recomendado.**
 - **Dominio propio requerido en prod**: sin DNS no hay cert/LB y las passkeys
-  fallan en `*.run.app` (Public Suffix List, ADR-018).
+  fallan en `*.run.app` (Public Suffix List, ADR-018). El cert del backend usa
+  `api.trytrust.lat`; RP ID/origen siguen siendo el apex servido por Vercel.
 - **Rappi no se hospeda en Cloud Run**: por decisión 0030, la sesión vive en
   la máquina propietaria. Producción necesita un túnel autenticado desde el
   kernel hacia ese bridge. Cuando `RAPPI_BRIDGE_URL` está armado,

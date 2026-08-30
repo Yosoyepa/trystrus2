@@ -26,7 +26,7 @@ Fija estas variables una sola vez y reemplázalas en todos los comandos:
 export OWNER_REPO="bysergr/trytrust-backend"        # dueño/repo de GitHub
 export PROJECT_ID="trytrust"                        # proyecto GCP actual
 export REGION="southamerica-east1"
-export DOMAIN="trytrust.lat"                        # vacío en dev si aún no hay DNS
+export DOMAIN="api.trytrust.lat"                    # LB backend; el apex sigue en Vercel
 ```
 
 ### Gate de código (NO desplegar sin esto)
@@ -192,6 +192,7 @@ auto-saltan** (safe gate ya implementado). Crea el environment `prod` con
 
 ```bash
 gh variable set PROD_DEPLOY_ENABLED --body true
+gh variable set PROD_BASE_URL --env prod --body "https://api.trytrust.lat"
 ```
 
 Sin esa variable, tanto `infra-apply(prod)` como `deploy-prod` fallan antes de
@@ -235,9 +236,9 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
 
    ```bash
    cd iac
-   # prod.tfvars ya trae domain="trytrust.lat" → el apply crea LB + cert
+   # prod.tfvars usa api.trytrust.lat; el apex vivo en Vercel no se toca
    tofu apply -var-file=environments/prod.tfvars -input=false
-   tofu output -raw lb_ip   # → registro A de trytrust.lat (y de api., si se usa)
+   tofu output -raw lb_ip   # → registro A de api.trytrust.lat
    ```
 
 2. El certificado gestionado tarda **15–60 min** en emitirse tras propagar el
@@ -249,9 +250,10 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
    nadie bypasea el Armor por la URL `*.run.app` —, Cloud Armor en `preview`
    la primera semana (revisar logs de falsos positivos) y luego quitar
    `preview` para exigir las reglas.
-5. **Passkeys**: solo funcionan con el dominio real (`*.run.app` está en la
-   Public Suffix List). Probar registro de passkey en `https://trytrust.lat`
-   antes del demo.
+5. **Frontend + passkeys**: `trytrust.lat` continúa en Vercel. Configura allí
+   `KERNEL_API_URL=https://api.trytrust.lat/api`. IaC fija
+   `rp_id=trytrust.lat` y `rp_origin=https://trytrust.lat`; probar la ceremonia
+   desde el apex antes del demo (`*.run.app` está en la Public Suffix List).
 6. **Rappi real**: el bridge y su sesión no se despliegan. La decisión 0030
    exige que permanezcan en la máquina propietaria. Para habilitar búsqueda
    real en producción, arranca el bridge con `AVAL_BRIDGE_LOCAL_TOKEN`, abre el
@@ -264,6 +266,8 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
      --body "https://URL-EFIMERA.trycloudflare.com"
    ```
 
+   En la máquina del bridge configura además
+   `AVAL_BRIDGE_KERNEL_JWKS_URL=https://api.trytrust.lat/api/.well-known/jwks.json`.
    IaC entrega al kernel el bearer `aval-prod-rappi-bridge-token`; el deploy
    hace una búsqueda por `/api/agent/dispatch` y exige ofertas `rappi_*`. Si el
    bridge está caído, el token no coincide o aparece un fixture `ofr_*`, el
@@ -275,7 +279,7 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
 ## Fase 8 — Verificación post-despliegue (checklist del demo)
 
 ```bash
-BASE="https://${DOMAIN}"          # o la KERNEL_URL de dev
+BASE="https://${DOMAIN}"          # prod: https://api.trytrust.lat
 curl -fsS "$BASE/api/healthz" | grep ok
 curl -fsS "$BASE/api/audit/verify" -X POST | jq .ok      # cadena íntegra
 curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo

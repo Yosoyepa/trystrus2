@@ -22,8 +22,9 @@ locals {
 
   # Passkeys require a registrable domain: *.run.app is on the Public Suffix
   # List, so rp_id must be the real domain in prod (ADR-018).
-  rp_id     = var.domain != "" ? var.domain : "localhost"
-  rp_origin = var.domain != "" ? "https://${var.domain}" : "http://localhost:3000"
+  rp_id      = var.rp_id != "" ? var.rp_id : (var.domain != "" ? var.domain : "localhost")
+  rp_origin  = var.rp_origin != "" ? var.rp_origin : (var.domain != "" ? "https://${var.domain}" : "http://localhost:3000")
+  issuer_url = var.domain != "" ? "https://${var.domain}/api" : "https://api.aval.example"
 }
 
 # --- kernel (FastAPI: mandates, decision, audit, evidence, agent bridge) ---
@@ -68,6 +69,10 @@ resource "google_cloud_run_v2_service" "kernel" {
       env {
         name  = "AVAL_GCP_PROJECT"
         value = var.project_id
+      }
+      env {
+        name  = "AVAL_ISSUER"
+        value = local.issuer_url
       }
       env {
         name  = "AVAL_RP_ID"

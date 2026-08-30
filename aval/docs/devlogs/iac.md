@@ -27,14 +27,20 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 - **Wiring fixed:** `YUNO_ISSUER_URL` ya no añade `/api` a la URL directa de
   Cloud Run en dev; en prod, yuno y merchant usan las rutas del LB que sí
   reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto
-  real `trytrust`, a imágenes existentes y a `https://trytrust.lat/yuno`; el
-  estado prod comparte `trytrust-tfstate` bajo el prefijo aislado `env/prod`.
+  real `trytrust`, a imágenes existentes y al rail bajo la base prod; el estado
+  comparte `trytrust-tfstate` bajo el prefijo aislado `env/prod`.
 - **Rappi topology B wired:** IaC crea el secreto separado
   `aval-{env}-rappi-bridge-token`; el kernel recibe ese bearer por Secret
   Manager y la URL efímera por la variable de environment
   `RAPPI_BRIDGE_URL`. El deploy prod, cuando la URL está armada, ejecuta una
   búsqueda de chat real y exige IDs nativos `rappi_*`; un fixture `ofr_*` no
   puede hacer pasar el smoke. La sesión `ft.` nunca sale de la máquina.
+- **Live-domain split respected:** `trytrust.lat` ya sirve el frontend Next en
+  Vercel; reemplazar su registro A cortaría la app. El LB/cert prod se mueve a
+  `api.trytrust.lat`, mientras WebAuthn conserva `rp_id=trytrust.lat` y
+  `rp_origin=https://trytrust.lat`. Vercel debe usar
+  `KERNEL_API_URL=https://api.trytrust.lat/api`; el workflow usa la misma base
+  para kernel, Yuno, merchant y el smoke real de Rappi.
 - **Credential incident contained:** un plan dev reveló que Telegram había
   sido configurado manualmente como dos env vars planas; el diff de OpenTofu
   imprimió sus valores en logs públicos. Se eliminaron exactamente los tres
