@@ -7,6 +7,37 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — comprar en Mami por MCP: dos traducciones que faltaban
+
+- **Why:** pedido de enlazar el agente solo con Mami (el clon de MELI) y comprar
+  sus productos vía MCP. El transporte ya funcionaba —seis herramientas, `pay`
+  correctamente rechazado— pero ninguna compra llegaba a proponerse.
+- **Found (dos fallos distintos, ambos de vocabulario):**
+  1. `MamiMcp` exigía `category == "retail"` exacto. El modelo clasifica
+     "comprame un snack" como `food`, así que toda petición de mercado buscaba
+     en Mami y volvía vacía — se lee como catálogo vacío, no como desajuste de
+     vocabulario. Ahora acepta la familia (`MAMI_CATEGORIES`).
+  2. `search_products` de Mami hace matching literal, y el grafo le pasa la
+     frase entera del comprador. "comprame un snack barato" no coincide con
+     ninguna marca del catálogo (`Yupi`, `Tosh`, `Festival`), así que la
+     búsqueda era estructuralmente incapaz de acertar. Si la búsqueda literal
+     no devuelve nada, el adaptador cae a `list_products`: enseñar el estante
+     es lo que hace una tienda cuando no entiende lo que le pediste, y el gate
+     sigue decidiendo qué se puede comprar de él.
+- **Built:** ambos arreglos en `src/agent/ports/merchants_mcp.py`. Nada más: el
+  aislamiento a Mami no necesitó código, lo da el scope firmado del mandato.
+- **Tests:** 42/42 propiedades; pytest 410 pasan (el fallo restante es el DSN
+  fijo de `test_webhooks_and_mcp`, previo). Compra real contra Mami:
+  `Tosh Crackers Fusión de Cereales, 1750.00 COP`. Con ese mismo mandato, una
+  compra dirigida a `vuelaya` se rechaza con `CATEGORY_FORBIDDEN`.
+- **Open questions:** `setup()` registra `rappi` siempre (cae a fixture si el
+  bridge no responde), así que "solo Mami" es una propiedad del mandato, no del
+  registro. Es el sitio correcto —el scope está firmado y lo aplica el kernel—
+  pero no hay forma de apagar un comercio en el registro si alguna vez hace
+  falta.
+
+---
+
 ## 2026-08-30 — el MCP del merchant, alcanzable en producción
 
 - **Why:** en producción no se podía llegar al MCP. La causa no era el
