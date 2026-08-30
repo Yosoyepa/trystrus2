@@ -14,6 +14,18 @@ from typing import Any
 from .ports import Clock, OutboxEvent, OutboxStore, Sink, SystemClock, ensure_aware_utc
 
 
+def _iso(value: datetime) -> str:
+    """`outbox` is the agent lane's table, shared verbatim (TEXT timestamps
+    and TEXT payload — see aval/contracts/fixtures/schema.sql's header)."""
+    return ensure_aware_utc(value).replace(microsecond=0).isoformat()
+
+
+def _parse_iso(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return ensure_aware_utc(value)
+    return ensure_aware_utc(datetime.fromisoformat(str(value)))
+
+
 class PostgresOutboxStore:
     """PostgreSQL implementation of OutboxStore using `FOR UPDATE SKIP LOCKED`."""
 
@@ -50,8 +62,8 @@ class PostgresOutboxStore:
                         event.type,
                         event.aggregate_id,
                         json.dumps(event.payload),
-                        event.relayed_at,
-                        ts,
+                        _iso(event.relayed_at) if event.relayed_at else None,
+                        _iso(ts),
                     ),
                 )
                 row = cur.fetchone()
@@ -100,9 +112,9 @@ class PostgresOutboxStore:
                                 type=str(r["type"]),
                                 aggregate_id=str(r["aggregate_id"]),
                                 payload=payload,
-                                created_at=ensure_aware_utc(r["created_at"]),
+                                created_at=_parse_iso(r["created_at"]),
                                 relayed_at=(
-                                    ensure_aware_utc(r["relayed_at"])
+                                    _parse_iso(r["relayed_at"])
                                     if r.get("relayed_at")
                                     else None
                                 ),
@@ -116,7 +128,7 @@ class PostgresOutboxStore:
         """Mark event as relayed and release in-flight status."""
         with self._lock:
             self._in_flight.discard(event_id)
-        ts = ensure_aware_utc(relayed_at)
+        ts = _iso(relayed_at)
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(

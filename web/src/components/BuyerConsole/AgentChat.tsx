@@ -95,7 +95,9 @@ export const AgentChat: React.FC = () => {
         ]);
       }
     } else {
-      // Graceful fallback simulation if backend is unreachable
+      // Backend/agent bridge unreachable — fall back to a local, clearly-labelled
+      // simulation of the purchase pipeline. This is fine: we are simulating the
+      // *interface* (a purchase), never the evidence (the audit chain).
       const lower = text.toLowerCase();
 
       if (lower.includes('miami') || lower.includes('mia')) {
@@ -112,7 +114,7 @@ export const AgentChat: React.FC = () => {
               text: `Found and booked Flight VY-204 (BOG → MIA) for $142.00 USD. Gate APPROVED and Yuno AP2 Rail settled payment. Capture ID: ${purchaseRes.status.receipt?.capture_id}`,
               timestamp: new Date().toLocaleTimeString(),
               node: 'receipt',
-              metadata: { receipt: purchaseRes.status.receipt, source: 'gemini-3.7-flash' },
+              metadata: { receipt: purchaseRes.status.receipt, source: 'gemini-3.7-flash', simulated: true },
             },
           ]);
         } else {
@@ -125,7 +127,7 @@ export const AgentChat: React.FC = () => {
               text: `Unable to complete purchase: Policy Gate returned ${purchaseRes.status.reason_code}.`,
               timestamp: new Date().toLocaleTimeString(),
               node: 'rejected',
-              metadata: { source: 'gemini-3.7-flash' },
+              metadata: { source: 'gemini-3.7-flash', simulated: true },
             },
           ]);
         }
@@ -143,7 +145,7 @@ export const AgentChat: React.FC = () => {
               text: `Proposed Business Flight VY-305 at $300.00 USD. This exceeds your $150.00 max_per_txn limit! Gate has paused execution and spawned an Escalation (${purchaseRes.status.escalation_id}) with a 120s timeout. Please approve in the Control Tower.`,
               timestamp: new Date().toLocaleTimeString(),
               node: 'await_human',
-              metadata: { escalation_id: purchaseRes.status.escalation_id, source: 'gemini-3.7-flash' },
+              metadata: { escalation_id: purchaseRes.status.escalation_id, source: 'gemini-3.7-flash', simulated: true },
             },
           ]);
         }
@@ -159,7 +161,7 @@ export const AgentChat: React.FC = () => {
             text: `Adversarial Injection Detected: Although catalog item attempted to force a $300 surcharge, the Deterministic Policy Gate refused with ${purchaseRes.status.reason_code}. Funds protected.`,
             timestamp: new Date().toLocaleTimeString(),
             node: 'rejected',
-            metadata: { source: 'gemini-3.7-flash' },
+            metadata: { source: 'gemini-3.7-flash', simulated: true },
           },
         ]);
       } else {
@@ -176,7 +178,7 @@ export const AgentChat: React.FC = () => {
               text: `Found the cheapest option: Flight VY-101 (BOG → COR) for $130.00 USD. Gate APPROVED and Yuno settled payment. Capture ID: ${purchaseRes.status.receipt?.capture_id}`,
               timestamp: new Date().toLocaleTimeString(),
               node: 'receipt',
-              metadata: { receipt: purchaseRes.status.receipt, source: 'gemini-3.7-flash' },
+              metadata: { receipt: purchaseRes.status.receipt, source: 'gemini-3.7-flash', simulated: true },
             },
           ]);
         } else {
@@ -189,7 +191,7 @@ export const AgentChat: React.FC = () => {
               text: `Purchase rejected by Gate: ${purchaseRes.status.reason_code}.`,
               timestamp: new Date().toLocaleTimeString(),
               node: 'rejected',
-              metadata: { source: 'gemini-3.7-flash' },
+              metadata: { source: 'gemini-3.7-flash', simulated: true },
             },
           ]);
         }
@@ -293,7 +295,13 @@ export const AgentChat: React.FC = () => {
                 {/* Metadata & LLM badges */}
                 {!isUser && msg.metadata && (
                   <div className="mt-2 pt-2 border-t border-slate-700/50 flex flex-wrap items-center gap-2 text-[10px] font-mono">
-                    {Boolean(msg.metadata.source) && (
+                    {Boolean(msg.metadata.simulated) && (
+                      <span className="inline-flex items-center gap-1 text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/60 font-semibold">
+                        <AlertTriangle className="w-2.5 h-2.5" />
+                        Simulated — No Backend
+                      </span>
+                    )}
+                    {Boolean(msg.metadata.source) && !msg.metadata.simulated && (
                       <span className="inline-flex items-center gap-1 text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/60">
                         <Sparkles className="w-2.5 h-2.5" />
                         {String(msg.metadata.source)}

@@ -57,7 +57,7 @@ KNOWN_EVENT_TYPES = frozenset(
 
 _INSERT = text("""
     INSERT INTO outbox (event_id, type, aggregate_id, payload, created_at)
-    VALUES (:event_id, :type, :aggregate_id, CAST(:payload AS JSONB), :created_at)
+    VALUES (:event_id, :type, :aggregate_id, :payload, :created_at)
 """)
 
 
@@ -95,7 +95,9 @@ async def emit_event(
             "type": envelope.type,
             "aggregate_id": envelope.aggregate_id,
             "payload": json.dumps(envelope.payload, default=str),
-            "created_at": envelope.created_at,
+            # `outbox` is the agent lane's table (TEXT timestamps), shared
+            # verbatim — see aval/contracts/fixtures/schema.sql's header.
+            "created_at": envelope.created_at.astimezone(UTC).replace(microsecond=0).isoformat(),
         },
     )
     return envelope

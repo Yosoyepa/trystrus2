@@ -12,13 +12,15 @@ import {
   Terminal,
   Lock,
   Layers,
+  AlertTriangle,
+  WifiOff,
 } from 'lucide-react';
 import { Badge } from '../common/Badge';
 import { HashBadge } from '../common/HashBadge';
 import { CodeBlock } from '../common/CodeBlock';
 
 export const HashChainLedgerTable: React.FC = () => {
-  const { auditEvents, verifyChain, verifyResult } = useApp();
+  const { auditEvents, verifyChain, verifyResult, auditBackendError, isLiveBackend } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
@@ -116,8 +118,28 @@ export const HashChainLedgerTable: React.FC = () => {
         </div>
       </div>
 
+      {/* Simulated ledger notice — this table is always sourced from the local demo
+          engine, not the live backend, until "verify_all() Chain" succeeds against it. */}
+      {!isLiveBackend && !auditBackendError && (
+        <div className="p-3 rounded-xl border border-amber-500/40 bg-amber-950/30 text-amber-300 text-xs font-mono flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            SIMULATED LEDGER — no live backend detected. These blocks are demo data from the local sandbox, not
+            backend-verified evidence.
+          </span>
+        </div>
+      )}
+
+      {/* Audit backend unreachable — never render a chain/verdict pill in this state */}
+      {auditBackendError && (
+        <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-950/30 text-rose-300 text-xs font-mono flex items-center gap-2">
+          <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{auditBackendError}</span>
+        </div>
+      )}
+
       {/* Verification Status Pill */}
-      {verifyResult && (
+      {!auditBackendError && verifyResult && (
         <div
           className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between ${
             verifyResult.valid

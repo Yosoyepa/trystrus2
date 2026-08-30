@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -43,8 +44,10 @@ async def test_approval_emits_a_verifiable_receipt_and_never_changes_purchase(
     assert receipt["decision"] == "APPROVE"
     # The only emitted instruction is to re-run the gate; there is no purchase
     # mutation or reservation in this Dev 3 path.
+    # `outbox.payload` is TEXT (the agent lane's table, shared verbatim), so
+    # a raw SELECT gets the JSON string back, not a dict.
     events = (await session.execute(text("SELECT type, payload FROM outbox"))).all()
-    assert [(row.type, row.payload["escalation_id"]) for row in events] == [
+    assert [(row.type, json.loads(row.payload)["escalation_id"]) for row in events] == [
         ("escalation.resolved", created.escalation_id)
     ]
 

@@ -110,14 +110,34 @@ export const Header: React.FC = () => {
                   <CheckCircle2 className="w-3 h-3" /> Live Backend
                 </span>
               ) : (
-                <span className="text-cyan-400 font-semibold flex items-center gap-1">
-                  <Activity className="w-3 h-3" /> Sim Engine
+                <span className="text-amber-400 font-semibold flex items-center gap-1">
+                  <Activity className="w-3 h-3" /> Simulated — No Backend
                 </span>
               )}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Unmissable mode banner — the whole product's claim rests on backend-verified
+          evidence, so a judge glancing at the screen must be able to tell at a glance
+          that nothing on screen right now is backend-verified. */}
+      {!isLiveBackend && (
+        <div className="w-full bg-amber-500/15 border-b border-amber-500/40 px-4 py-1.5 flex flex-wrap items-center justify-center gap-2 text-[11px] font-mono text-amber-300">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+          <span className="font-bold uppercase tracking-wide">Simulated Mode</span>
+          <span className="text-amber-300/90">
+            — No live backend detected. Audit evidence and chain verification are unavailable; other panels show
+            local simulation only.
+          </span>
+          <button
+            onClick={() => checkBackendStatus()}
+            className="underline decoration-dotted hover:text-amber-100 transition-colors"
+          >
+            Recheck connection
+          </button>
+        </div>
+      )}
 
       {/* Main Header bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

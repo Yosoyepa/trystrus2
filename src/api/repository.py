@@ -5,12 +5,17 @@ ordinary CRUD; that one is the enforcement point for decisions #4 and #12, and
 it is written as a **guarded UPDATE** rather than read-then-write on purpose:
 
     UPDATE mandates SET status = :to
-     WHERE id = :id AND status = ANY(:allowed_sources)
+     WHERE jti = :jti AND status = ANY(:allowed_sources)
 
 A read-then-write would open a window between deciding and acting, and that
 window is exactly what a judge exercises when they revoke mid-purchase. With
 the guard in the statement, a concurrent revocation makes this UPDATE match
 zero rows, and zero rows is a refusal.
+
+Mandates key on `jti`, not a separately-minted `id` — that is the agent
+lane's table (`aval/contracts/fixtures/schema.sql`), shared verbatim rather
+than forked. Every function below that took a `mandate_id` still does; the
+value it now expects and stores is the mandate's own `jti`.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from .models import (
     PaymentInstrument,
     WebAuthnChallenge,
     WebAuthnCredential,
+    iso_now,
 )
 from .services import state_machine as sm
 from .services.passkey import Challenge, Purpose, StoredCredential
@@ -40,15 +46,22 @@ from .services.passkey import Challenge, Purpose, StoredCredential
 async def create_mandate(
     session: AsyncSession, claims: MandateClaims, *, mandate_id: str
 ) -> Mandate:
-    """Persist a mandate in `draft`. It is not signed yet and cannot pay."""
+    """Persist a mandate in `draft`. It is not signed yet and cannot pay.
+
+    `mandate_id` is kept as the parameter name for the callers that still
+    pass it (it is always `claims.jti` — the router no longer mints a second,
+    separate identifier), but the row is keyed on `claims.jti` regardless.
+    """
+    now = iso_now()
     mandate = Mandate(
-        id=mandate_id,
         jti=claims.jti,
         user_id=claims.sub,
         agent_id=claims.agent,
         status=MandateStatus.DRAFT.value,
-        claims=claims.model_dump(mode="json", exclude_none=True),
+        claims=claims.model_dump_json(exclude_none=True),
         parent_jti=claims.parent_jti,
+        created_at=now,
+        updated_at=now,
     )
     session.add(mandate)
     await session.flush()
@@ -77,11 +90,11 @@ async def attach_sd_jwt(
     """Store the signed mandate after the ceremony succeeded."""
     await session.execute(
         update(Mandate)
-        .where(Mandate.id == mandate_id)
+        .where(Mandate.jti == mandate_id)
         .values(
             sd_jwt=sd_jwt,
-            claims=claims.model_dump(mode="json", exclude_none=True),
-            updated_at=datetime.now(UTC),
+            claims=claims.model_dump_json(exclude_none=True),
+            updated_at=iso_now(),
         )
     )
 
@@ -107,8 +120,8 @@ async def transition(
 
     result = await session.execute(
         update(Mandate)
-        .where(Mandate.id == mandate_id, Mandate.status.in_(allowed))
-        .values(status=to.value, updated_at=datetime.now(UTC), version=Mandate.version + 1)
+        .where(Mandate.jti == mandate_id, Mandate.status.in_(allowed))
+        .values(status=to.value, updated_at=iso_now(), version=Mandate.version + 1)
         .returning(Mandate.jti)
     )
 
@@ -127,7 +140,7 @@ async def transition(
 
 
 async def _current_status(session: AsyncSession, mandate_id: str) -> MandateStatus | None:
-    result = await session.execute(select(Mandate.status).where(Mandate.id == mandate_id))
+    result = await session.execute(select(Mandate.status).where(Mandate.jti == mandate_id))
     raw = result.scalar_one_or_none()
     return MandateStatus(raw) if raw else None
 
@@ -161,7 +174,7 @@ async def mark_instrument_deleted(session: AsyncSession, token_ref: str) -> None
     await session.execute(
         update(PaymentInstrument)
         .where(PaymentInstrument.token_ref == token_ref)
-        .values(status="deleted", deleted_at=datetime.now(UTC))
+        .values(status="deleted", deleted_at=iso_now())
     )
 
 
@@ -269,9 +282,9 @@ async def advance_sign_count(session: AsyncSession, credential_id: str, new_coun
 # ==========================================================================
 async def spend_view(session: AsyncSession, mandate_id: str) -> dict | None:
     result = await session.execute(
-        text("""SELECT status, spent_total, reserved_amount, txn_count_period
-                  FROM mandates WHERE id = :id"""),
-        {"id": mandate_id},
+        text("""SELECT status, spent_total, reserved_amount, txn_count
+                  FROM mandates WHERE jti = :jti"""),
+        {"jti": mandate_id},
     )
     row = result.one_or_none()
     if row is None:
@@ -280,5 +293,5 @@ async def spend_view(session: AsyncSession, mandate_id: str) -> dict | None:
         "mandate_status": MandateStatus(row.status),
         "spent_total": Decimal(row.spent_total),
         "reserved_total": Decimal(row.reserved_amount),
-        "txn_count_period": row.txn_count_period,
+        "txn_count_period": row.txn_count,
     }
