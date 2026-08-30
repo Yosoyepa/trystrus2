@@ -1,0 +1,93 @@
+name: deploy-prod
+
+# Manual, approval-gated production deploy (GitHub environment "prod" with
+# required reviewers). Runs the same pipeline as dev against prod tfvars
+# values: min-instances=1, LB ingress, real domain secrets set.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (defaults to main's latest)"
+        required: false
+        default: "latest"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: vars.WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    environment: prod
+
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION }}
+      REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
+      TAG: ${{ inputs.image_tag || 'latest' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Run migrations
+        run: |
+          gcloud run jobs execute aval-prod-migrations \
+            --region "$REGION" --wait \
+            && gcloud run jobs deploy aval-prod-migrations \
+            --image "$REPO/backend:${TAG}" --region "$REGION" \
+            --set-secrets "DATABASE_URL=aval-prod-db-url:latest" \
+            --quiet
+
+      - name: Deploy kernel (prod)
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: aval-prod-kernel
+          region: ${{ env.REGION }}
+          image: ${{ env.REPO }}/backend:${{ env.TAG }}
+          env_vars: |-
+            APP_MODULE=src.api.main:app
+            AVAL_GCP_PROJECT=${{ vars.GCP_PROJECT }}
+            AVAL_RP_ID=trytrust.lat
+            AVAL_RP_ORIGIN=https://trytrust.lat
+            AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno
+            LLM_PROVIDER=gemini
+            LLM_MODEL=gemini-2.5-flash
+          secrets: |-
+            DATABASE_URL=aval-prod-db-url:latest
+            AVAL_DATABASE_URL=aval-prod-db-url:latest
+            AVAL_IDEM_SECRET=aval-prod-idem-secret:latest
+            GEMINI_API_KEY=aval-prod-llm-gemini-key:latest
+            OPENAI_API_KEY=aval-prod-llm-openai-key:latest
+          cloudsql_instances: ${{ vars.GCP_PROJECT }}:${{ env.REGION }}:aval-prod-db
+          flags: >-
+            --min-instances=1
+            --max-instances=10
+            --cpu=1
+            --memory=512Mi
+            --concurrency=20
+            --ingress=internal-and-cloud-load-balancing
+            --no-allow-unauthenticated
+
+      - name: Smoke test (through the LB, not run.app)
+        run: curl -fsS https://trytrust.lat/api/healthz | grep -q ok

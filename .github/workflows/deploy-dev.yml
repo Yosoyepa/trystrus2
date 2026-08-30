@@ -1,0 +1,127 @@
+name: deploy-dev
+
+# Deploys dev on every push to main. Gated on WIF bootstrap: while the GitHub
+# repo vars (WIF_PROVIDER/DEPLOY_SA/GCP_PROJECT/GCP_REGION) are not set, this
+# job skips so merging this branch cannot fire a broken deploy.
+
+on:
+  push:
+    branches: [main, iac/cloudrun]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: vars.WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    environment: dev
+
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION }}
+      REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build and push backend image
+        uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REPO }}/backend:${{ github.sha }}
+            ${{ env.REPO }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: true
+          tags: |
+            ${{ env.REPO }}/web:${{ github.sha }}
+            ${{ env.REPO }}/web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run migrations (Cloud Run Job)
+        run: |
+          gcloud run jobs execute aval-dev-migrations \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --wait
+
+      - name: Deploy Cloud Run Services
+        run: |
+          gcloud run services update aval-dev-kernel \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="${{ env.REPO }}/backend:${{ github.sha }}" \
+            --quiet
+
+          gcloud run services update aval-dev-merchant \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="${{ env.REPO }}/backend:${{ github.sha }}" \
+            --quiet
+
+          gcloud run services update aval-dev-yuno-sim \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="${{ env.REPO }}/backend:${{ github.sha }}" \
+            --quiet
+
+          gcloud run services update aval-dev-web \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="${{ env.REPO }}/web:${{ github.sha }}" \
+            --quiet
+
+      - name: Smoke test (verbose URL/revision/code/body)
+        run: |
+          set -u
+          fail=0
+          for svc in aval-dev-kernel aval-dev-merchant aval-dev-yuno-sim aval-dev-web; do
+            URL=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
+            REV=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
+            # /health, NOT /healthz: Google's edge intercepts /healthz on
+            # *.run.app and 404s before the request reaches the container.
+            CODE=$(curl -sS -o /tmp/body -w '%{http_code}' "$URL/health" 2>/tmp/curlerr || true)
+            echo "== $svc"
+            echo "   url:    $URL/health"
+            echo "   ready:  $REV"
+            echo "   status: ${CODE:-ERR} $(tr -d '\n' </tmp/curlerr 2>/dev/null || true)"
+            echo "   body:   $(head -c 300 /tmp/body 2>/dev/null || true)"
+            [ "$CODE" = "200" ] || fail=1
+          done
+          exit $fail
+
+      - name: Tick relay + sweeper once (jobs are Scheduler-driven)
+        run: |
+          gcloud run jobs execute aval-dev-outbox-relay --project="$PROJECT" --region="$REGION" --wait || true
+          gcloud run jobs execute aval-dev-sweeper --project="$PROJECT" --region="$REGION" --wait || true

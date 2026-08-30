@@ -52,6 +52,7 @@ def webhook_verifier() -> YunoWebhookVerifier:
 
 
 @app.get("/health", tags=["ops"])
+@app.get("/healthz", tags=["ops"])
 async def health() -> dict:
     return {"status": "ok", "service": "merchant", "merchant": "vuelaya"}
 

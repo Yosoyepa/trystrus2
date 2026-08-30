@@ -110,6 +110,7 @@ async def refusal_handler(_: Request, exc: PaymentRefused) -> JSONResponse:
 
 
 @app.get("/health", tags=["ops"])
+@app.get("/healthz", tags=["ops"])
 async def health() -> dict:
     return {
         "status": "ok",
