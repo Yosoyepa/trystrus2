@@ -1,7 +1,7 @@
-# 0021 — Guardrails and containment
+# 0027 — Guardrails and containment
 
 Date: 2026-08-29 · Status: accepted · Workstream: Dev 1
-Related: #1 (no model in enforcement), #16 (own graph), #20 (memory/ontology/console)
+Related: #1 (no model in enforcement), #16 (own graph), #26 (memory/ontology/console)
 
 ## Context
 

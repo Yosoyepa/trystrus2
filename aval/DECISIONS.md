@@ -432,7 +432,7 @@ folder discipline is load-bearing.
 
 ---
 
-## 20. Agent memory, ontology, and the configuration console
+## 26. Agent memory, ontology, and the configuration console
 
 **Chose:** Ontology (domain knowledge) and transaction history feed the
 `propose` node only; the gate keeps reading the signed mandate and nothing else.
@@ -440,7 +440,7 @@ Configuration lives in the database as `people` / `agents` / `agent_versions`,
 append-only and versioned, with `agent_runs.agent_version` pinning the exact
 brain each run used. The agent writes its own trajectory into the same
 hash-chained log as the kernel. Full record:
-`docs/decisions/0020-agent-memory-ontology-and-console.md`.
+`docs/decisions/0026-agent-memory-ontology-and-console.md`.
 
 **Rejected:** subagents per step (only one node has a model in it, so there was
 nothing to split — and it would put model judgement back into control flow);
@@ -463,13 +463,13 @@ attributed and permanent but not approved by anyone.
 
 ---
 
-## 21. Guardrails and containment
+## 27. Guardrails and containment
 
 **Chose:** Four layers, each assuming the one above failed. Structural (the
 model has no verb for scheduling or spending), quota (persisted token buckets,
 windowed counters, single-flight locks), containment (bubblewrap, hardened
 systemd unit), evidence (every trip is an audit event). Full record:
-`docs/decisions/0021-guardrails-and-containment.md`.
+`docs/decisions/0027-guardrails-and-containment.md`.
 
 **Rejected:** clamping a bad polling interval silently; in-memory rate limits;
 queueing overlapping cron ticks; trusting the prompt to refuse.
@@ -479,19 +479,19 @@ that first layers fail. Rate limits do not make the agent safe — the gate does
 that — they make it survivable: a compromised agent wastes tokens instead of
 exhausting a merchant, a budget, or a human approver's patience.
 
-**Does not solve:** Network egress (partly closed in #22). Bearer-token
-authorisation on the console (closed in #22).
+**Does not solve:** Network egress (partly closed in #28). Bearer-token
+authorisation on the console (closed in #28).
 
 ---
 
-## 22. Postgres, ports, partitioned chains, and console auth
+## 28. Postgres, ports, partitioned chains, and console auth
 
 **Chose:** Postgres in dev and prod behind a thin `db.Conn` wrapper; one hash
 chain per mandate with signed checkpoints over every head; protocol-and-registry
 ports for merchants, rails, models and channels, with a `ToolRegistry` where a
 tool may only declare `read` or `submit`; bearer tokens on every console
 mutation; an in-process egress allowlist. Full record:
-`docs/decisions/0022-postgres-ports-and-console-auth.md`.
+`docs/decisions/0028-postgres-ports-and-console-auth.md`.
 
 **Rejected:** a dual SQLite/Postgres backend; NUMERIC for money; a global chain
 with a dedicated sequencer; converting currencies inside the gate; flattening

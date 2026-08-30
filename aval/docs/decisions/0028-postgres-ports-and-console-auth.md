@@ -1,8 +1,8 @@
-# 0022 — Postgres, ports, partitioned chains, and console auth
+# 0028 — Postgres, ports, partitioned chains, and console auth
 
 Date: 2026-08-30 · Status: accepted · Workstream: Dev 1
 Related: #10 (outbox), #11 (Cloud Run + Cloud SQL), #16 (own graph),
-#20 (memory/ontology/console), #21 (guardrails)
+#26 (memory/ontology/console), #27 (guardrails)
 
 ## Context
 

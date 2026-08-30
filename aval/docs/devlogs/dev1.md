@@ -10,7 +10,7 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 ## 2026-08-30 — ports, live merchants, console auth, egress
 
 - **Why:** everything on the open list that did not need another lane.
-- **Decision:** [#22](../decisions/0022-postgres-ports-and-console-auth.md).
+- **Decision:** [#28](../decisions/0028-postgres-ports-and-console-auth.md).
 - **Built:**
   - `ports/` — protocols and registries for merchants, rails, models, channels.
     `ToolRegistry` refuses any effect but `read`/`submit` at construction, so S2
@@ -51,7 +51,7 @@ outside the gate, resilient to prompt injection. Scope and day plan:
   0.01 s. Checked first: the model has no tool that sets an interval, creates a
   watch or spawns a run, so the instruction is unrepresentable. Built the other
   three layers anyway.
-- **Decision:** [#21](../decisions/0021-guardrails-and-containment.md).
+- **Decision:** [#27](../decisions/0027-guardrails-and-containment.md).
 - **Built:** `src/agent/limits.py` — persisted token buckets, windowed counters,
   single-flight locks, and guards for watch interval/count, merchant and LLM
   call rates, runs per hour, steps, wall clock, prompt size, escalations per
@@ -81,7 +81,7 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 - **Why:** M0 was blocked on other lanes, so Dev 1 built against local mocks
   instead of waiting. The whole flow now runs from a clean clone with no
   external service: `reset` → `seed` → `demo`.
-- **Decision:** [#20](../decisions/0020-agent-memory-ontology-and-console.md) —
+- **Decision:** [#26](../decisions/0026-agent-memory-ontology-and-console.md) —
   memory + ontology + configuration console. Ontology is unsigned advice,
   the mandate is signed law; neither memory nor ontology reaches the gate (S4/K1).
 - **Built:**

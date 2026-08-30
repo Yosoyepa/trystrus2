@@ -1,4 +1,4 @@
-# 0020 — Agent memory, ontology, and the configuration console
+# 0026 — Agent memory, ontology, and the configuration console
 
 Date: 2026-08-29 · Status: accepted · Workstream: Dev 1
 Related: #1 (no model in enforcement), #5 (JsonLogic), #7 (hash chain),

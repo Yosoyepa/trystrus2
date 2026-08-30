@@ -4,7 +4,7 @@ Every property TryTrust must conserve, named. Cite the IDs in code comments,
 decision records, PR descriptions and the demo script. They roll up to the
 objectives O1–O8 in [`PLAN.md`](PLAN.md).
 
-`†` = introduced with the agent/console work (decision #20).
+`†` = introduced with the agent/console work (decision #26).
 **test** names the check in `src/agent/tests.py`; run them with
 `uv run python -m src.agent.tests`.
 
