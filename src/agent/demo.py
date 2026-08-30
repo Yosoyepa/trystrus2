@@ -185,4 +185,64 @@ def run_demo(conn=None, pause: bool = True) -> None:
         print("    !! the update succeeded — append-only is not enforced")
     except Exception as exc:
         print(f"    refused by the database: {exc}")
+    _pause(pause)
+
+    # ── 10 ───────────────────────────────────────────────────────────────────
+    _head("10.", "A real merchant, over its own MCP server",
+          "their tools, their prices, our gate — and their `pay` never called")
+    _live_merchant(conn)
+
     print(f"\n{BAR}\ndone. `uv run python -m src.agent.cli audit` for the full trail.\n{BAR}")
+
+
+def _live_merchant(conn) -> None:
+    """Runs against vuela-ya if it is up; says so plainly if it is not."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    from . import kernel, mandate as mandate_mod
+    from .ports.base import TOOLS, search_all
+    from .ports.setup import setup
+
+    url = "http://localhost:3000/api/mcp"
+    try:
+        urllib.request.urlopen(url.replace("/api/mcp", "/api/airports"), timeout=3).read()
+    except (urllib.error.URLError, OSError):
+        print("  vuela-ya is not running on :3000 — skipping.")
+        print("  start it with:  cd trytrust-merchants/apps/vuela-ya && pnpm dev --port 3000")
+        return
+
+    setup(vuelaya_url=url)
+    print(f"  callable : {', '.join(TOOLS.callable_names('vuelaya-mcp'))}")
+    refused = [r["name"] for r in TOOLS.refused if r["merchant_id"] == "vuelaya-mcp"]
+    print(f"  refused  : {refused}  ← settles with no mandate, so we never call it")
+
+    row = conn.execute("SELECT claims FROM mandates WHERE claims::jsonb->>'currency'"
+                       "='COP' AND status='active' LIMIT 1").fetchone()
+    if row is None:
+        print("  no active COP mandate left in this run; re-seed to try again.")
+        return
+    claims = _json.loads(row["claims"])
+    offers = [o for o in search_all(conn, allowed=claims["scope"]["merchants"],
+                                    destination="MDE")
+              if o["merchant_id"] == "vuelaya-mcp"]
+    if not offers:
+        print("  the merchant returned no flights for this route.")
+        return
+    pick = min(offers, key=lambda o: float(o["price"]))
+    print(f"\n  agent proposes {pick['title']} at {pick['price']} COP")
+    result = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                    mandate_jti=claims["jti"],
+                                    merchant_id="vuelaya-mcp")
+    print(f"  -> {result['status'].upper()} {result.get('reason_code') or ''}")
+    if result.get("receipt"):
+        print(f"  booking {result['receipt']['receipt_id']} at "
+              f"{result['receipt']['amount']} {result['receipt']['currency']}")
+
+    mandate_mod.revoke(conn, claims["jti"], actor="Marta")
+    after = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                   mandate_jti=claims["jti"],
+                                   merchant_id="vuelaya-mcp")
+    print(f"  revoked, same purchase again -> {after['status'].upper()}: "
+          f"{after.get('reason_code')}")
