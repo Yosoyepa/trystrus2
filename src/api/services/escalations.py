@@ -17,7 +17,7 @@ from trustlib.models import EscalationResolution, EscalationStatus, ReasonCode
 
 from ..config import settings
 from ..db import session_factory
-from ..models import Escalation
+from ..models import Escalation, iso_now
 from .keys import key_store
 
 
@@ -31,19 +31,16 @@ class EscalationConflict(Exception):
         super().__init__(message)
 
 
-def _utc(moment: datetime) -> datetime:
-    """`escalations.timeout_at`/`resolved_at`/`created_at` are TIMESTAMPTZ in
-    the unified schema, so binds must be real datetimes — an ISO string would
-    raise `operator does not exist: timestamptz < character varying`."""
+def _iso(moment: datetime) -> str:
+    """`escalations.timeout_at`/`resolved_at`/`created_at` are TEXT (the agent
+    lane's table, shared verbatim). One fixed, zero-padded format is what
+    makes `<`/`>=` on those columns sort the same way TIMESTAMPTZ did."""
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise ValueError("escalation timestamps must be timezone-aware")
-    return moment.astimezone(UTC).replace(microsecond=0)
+    return moment.astimezone(UTC).replace(microsecond=0).isoformat()
 
 
-def _from_iso(value: datetime | str) -> datetime:
-    """Rows may still surface TEXT timestamps from pre-migration data."""
-    if isinstance(value, datetime):
-        return value
+def _from_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
@@ -65,8 +62,8 @@ async def create(
         mandate_jti=mandate_id,
         status=EscalationStatus.PENDING.value,
         diff=json.dumps(diff) if diff is not None else None,
-        timeout_at=_utc(deadline),
-        created_at=_utc(datetime.now(UTC)),
+        timeout_at=_iso(deadline),
+        created_at=iso_now(),
     )
     session.add(row)
     await session.flush()
@@ -80,9 +77,9 @@ async def expire_pending(session: AsyncSession, *, now: datetime | None = None) 
         update(Escalation)
         .where(
             Escalation.status == EscalationStatus.PENDING.value,
-            Escalation.timeout_at < _utc(moment),
+            Escalation.timeout_at < _iso(moment),
         )
-        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT", resolved_at=_utc(moment))
+        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT")
         .returning(Escalation.id, Escalation.purchase_id)
     )
     expired = list(result.all())
@@ -168,7 +165,7 @@ async def resolve(
         .where(
             Escalation.id == escalation_id,
             Escalation.status == EscalationStatus.PENDING.value,
-            Escalation.timeout_at >= _utc(moment),
+            Escalation.timeout_at >= _iso(moment),
         )
         .values(
             status=EscalationStatus.RESOLVED.value,
@@ -176,7 +173,6 @@ async def resolve(
             approver=approver,
             channel=channel,
             receipt_sig=receipt_sig,
-            resolved_at=_utc(moment),
         )
         .returning(Escalation)
     )
@@ -241,11 +237,7 @@ def _view(row: Escalation) -> EscalationView:
             decision=row.decision,
             approver=row.approver or "system",
             channel=row.channel or "web",
-            resolved_at=(
-                _from_iso(row.resolved_at)
-                if row.resolved_at
-                else _from_iso(row.timeout_at)
-            ),
+            resolved_at=_from_iso(row.created_at),
             receipt_sig=row.receipt_sig,
         )
     return EscalationView(

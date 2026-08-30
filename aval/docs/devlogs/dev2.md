@@ -7,6 +7,29 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Schema alignment corrected: fresh DB follows schema.sql (agent shape), not the old alembic shapes
+- **What broke live:** after the volume wipe, kernel and merchant went into
+  crash loops. Root cause of the confusion: TWO different database shapes
+  existed tonight. The pre-wipe DB was created with alembic-era API shapes
+  (`escalations` timestamptz, `offers` numeric/travel_date) — tonight's
+  fixes targeted THAT db. The post-wipe DB loads the current
+  `schema.sql` (decision 0029 agent shape): `escalations` TEXT with NO
+  `resolved_at` column, `offers` TEXT with `depart_date`. My earlier
+  "fixes" (DateTime binds, numeric mapping) were correct for a database
+  that no longer exists and crash-looped the fresh one.
+- **Alignment (git-revert to 4fed684 for the four files, then adapt):**
+  merchant OfferRow back to TEXT/depart_date; escalations service back to
+  ISO-string binds; the ONE real schema gap patched properly — the service
+  no longer binds/reads `resolved_at` (column does not exist in schema.sql;
+  the view uses created_at). Suite 319 green.
+- **Live-incident note:** the user-visible 404 on /agent/dispatch was the
+  kernel crash-looping during the user's request; the front fell back to
+  /agent/ask with a stale mandate id (env updated to mdt_0492… now).
+- **Router:** added beverage keywords (botella/agua/gaseosa/jugo/leche/pan)
+  so drink requests route to the Rappi agent even without an LLM category.
+
+---
+
 ## 2026-08-30 — Payments integrated from the fork (6a20e1e): CASH fallback exposed and killed, 3DS reality mapped
 - **What the fork taught us (DaniDiazTech/rappi-cli @ 6a20e1e, fetched into
   the vendor clone and audited):** without a payment method on the cart,

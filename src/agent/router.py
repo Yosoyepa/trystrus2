@@ -29,6 +29,7 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "groceries": (
         "mercado", "supermercado", "papas", "pringles", "producto", "productos",
         "groceries", "market", "compras del mercado", "fruta", "cereal",
+        "botella", "agua", "gaseosa", "jugo", "leche", "pan",
     ),
     "retail": (
         "tienda", "comprar", "compra", "retail", "snack", "galleta", "bebida",

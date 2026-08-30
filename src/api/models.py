@@ -77,17 +77,13 @@ class Escalation(Base):
     mandate_jti: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     diff: Mapped[str | None] = mapped_column(Text)
-    timeout_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    timeout_at: Mapped[str] = mapped_column(Text, nullable=False)
     decision: Mapped[str | None] = mapped_column(Text)
     approver: Mapped[str | None] = mapped_column(Text)
     channel: Mapped[str | None] = mapped_column(Text)
     receipt_sig: Mapped[str | None] = mapped_column(Text)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
-    )
+    resolved_at: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=iso_now)
 
 
 class PaymentInstrument(Base):
