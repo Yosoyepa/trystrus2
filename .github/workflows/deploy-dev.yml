@@ -36,6 +36,7 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOY_SA }}
+          token_format: access_token
 
       - uses: google-github-actions/setup-gcloud@v3
 

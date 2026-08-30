@@ -1,9 +1,9 @@
 # dev: cheap, no LB (domain empty → direct run.app URLs), scale to zero.
-project_id  = "trytrust"
-region      = "southamerica-east1"
-environment = "dev"
-image     = "southamerica-east1-docker.pkg.dev/trytrust/aval/backend:latest"
-web_image = "southamerica-east1-docker.pkg.dev/trytrust/aval/web:latest"
+project_id           = "trytrust"
+region               = "southamerica-east1"
+environment          = "dev"
+image                = "southamerica-east1-docker.pkg.dev/trytrust/aval/backend:latest"
+web_image            = "southamerica-east1-docker.pkg.dev/trytrust/aval/web:latest"
 domain               = ""
 min_instances        = 0
 max_instances        = 2
