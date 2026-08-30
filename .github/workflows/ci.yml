@@ -4,9 +4,10 @@ name: ci
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, iac/cloudrun]
   push:
     branches: [main, iac/cloudrun]
+  workflow_dispatch:
 
 jobs:
   test:

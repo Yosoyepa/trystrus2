@@ -253,6 +253,9 @@ def node_search(conn, run: dict) -> str:
 
         missing = [m for m in (allowed or []) if m not in MERCHANTS]
         run["state"]["search_error"] = "merchant_offline" if missing else "no_offers"
+        # Naming the merchant turns "something is off" into a fixable report:
+        # the answer is almost always an endpoint nobody configured.
+        run["state"]["offline_merchants"] = missing
     _save(conn, run, node="search", event={"offers_found": len(offers)})
     audit.append(
         conn,

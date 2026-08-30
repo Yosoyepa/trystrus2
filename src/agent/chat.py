@@ -263,9 +263,9 @@ class Session:
         if run["status"] == "denied":
             err = state.get("search_error")
             if err == "merchant_offline":
-                lines.append(
-                    "No pude buscar eso: el comercio del mandato no está conectado. Nada se cobró."
-                )
+                offline = state.get("offline_merchants") or []
+                who = ", ".join(offline) if offline else "el comercio del mandato"
+                lines.append(f"No pude buscar eso: {who} no está conectado. Nada se cobró.")
             else:
                 lines.append(
                     "No encontré nada que el mandato me deje comprar para eso. "

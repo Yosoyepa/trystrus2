@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from . import llm
+from .ports.base import MERCHANTS
 
 # Category → buyer words. Spanish-first: the demo audience talks to the agent
 # in Spanish. Kept as data so adding a merchant never means editing logic.
@@ -80,6 +81,24 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 _MERCHANT_WORD = "-mcp"
 
 
+def reachable(scope: dict[str, Any]) -> bool:
+    """Can this mandate's scope reach a merchant that exists in this process?
+
+    A mandate scoped only to merchants nobody registered can never return an
+    offer: routing to it spends the buyer's turn and answers "el comercio del
+    mandato no está conectado". That is honest but useless when another
+    mandate could have served the same request. An empty merchant scope means
+    every merchant, so it is reachable whenever anything is registered.
+
+    This is a routing preference, never a permission: the gate still enforces
+    the scope, so preferring a reachable mandate cannot widen what it may buy.
+    """
+    merchants = scope.get("merchants")
+    if not merchants:
+        return bool(MERCHANTS)
+    return any(merchant in MERCHANTS for merchant in merchants)
+
+
 def _claims(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
@@ -133,10 +152,19 @@ def score_candidates(
         if merchant_hits:
             score += 1
             reasons.append(f"merchant '{merchant_hits[0]}' nombrado en el pedido")
-        scored.append({**candidate, "score": score, "reasons": reasons})
-    # Score first; ties break toward the NEWEST mandate — the freshest
-    # agreement is the one the person signed last.
-    scored.sort(key=lambda item: (-item["score"], str(item.get("created_at", ""))))
+        live = reachable(scope)
+        if not live:
+            reasons.append("ningún comercio de este mandato está registrado")
+        scored.append({**candidate, "score": score, "reasons": reasons, "reachable": live})
+    # Fit first, so a request is never handed to a mandate that does not cover
+    # it just because that one happens to be online. Among mandates that fit
+    # equally well, a reachable one beats an offline one — same permission,
+    # but it can actually answer. Ties after that break toward the NEWEST
+    # mandate: the freshest agreement is the one the person signed last.
+    # Sorting newest-first up front and relying on a stable sort for the rest
+    # keeps the timestamp the last word without a reversed key for it.
+    scored.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    scored.sort(key=lambda item: (-item["score"], not item["reachable"]))
     return scored
 
 

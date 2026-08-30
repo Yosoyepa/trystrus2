@@ -27,14 +27,13 @@ permissions:
 
 jobs:
   deploy:
-    if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     environment: dev
 
     env:
-      PROJECT: ${{ vars.GCP_PROJECT }}
-      REGION: ${{ vars.GCP_REGION }}
-      REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
+      PROJECT: ${{ vars.GCP_PROJECT || 'trytrust' }}
+      REGION: ${{ vars.GCP_REGION || 'southamerica-east1' }}
+      REPO: ${{ vars.GCP_REGION || 'southamerica-east1' }}-docker.pkg.dev/${{ vars.GCP_PROJECT || 'trytrust' }}/aval
 
     steps:
       - uses: actions/checkout@v5
@@ -42,8 +41,8 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.DEPLOY_SA }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER || 'projects/834218710552/locations/global/workloadIdentityPools/aval-github/providers/github' }}
+          service_account: ${{ vars.DEPLOY_SA || 'aval-dev-deploy@trytrust.iam.gserviceaccount.com' }}
           token_format: access_token
 
       - uses: google-github-actions/setup-gcloud@v3
