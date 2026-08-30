@@ -136,3 +136,14 @@ locals {
     },
   )
 }
+
+variable "mcp_allowed_hosts" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    Comma-separated Host values the merchant's MCP endpoint will accept
+    (DNS-rebinding protection). Empty derives it from var.domain. Set this
+    explicitly when the MCP is also reached on its *.run.app hostname, which
+    the LB-derived value does not cover. An entry may use a ":*" port wildcard.
+  EOT
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -13,12 +14,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trustlib.models import ReasonCode, Receipt
 
 from . import catalog, deps
+from mcp.server.transport_security import TransportSecuritySettings
+
+from .mcp_server import mcp
 from .charge import ChargeRefused, ChargeSettlementError
 from .db import get_session, session_factory
 from .schemas import ChargeRequest, CheckoutQuote, CheckoutQuoteRequest, PriceUpdate
 from .webhooks import WebhookVerificationError, YunoWebhookVerifier
 
 log = logging.getLogger(__name__)
+
+
+# The MCP tools were reachable over stdio only, which is a same-machine
+# transport: in a deployed service nothing was listening, so the agent could
+# never speak MCP to this merchant. Mounting the streamable-HTTP app puts the
+# same three tools on the network without a second deployable -- they inherit
+# this service's ingress, its Cloud SQL socket and its TLS.
+# DNS-rebinding protection ships ON with an EMPTY allowlist, and an empty
+# allowlist rejects every Host -- deployed behind a load balancer that is a
+# uniform 421, which reads as "the MCP is down" rather than "the MCP refused
+# your Host header". So the allowlist is explicit and comes from the
+# environment: TT_MCP_ALLOWED_HOSTS is the deployed hostname (merchant.<domain>,
+# plus the *.run.app name if the service is reached directly). Unset, it falls
+# back to loopback, which is what a developer on this machine needs and what a
+# public deployment must never silently be.
+_MCP_ALLOWED_HOSTS = [h.strip() for h in os.environ.get("TT_MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+_MCP_HOSTS = _MCP_ALLOWED_HOSTS or ["127.0.0.1:*", "localhost:*"]
+
+mcp_app = mcp.streamable_http_app(
+    # Mounted under /mcp below; leaving the default here would serve /mcp/mcp.
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        allowed_hosts=_MCP_HOSTS,
+        allowed_origins=[f"https://{h}" for h in _MCP_HOSTS] + [f"http://{h}" for h in _MCP_HOSTS],
+    ),
+)
 
 
 @asynccontextmanager
@@ -28,7 +58,11 @@ async def lifespan(_: FastAPI):
     async with session_factory()() as session:
         await catalog.seed_initial_offers(session)
         await session.commit()
-    yield
+    # The transport owns a session manager that has to be started with the app.
+    # Mounting the ASGI app without running its lifespan leaves that manager
+    # uninitialised, and every tools/call fails at runtime rather than at boot.
+    async with mcp_app.router.lifespan_context(mcp_app):
+        yield
 
 
 app = FastAPI(
@@ -40,6 +74,11 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+# The same three tools src/merchant/mcp_server.py already defines, now on the
+# network. `request_purchase` still goes through the kernel: this adds a
+# transport, not a second way to move money.
+app.mount("/mcp", mcp_app)
 
 _webhook_verifier: YunoWebhookVerifier | None = None
 

@@ -7,6 +7,38 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — el MCP del merchant, alcanzable en producción
+
+- **Why:** en producción no se podía llegar al MCP. La causa no era el
+  despliegue: `src/merchant/mcp_server.py` solo corría `run_stdio_async()`, un
+  transporte de mismo proceso. El servicio de Cloud Run sirve
+  `src.merchant.main:app`, que nunca montaba el MCP — no había nada escuchando
+  en red que alcanzar.
+- **Built:**
+  - `src/merchant/main.py` monta `mcp.streamable_http_app()` en `/mcp`, con
+    `streamable_http_path="/"` para no servir `/mcp/mcp`. El lifespan del MCP se
+    encadena al de la app: montar el ASGI sin correr su lifespan deja el session
+    manager sin inicializar y cada `tools/call` falla en runtime, no al arrancar.
+  - `TT_MCP_ALLOWED_HOSTS` + `var.mcp_allowed_hosts` en `iac/`. El LB ya
+    enrutaba `/merchant/*` con rewrite a `/`, así que la ruta pública
+    (`https://<dominio>/merchant/mcp/`) ya existía.
+- **Found:** la protección DNS-rebinding del transporte viene **activada con
+  allowlist vacía**, y `_validate_host` devuelve False para cualquier Host
+  cuando la lista está vacía. Desplegado tal cual, el MCP habría contestado
+  `421` a todo — un fallo que se lee como "el MCP está caído" y no como "rechazó
+  tu Host". Por eso la allowlist es explícita y viene del entorno.
+- **Tests:** 42/42 en la suite de propiedades; pytest 402 pasan. Los 2 fallos
+  (`test_webhooks_and_mcp` por su DSN fijo y `test_agent_router`) ya fallaban en
+  main sin este cambio — verificado con stash. Contra el merchant local:
+  `tools/list` devuelve las tres herramientas, `search_offers` responde por
+  HTTP, Host válido pasa y Host falso da 421.
+- **Open questions:** el kernel todavía no registra este MCP en producción — no
+  añadí `TT_VUELAYA_MCP_URL` al servicio kernel porque eso cambia qué comercios
+  ve el agente en prod, y hoy la demo va por el mock de vuelos. Es una env de
+  una línea cuando se quiera.
+
+---
+
 ## 2026-08-30 — explicit offer selection survives an unavailable LLM
 
 - **Why:** the production-integration invariant run exposed that S4/K1 passed
