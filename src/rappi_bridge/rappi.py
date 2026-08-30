@@ -8,6 +8,7 @@ authentication beyond the session token captured by the owner's own login.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ PLACE_ORDER_PATH = "/api/ms/shopping-cart-proxy/{store_type}/checkout"
 PAYMENT_RESOLVER_PATH = "/api/ms/payment-method/resolver/v6"
 PAYMENT_PUT_PATH = "/api/ms/shopping-cart/v1/{store_type}/payment-method"
 ORDERS_PATH = "/api/user-order-home/orders"
+UNIFIED_SEARCH_PATH = "/api/pns-global-search-api/v1/unified-search"
 
 # Rappi answers with bare image paths; the CDN prefixes below are what the
 # audited CLI (`@crafter/rappi-cli`, formatters.ts) stitches in front of them.
@@ -109,9 +111,23 @@ class RappiClient:
             "deviceid": self._session.device_id,
         }
 
-    def _request(self, method: str, path: str, *, params: Any = None, body: Any = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Any = None,
+        body: Any = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
         try:
-            response = self._client.request(method, path, params=params, json=body)
+            response = self._client.request(
+                method,
+                path,
+                params=params,
+                json=body,
+                headers=headers,
+            )
         except httpx.HTTPError as exc:
             raise RappiError(f"rappi transport error on {path}: {exc}") from exc
         if response.status_code in (401, 403):
@@ -218,11 +234,38 @@ class LazyRappiClient:
         return getattr(self._ensure(), name)
 
     def search(self, query: str) -> list[dict[str, Any]]:
-        """Unified catalog search (read-only). POST per the audited CLI."""
-        data = self._request(
+        """Unified catalog search (read-only).
+
+        Rappi's current web client requires an ``options`` object, even for an
+        unfiltered search, and the ``unlimited_shipping`` flag.  Omitting
+        either makes the endpoint return HTTP 400 with an otherwise
+        unhelpful empty result object.
+        """
+        client = self._ensure()
+        account = client.whoami()
+        account_id = account.get("id")
+        if not isinstance(account_id, int) or isinstance(account_id, bool):
+            raise RappiError("Rappi account response has no numeric id")
+
+        try:
+            lat = float(client._session.lat)
+            lng = float(client._session.lng)
+        except (TypeError, ValueError) as exc:
+            raise RappiError("Rappi session has invalid search coordinates") from exc
+        if not math.isfinite(lat) or not math.isfinite(lng):
+            raise RappiError("Rappi session has non-finite search coordinates")
+
+        data = client._request(
             "POST",
-            "/api/pns-global-search-api/v1/unified-search?is_prime=false",
-            body={"query": query, "lat": self._session.lat, "lng": self._session.lng},
+            UNIFIED_SEARCH_PATH,
+            params={"is_prime": "false", "unlimited_shipping": "false"},
+            headers={"AUTH_USER": str(account_id)},
+            body={
+                "lat": lat,
+                "lng": lng,
+                "query": query,
+                "options": {},
+            },
         )
         results: list[dict[str, Any]] = []
         for store in data.get("stores", []) if isinstance(data, dict) else []:

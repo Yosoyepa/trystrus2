@@ -21,6 +21,8 @@ person agreed to.
 from __future__ import annotations
 
 import datetime as _dt
+import time
+from threading import Lock
 from typing import Any
 
 from .. import audit
@@ -391,9 +393,15 @@ class RappiBridgeMcp:
     merchant_id = "rappi"
     currency = "COP"
     category = "groceries"
+    _OFFER_QUERY_TTL_S = 60.0
 
     def __init__(self, url: str):
         self.url = url.rstrip("/")
+        # The agent only receives opaque Rappi offer ids.  Keep the query that
+        # produced each id briefly so ``get`` can re-read the merchant instead
+        # of trusting a stale offer carried through the model/run state.
+        self._offer_queries: dict[str, tuple[str, float]] = {}
+        self._offer_queries_lock = Lock()
 
     def discover(self) -> dict[str, Any]:
         return {"merchant_id": self.merchant_id, "bridge": self.url}
@@ -406,32 +414,64 @@ class RappiBridgeMcp:
             raise RuntimeError(f"bridge {path} -> {response.status_code}")
         return response.json()
 
-    def search(self, conn, *, query: str | None = None, category=None, **_: Any) -> list[dict]:
-        if not query:
-            return []
+    def _search(self, query: str) -> list[dict]:
         data = self._get("/v1/rappi/search", {"q": query})
         offers: list[dict] = []
         for item in data.get("results", []):
             images = [u for u in (item.get("images") or [item.get("image")]) if u]
             offers.append(
-                {
-                    "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
-                    "merchant_id": self.merchant_id,
-                    "category": "groceries",
-                    "title": f"{item['title']} — {item['store_name']}",
-                    "amount": str(int(item.get("price", 0))),
-                    "currency": self.currency,
-                    "eta": item.get("eta"),
-                    "images": images,  # Rappi's own CDN URLs, verbatim
-                    "description": (
-                        f"delivery {item.get('shipping_cost', 0)} COP · {item.get('eta', '')}"
-                    ),
-                }
+                normalise_offer(
+                    {
+                        "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
+                        "category": "groceries",
+                        "title": f"{item['title']} — {item['store_name']}",
+                        "price": item.get("price", 0),
+                        "currency": self.currency,
+                        "eta": item.get("eta"),
+                        "images": images,  # Rappi's own CDN URLs, verbatim
+                        "description": (
+                            f"delivery {item.get('shipping_cost', 0)} COP · {item.get('eta', '')}"
+                        ),
+                        "native": {
+                            "store_id": item["store_id"],
+                            "sku": item["sku"],
+                            "store_name": item.get("store_name"),
+                        },
+                    },
+                    merchant_id=self.merchant_id,
+                )
             )
         return offers
 
+    def _remember_offer_queries(self, offers: list[dict], query: str) -> None:
+        now = time.monotonic()
+        with self._offer_queries_lock:
+            self._offer_queries = {
+                offer_id: stored
+                for offer_id, stored in self._offer_queries.items()
+                if now - stored[1] <= self._OFFER_QUERY_TTL_S
+            }
+            self._offer_queries.update({offer["offer_id"]: (query, now) for offer in offers})
+
+    def search(self, conn, *, query: str | None = None, category=None, **_: Any) -> list[dict]:
+        if not query:
+            return []
+        offers = self._search(query)
+        self._remember_offer_queries(offers, query)
+        return offers
+
     def get(self, conn, offer_id: str) -> dict | None:
-        return None  # search results are the only quoting surface tonight
+        with self._offer_queries_lock:
+            remembered = self._offer_queries.get(offer_id)
+        if remembered is None:
+            return None
+        query, seen_at = remembered
+        if time.monotonic() - seen_at > self._OFFER_QUERY_TTL_S:
+            return None
+
+        # A second read is deliberate: the signed intent must bind the live
+        # merchant price, not the price the model saw during discovery.
+        return next((offer for offer in self._search(query) if offer["offer_id"] == offer_id), None)
 
     def settle(self, conn, **_: Any) -> dict:
         return {

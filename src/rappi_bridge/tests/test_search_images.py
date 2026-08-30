@@ -8,8 +8,11 @@ not a stand-in the platform invented.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 from src.rappi_bridge.rappi import (
+    AUTH_PATH,
     IMAGES_BASE_URL,
     LazyRappiClient,
     RappiClient,
@@ -70,9 +73,31 @@ UNIFIED = {
 
 
 def test_search_builds_absolute_cdn_urls(tmp_path) -> None:
-    lazy = make_lazy(lambda request: search_response(UNIFIED), tmp_path)
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json={"id": 42}, request=request)
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        seen["body"] = json.loads(request.content)
+        seen["auth_user"] = request.headers["AUTH_USER"]
+        return search_response(UNIFIED)
+
+    lazy = make_lazy(handler, tmp_path)
     results = lazy.search("botella de agua")
 
+    assert seen == {
+        "path": "/api/pns-global-search-api/v1/unified-search",
+        "params": {"is_prime": "false", "unlimited_shipping": "false"},
+        "body": {
+            "lat": 4.71,
+            "lng": -74.07,
+            "query": "botella de agua",
+            "options": {},
+        },
+        "auth_user": "42",
+    }
     assert results[0]["image"] == f"{IMAGES_BASE_URL}/products/cristal-600.webp"
     assert results[0]["store_logo"] == f"{IMAGES_BASE_URL}/restaurants_logo/stores/exitexpress.webp"
     # absolute URLs pass through untouched
@@ -146,4 +171,12 @@ def test_rappi_adapter_passes_images_through(monkeypatch) -> None:
     monkeypatch.setattr(httpx, "get", fake_get)
     offers = bridge.search(None, query="botella de agua")
 
+    assert offers[0]["price"] == "2100.00"
+    assert offers[0]["merchant_id"] == "rappi"
     assert offers[0]["images"] == [f"{IMAGES_BASE_URL}/products/cristal-600.webp"]
+    # Kernel verification obtains a fresh merchant read, never the offer
+    # carried through the agent's model state.
+    fresh = bridge.get(None, offers[0]["offer_id"])
+    assert fresh is not None
+    assert fresh["price"] == "2100.00"
+    assert bridge.get(None, "rappi_9001_missing") is None
