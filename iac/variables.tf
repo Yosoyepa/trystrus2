@@ -38,6 +38,12 @@ variable "yuno_sim_url" {
   description = "Base URL the kernel uses to reach yuno_sim. Kept as a variable to avoid a kernel<->yuno resource cycle; the deploy workflow fills it with the service URL."
 }
 
+variable "rappi_bridge_url" {
+  type        = string
+  default     = ""
+  description = "Ephemeral authenticated HTTPS tunnel to the credential-machine Rappi bridge. Empty keeps the explicit fixture fallback."
+}
+
 variable "min_instances" {
   type    = number
   default = 0

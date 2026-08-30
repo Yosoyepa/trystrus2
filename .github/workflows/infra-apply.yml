@@ -14,6 +14,10 @@ on:
           - dev
           - prod
 
+concurrency:
+  group: infra-apply-${{ inputs.environment }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write
@@ -58,9 +62,16 @@ jobs:
         run: tofu init -backend-config=environments/${{ inputs.environment }}.backend.hcl -input=false
 
       - name: Tofu apply (${{ inputs.environment }})
-        run: >-
-          tofu apply
-          -var-file=environments/${{ inputs.environment }}.tfvars
-          -var="project_id=${{ vars.GCP_PROJECT }}"
-          -input=false
-          -auto-approve
+        run: |
+          set -euo pipefail
+          if ! tofu apply \
+              -var-file=environments/${{ inputs.environment }}.tfvars \
+              -var="project_id=${{ vars.GCP_PROJECT }}" \
+              -var="rappi_bridge_url=${{ vars.RAPPI_BRIDGE_URL }}" \
+              -input=false \
+              -auto-approve \
+              >/tmp/tofu-apply.log 2>&1; then
+            echo "OpenTofu apply failed. Detailed values are withheld from public logs."
+            exit 1
+          fi
+          echo "OpenTofu apply completed; state values were not printed."

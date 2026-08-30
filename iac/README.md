@@ -47,10 +47,15 @@ tofu validate
    ```
 3. Real secrets: `gcloud secrets versions add <secret> --data-file=-` for
    `*-db-url`, `*-idem-secret`, `*-llm-gemini-key`, `*-llm-openai-key`,
-   `aval-issuer-ed25519`, `aval-merchant-es256`, `aval-yuno-webhook-ed25519`.
+   `*-rappi-bridge-token`, `*-telegram-bot-token`,
+   `*-telegram-webhook-secret`, `aval-issuer-ed25519`,
+   `aval-merchant-es256`, `aval-yuno-webhook-ed25519`.
 4. Repo variables (GitHub → Settings → Variables): `GCP_PROJECT`,
    `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. After configuring required
    reviewers on the `prod` environment, set `PROD_DEPLOY_ENABLED=true`.
+   Set the ephemeral topology-B tunnel as the environment variable
+   `RAPPI_BRIDGE_URL`; its bearer lives only in Secret Manager as
+   `aval-prod-rappi-bridge-token`.
    Until WIF exists, deploy workflows self-skip; until the explicit prod
    switch exists, both prod apply and prod promotion fail before selecting the
    GitHub environment.
@@ -76,10 +81,14 @@ tofu apply -var-file=environments/dev.tfvars
   jobs; Actions actualiza únicamente imágenes inmutables y siempre apunta los
   jobs a la revisión nueva antes de ejecutar migraciones.
 - **Secrets siempre por `--set-secrets`** (nunca env vars planas).
+- **Planes públicos sin valores**: CI publica únicamente la dirección de cada
+  recurso y su acción. El plan completo puede contener drift secreto y nunca
+  se imprime ni se comenta en un PR.
 - **Gemini por API key hoy; Vertex/ADC es el endurecimiento recomendado.**
 - **Dominio propio requerido en prod**: sin DNS no hay cert/LB y las passkeys
   fallan en `*.run.app` (Public Suffix List, ADR-018).
 - **Rappi no se hospeda en Cloud Run**: por decisión 0030, la sesión vive en
   la máquina propietaria. Producción necesita un túnel autenticado desde el
-  kernel hacia ese bridge; sin él, el agente usa el catálogo fixture y no se
-  presenta como búsqueda real.
+  kernel hacia ese bridge. Cuando `RAPPI_BRIDGE_URL` está armado,
+  `deploy-prod` exige una búsqueda con IDs nativos `rappi_*`; sin él, el agente
+  usa el catálogo fixture y no se presenta como búsqueda real.

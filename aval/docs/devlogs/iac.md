@@ -29,16 +29,31 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
   reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto
   real `trytrust`, a imágenes existentes y a `https://trytrust.lat/yuno`; el
   estado prod comparte `trytrust-tfstate` bajo el prefijo aislado `env/prod`.
-- **Verification:** Ruff limpio; 410 pytest pasan (2 GCP excluidos) sobre una
+- **Rappi topology B wired:** IaC crea el secreto separado
+  `aval-{env}-rappi-bridge-token`; el kernel recibe ese bearer por Secret
+  Manager y la URL efímera por la variable de environment
+  `RAPPI_BRIDGE_URL`. El deploy prod, cuando la URL está armada, ejecuta una
+  búsqueda de chat real y exige IDs nativos `rappi_*`; un fixture `ofr_*` no
+  puede hacer pasar el smoke. La sesión `ft.` nunca sale de la máquina.
+- **Credential incident contained:** un plan dev reveló que Telegram había
+  sido configurado manualmente como dos env vars planas; el diff de OpenTofu
+  imprimió sus valores en logs públicos. Se eliminaron exactamente los tres
+  runs afectados y el comentario de PR afectado. Plan/apply ahora silencian el
+  detalle y publican solo direcciones + acciones; ejecuciones concurrentes se
+  serializan. IaC mueve bot token y webhook secret a Secret Manager y el
+  próximo deploy elimina las variables planas. Ambos valores siguen
+  requiriendo rotación en su proveedor: borrar logs no revoca credenciales.
+- **Verification:** Ruff limpio; 411 pytest pasan (2 GCP excluidos) sobre una
   base PostgreSQL creada desde la cadena Alembic; invariantes del agente 42/42
   sin clave LLM; build Vite/TypeScript limpio; `tofu fmt` y `tofu validate`
   verdes; YAML parsea y `docs-guard` pasa.
 - **Release gates still open:** CR-02 continúa abierto (`src/api/deps.py`
   compone compras, evidencia e idempotencia con memoria); el environment
   GitHub `prod` todavía debe tener required reviewers; la clave Gemini expuesta
-  durante diagnóstico debe rotarse. Rappi real no se sube a Cloud Run por la
-  decisión 0030: requiere un túnel autenticado hacia la máquina que custodia
-  la sesión; sin él, producción cae explícitamente al fixture.
+  durante diagnóstico y las dos credenciales Telegram expuestas deben rotarse.
+  Rappi real no se sube a Cloud Run por la decisión 0030: requiere un túnel
+  autenticado hacia la máquina que custodia la sesión; sin él, producción cae
+  explícitamente al fixture.
 - **Decision:** ninguna nueva; se aplican decisiones 0029/0030 y el playbook
   existente.
 - **Contracts touched:** none.

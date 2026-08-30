@@ -35,7 +35,7 @@ export DOMAIN="trytrust.lat"                        # vacío en dev si aún no h
 |---|---|---|
 | CR-01 | **Cerrado** por decisión 0029 + migración 0009: `src/agent/db.py.SCHEMA` deriva del fixture canónico y la cadena converge bases dev antiguas. | Dev 1 + Dev 2 + Dev 3 |
 | CR-02 | Componer el kernel con los adaptadores Postgres/KMS/GCS en `deps.py` (hoy usa stores en memoria: multi-instancia pierde compras/evidencia/idempotencia). | Dev 2 |
-| Rotación | El `.env` local contiene una clave Gemini real — **rotarla** antes de cualquier demo o compartición. | Equipo |
+| Rotación | La clave Gemini local y las credenciales Telegram detectadas en env/logs públicos deben **rotarse** antes de cualquier demo. Borrar el log no las revoca. | Equipo |
 
 Para un `dev` humo de infraestructura se puede aplicar sin los gates, pero el
 pipeline de app no será fiable hasta cerrarlos.
@@ -81,7 +81,7 @@ tofu apply -var-file=environments/dev.tfvars -input=false
 ```
 
 Crea: APIs, Artifact Registry `aval`, Cloud SQL PG16, KMS
-`EC_SIGN_ED25519`, bucket witness, los 7 secretos (placeholders), las SAs
+`EC_SIGN_ED25519`, bucket witness, los 11 secretos (placeholders), las SAs
 (runtime/jobs/deploy) con mínimos privilegios, 4 servicios Cloud Run y 3 jobs.
 
 `tofu plan` tarda; en dev (`domain=""`) no se crea LB ni cert — los servicios
@@ -127,6 +127,22 @@ openssl rand -hex 32 | gcloud secrets versions add aval-dev-idem-secret --data-f
 # Gemini (ai.google.dev) y OpenAI (platform.openai.com) — claves POR ENTORNO:
 echo -n "GEMINI_KEY"  | gcloud secrets versions add aval-dev-llm-gemini-key --data-file=-
 echo -n "OPENAI_KEY"  | gcloud secrets versions add aval-dev-llm-openai-key --data-file=-
+# Tras rotarlos en BotFather / generador del webhook:
+printf %s "TELEGRAM_BOT_TOKEN_NUEVO" | \
+  gcloud secrets versions add aval-dev-telegram-bot-token --data-file=-
+printf %s "TELEGRAM_WEBHOOK_SECRET_NUEVO" | \
+  gcloud secrets versions add aval-dev-telegram-webhook-secret --data-file=-
+```
+
+El bearer del túnel Rappi es distinto de la sesión `ft.` y se genera por
+entorno. Nunca se guarda en git ni se reutiliza como token de Rappi:
+
+```bash
+export RAPPI_TUNNEL_TOKEN="$(openssl rand -hex 32)"
+printf %s "$RAPPI_TUNNEL_TOKEN" | \
+  gcloud secrets versions add aval-prod-rappi-bridge-token --data-file=-
+# En la máquina propietaria, solo durante la demo:
+export AVAL_BRIDGE_LOCAL_TOKEN="$RAPPI_TUNNEL_TOKEN"
 ```
 
 Verificación: `gcloud secrets versions list <secret> | head -3` — ninguna
@@ -238,9 +254,21 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
    antes del demo.
 6. **Rappi real**: el bridge y su sesión no se despliegan. La decisión 0030
    exige que permanezcan en la máquina propietaria. Para habilitar búsqueda
-   real en producción se necesita un túnel HTTPS autenticado y configurar
-   `TT_RAPPI_BRIDGE_URL` en el kernel; sin ese túnel el fallback es el catálogo
-   fixture y debe mostrarse como tal.
+   real en producción, arranca el bridge con `AVAL_BRIDGE_LOCAL_TOKEN`, abre el
+   túnel y registra su URL solo en el environment protegido:
+
+   ```bash
+   uv run python -m src.rappi_bridge.app
+   cloudflared tunnel --url http://127.0.0.1:8010
+   gh variable set RAPPI_BRIDGE_URL --env prod \
+     --body "https://URL-EFIMERA.trycloudflare.com"
+   ```
+
+   IaC entrega al kernel el bearer `aval-prod-rappi-bridge-token`; el deploy
+   hace una búsqueda por `/api/agent/dispatch` y exige ofertas `rappi_*`. Si el
+   bridge está caído, el token no coincide o aparece un fixture `ofr_*`, el
+   smoke prod falla. Sin URL, el fallback fixture sigue disponible pero debe
+   mostrarse como simulado.
 
 ---
 

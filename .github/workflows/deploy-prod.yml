@@ -44,6 +44,7 @@ jobs:
       REGION: ${{ vars.GCP_REGION }}
       REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
       TAG: ${{ inputs.image_tag || github.sha }}
+      RAPPI_BRIDGE_URL: ${{ vars.RAPPI_BRIDGE_URL }}
 
     steps:
       - uses: actions/checkout@v5
@@ -106,7 +107,7 @@ jobs:
             --project="$PROJECT" \
             --region="$REGION" \
             --image="$REPO/backend:${TAG}" \
-            --update-env-vars="AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno" \
+            --update-env-vars="AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno,TT_RAPPI_BRIDGE_URL=${RAPPI_BRIDGE_URL}" \
             --quiet
 
           gcloud run services update aval-prod-merchant \
@@ -136,6 +137,19 @@ jobs:
               --retry 6 --retry-delay 5 --retry-all-errors \
               "https://trytrust.lat${path}" >/dev/null
           done
+
+      - name: Prove real Rappi search when the tunnel is armed
+        if: env.RAPPI_BRIDGE_URL != ''
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl --fail --silent --show-error \
+            --retry 3 --retry-delay 3 --retry-all-errors \
+            -H 'Content-Type: application/json' \
+            -d '{"text":"Busca una botella de agua en Rappi y muéstrame opciones"}' \
+            https://trytrust.lat/api/agent/dispatch)
+          echo "$RESPONSE" | jq -e \
+            '.run.status == "done" and (.run.offers | length > 0) and (.run.offers[0].offer_id | startswith("rappi_"))' \
+            >/dev/null
 
       - name: Tick relay and sweeper once
         run: |

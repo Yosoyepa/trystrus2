@@ -95,6 +95,14 @@ jobs:
             exit 1
           fi
 
+      - name: Remove compromised plaintext Telegram configuration
+        run: |
+          gcloud run services update aval-dev-kernel \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --remove-env-vars=TELEGRAM_BOT_TOKEN,TELEGRAM_WEBHOOK_SECRET \
+            --quiet
+
       - name: Deploy Cloud Run Services
         run: |
           set -euo pipefail

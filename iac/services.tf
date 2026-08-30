@@ -90,6 +90,37 @@ resource "google_cloud_run_v2_service" "kernel" {
         value = var.yuno_sim_url
       }
       env {
+        name  = "TT_RAPPI_BRIDGE_URL"
+        value = var.rappi_bridge_url
+      }
+      env {
+        name = "TT_RAPPI_BRIDGE_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-rappi-bridge-token"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "TELEGRAM_BOT_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-telegram-bot-token"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "TELEGRAM_WEBHOOK_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-telegram-webhook-secret"
+            version = "latest"
+          }
+        }
+      }
+      env {
         name  = "LLM_PROVIDER"
         value = "gemini"
       }
