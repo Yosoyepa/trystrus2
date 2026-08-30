@@ -182,6 +182,7 @@ class VuelaYaMcp:
         intent: dict,
         signature: str,
         verify_fn,
+        capture=None,
     ) -> dict:
         live = verify_fn()  # revocation is re-read at settlement (M9)
         if live.get("decision") != "APPROVED":
@@ -300,18 +301,20 @@ class MamiMcp:
         return None
 
     def _to_offer(self, p: dict) -> dict:
-        return normalise_offer(
-            {
-                "offer_id": str(p["id"]),
-                "category": self.category,
-                "title": p.get("name", ""),
-                "price": p.get("price_cop"),
-                "currency": self.currency,
-                "description": f"{p.get('description', '')} ({p.get('properties', '')})",
-                "native": {"product_id": p["id"], "sku": p.get("sku")},
-            },
-            merchant_id=self.merchant_id,
-        )
+        raw = {
+            "offer_id": str(p["id"]),
+            "category": self.category,
+            "title": p.get("name", ""),
+            "price": p.get("price_cop"),
+            "currency": self.currency,
+            "description": f"{p.get('description', '')} ({p.get('properties', '')})",
+            "native": {"product_id": p["id"], "sku": p.get("sku")},
+        }
+        # The merchant catalog's own CDN picture, if their MCP exposes it.
+        for key in ("images", "image", "image_url"):
+            if p.get(key):
+                raw[key] = p[key]
+        return normalise_offer(raw, merchant_id=self.merchant_id)
 
     def settle(
         self,
@@ -323,6 +326,7 @@ class MamiMcp:
         intent: dict,
         signature: str,
         verify_fn,
+        capture=None,
     ) -> dict:
         live = verify_fn()
         if live.get("decision") != "APPROVED":
@@ -372,5 +376,230 @@ class MamiMcp:
                 "mandate_jti": mandate_claims["jti"],
                 "capture_id": str(ref),
                 "at": now_iso(),
+            },
+        }
+
+
+class RappiBridgeMcp:
+    """The Aval Rappi bridge (`src/rappi_bridge/`, decision 0030) as a merchant.
+
+    Search is read-only against the owner's real session. Settlement goes
+    through the bridge's guarded `place_order`, armed only by a kernel
+    capture token — the human step-up IS the key, never a merchant-side
+    charge (a mandate-funded click would be a second road to money).
+    """
+
+    merchant_id = "rappi"
+    currency = "COP"
+    category = "groceries"
+    # The kernel hands settle() a capture-token minter (decision 0030): the
+    # human approval IS the key that arms the bridge's guarded click.
+    kernel_capture = True
+
+    def __init__(self, url: str):
+        self.url = url.rstrip("/")
+        self._quoted: dict[str, dict] = {}  # offer_id -> last search result
+
+    def discover(self) -> dict[str, Any]:
+        return {"merchant_id": self.merchant_id, "bridge": self.url}
+
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        import httpx
+
+        response = httpx.get(f"{self.url}{path}", params=params, timeout=20.0)
+        if response.status_code >= 400:
+            raise RuntimeError(f"bridge {path} -> {response.status_code}")
+        return response.json()
+
+    def _post(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        params: dict[str, Any] | None = None,
+        idem_key: str | None = None,
+    ) -> Any:
+        import httpx
+
+        headers = {"Idempotency-Key": idem_key} if idem_key else {}
+        response = httpx.post(
+            f"{self.url}{path}", params=params, json=body or {}, headers=headers, timeout=30.0
+        )
+        if response.status_code >= 400:
+            detail = response.text[:200]
+            raise RuntimeError(f"bridge {path} -> {response.status_code}: {detail}")
+        return response.json()
+
+    def search(self, conn, *, query: str | None = None, category=None, **_: Any) -> list[dict]:
+        if not query:
+            return []
+        data = self._get("/v1/rappi/search", {"q": query})
+        offers: list[dict] = []
+        for item in data.get("results", []):
+            images = [u for u in (item.get("images") or [item.get("image")]) if u]
+            # normalise_offer, not a hand-rolled shape: every consumer down the
+            # graph (audit `cheapest`, the gate, the proposal) reads `price`,
+            # and a rappi offer with `amount` instead is a KeyError away from
+            # failing the whole run.
+            offers.append(
+                normalise_offer(
+                    {
+                        "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
+                        "category": "groceries",
+                        "title": f"{item['title']} - {item['store_name']}",
+                        "price": item.get("price", 0),
+                        "currency": self.currency,
+                        "images": images,  # Rappi's own CDN URLs, verbatim
+                        "description": (
+                            f"delivery {item.get('shipping_cost', 0)} COP - {item.get('eta', '')}"
+                        ),
+                        "native": {
+                            # cart handles for the capture flow (0030)
+                            "store_id": str(item["store_id"]),
+                            "product_id": str(item["sku"]),
+                            "product_name": str(item.get("title", "")),
+                            "product_price": int(item.get("price", 0)),
+                        },
+                    },
+                    merchant_id=self.merchant_id,
+                )
+            )
+        self._quoted = {o["offer_id"]: o for o in offers}
+        return offers
+
+    def get(self, conn, offer_id: str) -> dict | None:
+        """Re-fetch a quoted offer for the kernel's settle-time check.
+
+        The bridge only quotes through search, so results are remembered
+        here; the bridge's own guards (cart hash, price drift, cap) are what
+        make the final price safe, not this snapshot.
+        """
+        return self._quoted.get(offer_id)
+
+    def settle(
+        self,
+        conn,
+        *,
+        offer,
+        mandate_claims,
+        mandate_token,
+        intent,
+        signature,
+        verify_fn,
+        capture=None,
+        **_: Any,
+    ) -> dict:
+        """The guarded Rappi capture (decision 0030).
+
+        add product as the cart's only contents -> quote the cart (total
+        includes delivery, so the amount that gets bound and charged is the
+        quoted total, not the searched product price) -> ask the kernel to
+        mint the capture token binding purchase + cart_hash + amount -> the
+        bridge re-verifies the token, the drift, the cap and the address
+        before its single click. `capture` comes from the kernel and is the
+        ONLY road to money; without it this settles nothing.
+        """
+        live = verify_fn()
+        if live.get("decision") != "APPROVED":
+            return {
+                "accepted": False,
+                "reason_code": live.get("reason_code"),
+                "detail": "mandate state changed before settlement",
+            }
+        if capture is None:
+            return {
+                "accepted": False,
+                "reason_code": "CAPTURE_PENDING",
+                "detail": "kernel did not provide a capture-token minter",
+            }
+
+        native = offer.get("native") or {}
+        store_id, product_id = native.get("store_id"), native.get("product_id")
+        if not (store_id and product_id):
+            return {
+                "accepted": False,
+                "reason_code": "RAIL_ERROR",
+                "detail": "offer carries no cart handles (stale search snapshot)",
+            }
+
+        store_type = "restaurant"  # Rappi stores turbo/express under restaurant server-side
+        self._post(
+            "/v1/rappi/cart/add",
+            {
+                "store_type": store_type,
+                "store_id": store_id,
+                "product_id": product_id,
+                "name": native.get("product_name") or offer.get("title", "producto"),
+                "price": int(native.get("product_price") or 0),
+                "quantity": 1,
+            },
+        )
+        # The flow owns the cart (it just replaced its contents), so the
+        # clean-cart preflight does not apply to this quote.
+        quote = self._post(
+            "/v1/rappi/quote",
+            None,
+            params={"store_type": store_type, "require_clean_cart": "false"},
+        )
+        total = str(quote.get("total", ""))
+        cart_hash = str(quote.get("cart_hash", ""))
+        if not (total and cart_hash):
+            return {
+                "accepted": False,
+                "reason_code": "RAIL_ERROR",
+                "detail": f"bridge quote incomplete: {str(quote)[:160]}",
+            }
+
+        token = capture(amount=total, cart_hash=cart_hash)
+        receipt = self._post(
+            "/v1/rappi/place_order",
+            {
+                "purchase_id": str(intent.get("jti", "")),
+                "amount": total,
+                "cart_hash": cart_hash,
+                "capture_token": token,
+                "expected_address_id": quote.get("delivery_address_id"),
+                "store_type": store_type,
+            },
+            idem_key=f"rappi-{intent.get('jti', 'capture')}",
+        )
+
+        state = str(receipt.get("state", ""))
+        if state not in ("confirmed", "dry_run_confirmed"):
+            return {
+                "accepted": False,
+                "reason_code": "RAIL_ERROR",
+                "detail": f"bridge ended in {state or 'unknown'}: {str(receipt)[:200]}",
+            }
+        order_id = receipt.get("order_id")
+        audit.append(
+            conn,
+            "merchant.settled",
+            {
+                "merchant_id": self.merchant_id,
+                "offer_id": offer["offer_id"],
+                "order_id": order_id,
+                "state": state,
+                # delivery means the charged total can exceed the searched
+                # product price; both numbers go on the record
+                "approved_offer_amount": intent.get("amount"),
+                "total_captured": receipt.get("total_captured"),
+            },
+            actor=self.merchant_id,
+            mandate_jti=mandate_claims["jti"],
+        )
+        return {
+            "accepted": True,
+            "receipt": {
+                "receipt_id": str(order_id or state),
+                "merchant_id": self.merchant_id,
+                "offer_id": offer["offer_id"],
+                "title": offer.get("title", ""),
+                "amount": str(receipt.get("total_captured", total)),
+                "currency": self.currency,
+                "mandate_jti": mandate_claims["jti"],
+                "capture_id": str(order_id or ""),
+                "at": now_iso(),
+                "images": offer.get("images", []),
             },
         }

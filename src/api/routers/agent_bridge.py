@@ -7,6 +7,17 @@ Endpoints:
 - GET /agent/watches
 - POST /agent/watches
 - GET /agent/limits
+- GET /agent/mandate
+- GET /agent/escalations
+- GET /agent/audit
+- GET /agent/verify
+- GET /agent/agents
+
+The last five exist because the agent lane keeps its own SQLite store: its
+mandates, escalations and hash chain are NOT the ones behind `/mandates`,
+`/escalations` and `/audit/*`, which belong to the kernel lane's registry.
+A client that wants to see what *this* agent spent, or what it is parked on,
+has to read through here.
 """
 
 from __future__ import annotations
@@ -40,6 +51,40 @@ class CreateWatchRequest(BaseModel):
     interval_s: int = 300
     autobuy: bool = True
     created_by: str | None = None
+
+
+class DispatchRequest(BaseModel):
+    text: str
+    session_id: str | None = None
+    person: str = "buyer"
+
+
+@router.post("/dispatch")
+async def dispatch_agent(body: DispatchRequest) -> dict[str, Any]:
+    """Route the request to the active agent whose mandate scope matches.
+
+    Deterministic selection over the LLM's category read: the caller never
+    hardcodes an agent, and the gate still enforces the mandate anyway.
+    """
+    conn = deps.agent_conn()
+    if conn is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Agent storage connection is not available",
+        )
+
+    from src.agent import service
+
+    result = service.turn(
+        conn,
+        text=body.text,
+        session_id=body.session_id,
+        person=body.person,
+        channel="web",
+    )
+    if result.get("dispatch") is None and not result.get("continued"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no active agent matches this request")
+    return result
 
 
 @router.post("/ask")
@@ -203,5 +248,103 @@ async def get_limits() -> dict[str, Any]:
 
     try:
         return limits.snapshot(conn)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+def _conn() -> Any:
+    conn = deps.agent_conn()
+    if conn is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Agent storage connection is not available",
+        )
+    return conn
+
+
+def _active_mandate(conn) -> str | None:
+    """The oldest live mandate.
+
+    Ordered on purpose: an unordered `LIMIT 1` returns whichever row Postgres
+    reaches first, and that moves as soon as a purchase updates one. A caller
+    that reads a balance here and then spends elsewhere has to get the same
+    mandate both times.
+    """
+    row = conn.execute(
+        "SELECT jti FROM mandates WHERE status = 'active' ORDER BY created_at, jti LIMIT 1"
+    ).fetchone()
+    if row is None:
+        row = conn.execute("SELECT jti FROM mandates ORDER BY created_at, jti LIMIT 1").fetchone()
+    return row["jti"] if row else None
+
+
+@router.get("/mandate")
+async def get_mandate(jti: str | None = Query(default=None)) -> dict[str, Any]:
+    """The authority the agent is spending under: claims, spend, memory."""
+    conn = _conn()
+    target = jti or _active_mandate(conn)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no mandate has been issued")
+
+    from src.agent import service
+
+    try:
+        return service.mandate_view(conn, target)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/escalations")
+async def list_pending_escalations() -> list[dict[str, Any]]:
+    """Every run parked on a human. Silence never approves one — they expire."""
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.pending_escalations(conn)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/audit")
+async def get_audit_trail(
+    mandate_jti: str | None = Query(default=None),
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> list[dict[str, Any]]:
+    """The agent lane's own hash chain, oldest first."""
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.trail(conn, mandate_jti=mandate_jti, after_seq=after_seq, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/verify")
+async def verify_chain() -> dict[str, Any]:
+    """Recompute every chain and check the signed checkpoint."""
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.verify(conn)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/agents")
+async def list_configured_agents() -> list[dict[str, Any]]:
+    """The configuration console: who owns each agent and which version is live."""
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.list_agents(conn)
     except Exception as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

@@ -7,6 +7,237 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Schema alignment corrected: fresh DB follows schema.sql (agent shape), not the old alembic shapes
+- **What broke live:** after the volume wipe, kernel and merchant went into
+  crash loops. Root cause of the confusion: TWO different database shapes
+  existed tonight. The pre-wipe DB was created with alembic-era API shapes
+  (`escalations` timestamptz, `offers` numeric/travel_date) — tonight's
+  fixes targeted THAT db. The post-wipe DB loads the current
+  `schema.sql` (decision 0029 agent shape): `escalations` TEXT with NO
+  `resolved_at` column, `offers` TEXT with `depart_date`. My earlier
+  "fixes" (DateTime binds, numeric mapping) were correct for a database
+  that no longer exists and crash-looped the fresh one.
+- **Alignment (git-revert to 4fed684 for the four files, then adapt):**
+  merchant OfferRow back to TEXT/depart_date; escalations service back to
+  ISO-string binds; the ONE real schema gap patched properly — the service
+  no longer binds/reads `resolved_at` (column does not exist in schema.sql;
+  the view uses created_at). Suite 319 green.
+- **Live-incident note:** the user-visible 404 on /agent/dispatch was the
+  kernel crash-looping during the user's request; the front fell back to
+  /agent/ask with a stale mandate id (env updated to mdt_0492… now).
+- **Router:** added beverage keywords (botella/agua/gaseosa/jugo/leche/pan)
+  so drink requests route to the Rappi agent even without an LLM category.
+
+---
+
+## 2026-08-30 — Payments integrated from the fork (6a20e1e): CASH fallback exposed and killed, 3DS reality mapped
+- **What the fork taught us (DaniDiazTech/rappi-cli @ 6a20e1e, fetched into
+  the vendor clone and audited):** without a payment method on the cart,
+  Rappi charges the order **IN CASH, silently** — the CLI never called
+  `setPaymentMethod`, so the live Claude order was a CASH order (corrects
+  our earlier doc). Payment methods live in a separate resolver
+  (`GET /api/ms/payment-method/resolver/v6`), the cart PUT
+  (`.../payment-method`) needs the web payload with empty values dropped,
+  and cards tagged `require_3ds_by_fraud` cannot be charged from automation
+  (3DS challenge is app/browser-only).
+- **Bridge integration:** `get_payment_methods` + `set_payment_method` +
+  `build_payment_payload`/`method_is_cash`/`method_needs_3ds` ported; the
+  guarded flow now resolves → applies → RE-QUOTES (applying a method can
+  move totals → PriceDrift) → guards → armed. Policy, fail-closed: preferred
+  resolver id from config must exist (never silently charge another
+  instrument); cash refused unless `AVAL_BRIDGE_ALLOW_CASH=1`; a
+  3DS-flagged card raises `BRIDGE_CARD_3DS_REQUIRED` instead of creating an
+  order the antifraud will cancel. `GET /v1/rappi/payment/methods` exposes
+  the list (+selected/cash/three_ds flags) for the front.
+- **Live account reality:** the connected session's resolver shows both
+  cards fraud-flagged (`require_3ds_by_fraud`) — card purchases through the
+  bridge will fail-closed until Rappi clears the flag (repeated test orders
+  appear to trigger it; the fork saw the same). Demo implication: use the
+  wait-and-clear path, another account, or finish 3DS orders in the app.
+- **Tests:** +9 payment tests (payload mirror, cash detection, apply-before-
+  click, cash refused, missing preferred fail-closed, explicit cash opt-in,
+  receipt carries method, 3DS refused, 3DS helper) — bridge suite 50 green,
+  repo 319 passed. LazyRappiClient passthrough fixed (private-name guard
+  was hiding `_request` → 500 on /payment/methods without session).
+
+---
+
+## 2026-08-30 — Agent dispatcher LIVE: request → right agent → right MCP; Rappi registered as a merchant
+- **What shipped:** `src/agent/router.py` — request-to-agent routing.
+  Category from `llm.parse_request` (propose-side, 0016-safe) + a
+  deterministic keyword/scope scorer over every active (agent, mandate) pair;
+  the reply explains WHY it routed ("categoría 'flights' en el scope…
+  palabras ['vuelo']…"). Ambiguity with >1 zero-score candidates refuses to
+  guess. New `POST /agent/dispatch {text}` runs the routed agent and returns
+  the routing decision next to the replies. 4 pure scoring tests.
+- **Rappi is now a first-class merchant:** `RappiBridgeMcp` (merchant_id
+  `rappi`) registered via `ports/setup.py` (`TT_RAPPI_BRIDGE_URL`) — search
+  fans out to the bridge's real session through the new read-only
+  `GET /v1/rappi/search` (audited CLI endpoint); settle is DELIBERATELY
+  refused (`CAPTURE_PENDING`) because a Rappi charge is the bridge's guarded
+  click with a kernel capture token, never a merchant-side charge (0030).
+  Kernel lifespan now calls `agent_service.bootstrap()` so real MCPs register
+  at boot (`merchants registered: ['rappi', 'vuelaya']` in the logs) — until
+  today only the LocalMerchant mock was ever registered, which is what the
+  earlier "Bought" demo actually hit.
+- **Seeded:** `scripts/seed-rappi-agent.py` → agent `rappi_comprador`
+  (agt_7d4c…) with a dual-signed COP mandate (60k/txn, 200k total, scope
+  rappi/food/groceries/retail). Flights mandate re-issued for agt_c124
+  (mdt_0492…). NOTE: one flights mandate pair vanished from the DB between
+  the reset and the rebuild with no DELETE statement in the codebase —
+  re-issued and stable since; watch if it recurs.
+- **E2E verified:** "Buscame un vuelo de BOG a COR" → flights_marta →
+  Bought 130.00 USD (receipt rcp_7797…, Gemini rationale in Spanish);
+  "papas pringles en rappi" → rappi_comprador → routed correctly, search
+  refused safely while no Rappi session exists (fail-closed as designed).
+- **Front:** chat calls `/agent/dispatch` and prefixes replies with the
+  chosen agent; pinned-agent envs remain as fallback only.
+
+---
+
+## 2026-08-30 — Backend LIVE via podman (user's runtime): three integration bugs found and fixed
+- **Setup:** stack brought up with `podman compose up -d --build db kernel
+  yuno_sim merchant` (no Docker on this machine; Podman 5.8.4 is the team
+  runtime). DB seeds `schema.sql` on first init; agent seed auto-runs on
+  first `/agent/*` call (agents `agt_b8b3…`, mandates `mdt_28de…` USD/
+  vuelaya and `mdt_c672…` COP/vuelaya-mcp+mami).
+- **Bug 1 (mine):** yesterday's playwright optional-extra patch placed
+  `[project.optional-dependencies]` BETWEEN `requires-python` and
+  `dependencies`, kicking the runtime deps out of `[project]` — `uv sync
+  --no-dev` in the Dockerfile installed an EMPTY venv (`uvicorn not found`
+  at container start). pyproject reordered; lock regenerated; lesson: TOML
+  table headers split tables.
+- **Bug 2 (schema drift, merchant):** `OfferRow` mapped `depart_date` TEXT +
+  `amount` TEXT but the unified fixture schema has `travel_date DATE` +
+  `amount NUMERIC(12,2)` — merchant died at startup seeding. Fixed by
+  mapping to the real columns and converting at the `to_offer` seam
+  (DTO stays TEXT money). Merchant healthy, 13 offers seeded.
+- **Bug 3 (schema drift, api services):** the escalation sweeper bound ISO
+  STRINGS into `timestamptz` columns — `operator does not exist: timestamptz
+  < character varying`, 72 errors; same drift class. `models.Escalation`
+  timestamp columns are now `DateTime(timezone=True)` and
+  `services/escalations.py` binds datetimes (`_utc`); `_from_iso` tolerates
+  legacy TEXT rows. This unblocks the step-up path of `/agent/ask`.
+- **Known data inconsistency (team decision needed):** the COP mandate scope
+  references merchants `["vuelaya-mcp","mami"]` but every catalog row is
+  `merchant_id='vuelaya'` (which only the USD mandate allows) — the COP agent
+  can never find a purchasable offer. Mandates are signed (not editable);
+  either fixtures move to `vuelaya-mcp` or a `mami` catalog is seeded.
+- Front now wires to the live kernel via `trytrust-platform/.env.local`
+  (KERNEL_URL/AGENT_ID/MANDATE_JTI/BRIDGE_URL).
+
+---
+
+## 2026-08-30 — OTP login blocked by Rappi antifraud (400 «looks_bad») → real fingerprint + persistent profile + manual-token plan B
+- **What happened:** first real attempt at Config Rappi reached the OTP screen
+  but `POST /api/rocket/login/whatsapp/application_user` answered 400
+  `looks_bad` — the antifraud rejected the exchange. Root cause (high
+  confidence): our context spoofed a mobile UA over real desktop Chrome, so
+  client hints (`sec-ch-ua-platform`) contradicted the claimed device; plus a
+  brand-new profile = zero device trust. Yesterday's successful login ran on
+  the owner's real Chrome fingerprint.
+- **Fixes:** `_launch_browser` no longer spoofs UA and uses a PERSISTENT
+  profile (`AVAL_BRIDGE_LOGIN_PROFILE_DIR`, var/rappi-bridge/login-profile —
+  dedicated dir; the owner's personal Chrome profile is untouched) so the
+  device fingerprint is stable and accumulates trust. Plan B that cannot be
+  blocked: `POST /v1/rappi/session/manual {token}` (DevTools →
+  services.grability… request → Authorization header) —
+  `LoginFlow.connect_with_token` validates the `ft.` prefix, probes whoami,
+  writes the 0600 session file; invalid input raises BridgeError (409).
+  Front panel gained the manual-token section with step-by-step instructions.
+- **Tests:** +4 (manual connect custody, non-ft rejection, HTTP endpoint,
+  profile-dir contract) — bridge suite 41 green, ruff clean. Operator note:
+  always request a FRESH WhatsApp OTP per attempt; stale codes also fail.
+
+---
+
+## 2026-08-30 — Config Rappi LIVE: OTP login capture in the bridge + Tower Control front wired
+- **What shipped (bridge):** `login.py` — headful OTP login capture via the
+  owner's own Chrome (`channel="chrome"`, chromium fallback, 5-min window);
+  passive `ft.` token capture from `/ms/application-user/auth`; session file
+  written chmod 600 with the active address's coords; status machine
+  idle→waiting_login→captured|error with MASKED labels only (name initials +
+  bullet email — the run real's whoami masking bug is now our code too).
+  `LazyRappiClient` lets the bridge start with NO session and picks up the
+  fresh token by file mtime. Endpoints: `GET/POST /v1/rappi/session/{status,
+  login}`, `DELETE /v1/rappi/session`; CORS for the platform front
+  (`AVAL_BRIDGE_CORS_ORIGINS`). playwright as optional extra
+  (`uv sync --extra rappi`); lock updated. 7 new tests (custody 0600, single
+  window on double start, error path, endpoints, CORS); suite 37 bridge /
+  307 total green.
+- **What shipped (front):** bysergr/trytrust-platform was an empty "Tower
+  Control" placeholder — built the chat shell (messages, input, kernel
+  `/agent/ask` wiring with graceful echo fallback) and the **Config Rappi**
+  button + side panel: status dot (idle/waiting/captured/error), "Iniciar
+  login OTP" with 3-step instructions, 2s polling while waiting, masked
+  account + active address on success, disconnect, and a bridge-unreachable
+  hint. Local bring-up verified: bridge :8010 (healthz dry_run=true, CORS
+  header present), front :3000 serving both strings, playwright 1.62 +
+  system Chrome detected.
+- **Note:** an over-eager `ruff --fix` touched `src/api/routers/mandates.py`
+  (team lane) — reverted; commit stays scoped. F0 of the demo can now start:
+  click Config Rappi → OTP → status captured → preflight.
+
+---
+
+## 2026-08-30 — Rappi bridge BUILT (decision 0030): guard edge + capture tokens, 30 tests, suite 307 green
+- **What shipped:** `src/rappi_bridge/` — the guarded execution edge running
+  on the credential machine only. Native httpx port of the audited CLI
+  endpoints (no Bun in prod); kill switch; DRY_RUN default-on; hardcoded COP
+  cap; clean-cart precondition; delivery-address binding; cent-exact drift
+  rejection; SQLite single-flight with checkpoint machine that NEVER
+  re-clicks an `uncertain` order and treats Rappi's store-minimum rejection
+  as retryable `failed`. Kernel side: `decision/capture_token.py` (mint,
+  `typ=capture-token+jwt`, TTL 120 s, binds purchase+reservation+amount+
+  cart_hash+dry_run) and the additive `MerchantBridge` port.
+  Contract `aval/contracts/rappi-bridge.yaml` (api.yaml untouched);
+  DECISIONS #30; full record `docs/decisions/0030-…`.
+- **Tests:** 30 new (token roundtrip + 8 rejections incl. expired/tampered/
+  wrong-key/dry-run-mismatch; guards; single-flight + ARMED→CLICKED race;
+  dry-run never clicks; live clicks once; replay returns the original
+  receipt; uncertain refuses the retry; min-amount retryable; kill switch).
+  Full suite: 307 passed, 68 db-skipped, ruff clean. One real bug found by
+  the state tests: claim() self-deadlocked a non-reentrant Lock — now RLock.
+- **Integration/prod plan:** `plans/2026-08-30-dev2-rappi-integration-prod-plan.md`
+  — flow diagram, topologies (A local demo / B Cloud Run + outbound tunnel /
+  C pull-worker), env vars, runbook, and the remaining Dev 3 brief (mint on
+  pending_capture, `POST /purchases/{id}/capture`, outbox events,
+  bridge_artifacts in the evidence pack). Estimate 1–1.5 days pairing.
+
+---
+
+## 2026-08-30 — First LIVE run analyzed: real order placed via CLI; HITL pattern mapped to Aval; 4 new guardrails
+- **What happened:** a Claude Code session drove `@crafter/rappi-cli`
+  end-to-end on the owner's machine and placed a REAL paid order
+  (`2496728264`, $18.300 COP, Turbo Parque Bavaria) after a conversational
+  confirm. Factibility is no longer open: login (token capture via the
+  owner's own Chrome, no CVC needed at checkout), search, cart, checkout and
+  place-order all validated in production.
+- **Measured failure modes (validate the design):** price drift search
+  $9.400 → checkout $10.300 with a store re-resolution AND a service fee
+  invisible in search; split-brain addresses (search uses local coords,
+  cart/checkout use the account's active address); server-side store minimum
+  rejected the first order with no money moved; `remove-from-cart` is broken
+  (DELETE 404) and the PUT cart call REPLACES store contents.
+- **New guardrails added to the blocking checklist:** (11) address binding —
+  bridge asserts checkout delivery address against the mandate; (12) clean
+  cart precondition + PUT-replace semantics; (13) structured replan for
+  `MERCHANT_MIN_AMOUNT`; (14) mandate ceilings and step-up ratios computed on
+  the checkout TOTAL, never on search prices.
+- **HITL mapping:** the session's two-phase UX (preview → explicit confirm →
+  execute) is exactly our escalation shape but without enforcement; in Aval
+  the "sí" becomes a passkey-signed escalation resolution, the execution is
+  gated by capture_token bound to amount+cart_hash with a pre-POST re-fetch
+  (drift aborts), and a repeated confirm cannot duplicate an order
+  (single-flight). What we keep from the session: full transparency before
+  confirm and the "I place nothing until you confirm" stance.
+- **Artifacts:**
+  [`research/2026-08-30-dev2-rappi-live-run-findings.md`](../research/2026-08-30-dev2-rappi-live-run-findings.md).
+  Work continues on `main` per team direction; F0′ is effectively done, next
+  is the guard bridge + F1 dry-runs on the secondary account.
+
+---
+
 ## 2026-08-30 — `@crafter/rappi-cli` audited: adoption approved as bridge substrate (not as agent surface)
 - **Why:** teammate shared an npm CLI that orders from Rappi directly via the
   web-internal API (`services.grability.rappi.com`) with CLI + REST + MCP

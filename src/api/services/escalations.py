@@ -79,7 +79,7 @@ async def expire_pending(session: AsyncSession, *, now: datetime | None = None) 
             Escalation.status == EscalationStatus.PENDING.value,
             Escalation.timeout_at < _iso(moment),
         )
-        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT", resolved_at=_iso(moment))
+        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT")
         .returning(Escalation.id, Escalation.purchase_id)
     )
     expired = list(result.all())
@@ -173,7 +173,6 @@ async def resolve(
             approver=approver,
             channel=channel,
             receipt_sig=receipt_sig,
-            resolved_at=_iso(moment),
         )
         .returning(Escalation)
     )

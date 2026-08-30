@@ -67,6 +67,7 @@ class LocalMerchant:
         intent: dict,
         signature: str,
         verify_fn,
+        capture=None,
     ) -> dict:
         """Goes through the merchant's own checkout, which verifies the mandate
         signature against the published JWKS before charging (C8)."""

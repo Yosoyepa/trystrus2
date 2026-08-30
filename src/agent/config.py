@@ -57,3 +57,16 @@ LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "25"))
 
 ESCALATION_TIMEOUT_S = int(os.environ.get("TRYTRUST_ESCALATION_TIMEOUT_S", "120"))
 INTENT_TTL_S = 120  # C6: exp - iat <= 120s
+
+# Telegram (decision #13). Token never logged. Polling is the local path
+# (no public HTTPS URL); webhook is the Cloud Run path at /bot/telegram.
+TELEGRAM_BOT_TOKEN = (
+    os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("AVAL_TELEGRAM_BOT_TOKEN") or ""
+)
+TELEGRAM_WEBHOOK_SECRET = (
+    os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    or os.environ.get("AVAL_TELEGRAM_WEBHOOK_SECRET")
+    or ""
+)
+TELEGRAM_WEBHOOK_URL = os.environ.get("TELEGRAM_WEBHOOK_URL") or ""
+TELEGRAM_MODE = os.environ.get("TELEGRAM_MODE", "").strip().lower()

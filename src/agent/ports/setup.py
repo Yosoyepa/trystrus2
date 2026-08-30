@@ -6,15 +6,35 @@ question with a readable answer rather than an import-time side effect.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import Any
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .base import MERCHANTS, TOOLS, register_merchant
 from .local import LocalMerchant
-from .merchants_mcp import MamiMcp, VuelaYaMcp
+from .merchants_mcp import MamiMcp, RappiBridgeMcp, VuelaYaMcp
 
-VUELAYA_MCP_URL = os.environ.get("TT_VUELAYA_MCP_URL", "")
-MAMI_MCP_URL = os.environ.get("TT_MAMI_MCP_URL", "")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+class MerchantEndpoints(BaseSettings):
+    """Endpoint configuration from process env or the local `.env` file.
+
+    The bridge is a local process in development. Reading `.env` here keeps a
+    documented `TT_RAPPI_BRIDGE_URL` alive across a kernel restart, while a
+    real deployment can still override it with its process environment.
+    """
+
+    model_config = SettingsConfigDict(env_file=_REPO_ROOT / ".env", extra="ignore")
+
+    tt_vuelaya_mcp_url: str = ""
+    tt_mami_mcp_url: str = ""
+    tt_rappi_bridge_url: str = ""
+
+
+def configured_endpoints() -> MerchantEndpoints:
+    return MerchantEndpoints()
 
 
 def setup(
@@ -22,6 +42,7 @@ def setup(
     local: bool = True,
     vuelaya_url: str | None = None,
     mami_url: str | None = None,
+    rappi_url: str | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     """Register merchants and enumerate what each one offers.
@@ -39,9 +60,11 @@ def setup(
         merchant = register_merchant(LocalMerchant())
         report[merchant.merchant_id] = merchant.discover()
 
+    endpoints = configured_endpoints()
     for url, cls in (
-        (vuelaya_url or VUELAYA_MCP_URL, VuelaYaMcp),
-        (mami_url or MAMI_MCP_URL, MamiMcp),
+        (vuelaya_url or endpoints.tt_vuelaya_mcp_url, VuelaYaMcp),
+        (mami_url or endpoints.tt_mami_mcp_url, MamiMcp),
+        (rappi_url or endpoints.tt_rappi_bridge_url, RappiBridgeMcp),
     ):
         if not url:
             continue

@@ -90,11 +90,13 @@ class Session:
         mandate_jti: str,
         session_id: str | None = None,
         person: str = "buyer",
+        channel: str = "chat",
     ):
         self.conn = conn
         self.agent_id = agent_id
         self.mandate_jti = mandate_jti
         self.person = person
+        self.channel = channel
         self.session_id = session_id or new_id("ses")
 
     # ── state ────────────────────────────────────────────────────────────────
@@ -163,7 +165,7 @@ class Session:
                 esc_id,
                 decision="APPROVE",
                 approver=self.person,
-                channel="chat",
+                channel=self.channel,
                 sticky=True,
             )
             run = graph.resume(self.conn, run["run_id"])
@@ -176,14 +178,14 @@ class Session:
 
         if intent == "reject":
             escalation.resolve(
-                self.conn, esc_id, decision="REJECT", approver=self.person, channel="chat"
+                self.conn, esc_id, decision="REJECT", approver=self.person, channel=self.channel
             )
             graph.resume(self.conn, run["run_id"])
             return ["Refused. Nothing was charged."]
 
         # Guidance while parked: that is a no to this purchase, and a new brief.
         escalation.resolve(
-            self.conn, esc_id, decision="REJECT", approver=self.person, channel="chat"
+            self.conn, esc_id, decision="REJECT", approver=self.person, channel=self.channel
         )
         graph.resume(self.conn, run["run_id"])
         fresh = graph.start(
@@ -254,10 +256,14 @@ class Session:
     def _offer_line(self, state: dict, proposal: dict) -> str:
         for offer in state.get("offers", []):
             if offer["offer_id"] == proposal.get("offer_id"):
-                return (
+                line = (
                     f"{offer['title']} at {offer['price']} {offer['currency']} "
                     f"({offer['offer_id']})"
                 )
+                images = offer.get("images") or []
+                if images:
+                    line += "\n" + "\n".join(f"Image: {url}" for url in images)
+                return line
         return proposal.get("offer_id", "an offer")
 
 

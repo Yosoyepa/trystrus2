@@ -21,6 +21,7 @@ from .config import Settings, settings
 from .routers import (
     agent_bridge,
     audit,
+    bot,
     decision,
     escalations,
     evidence,
@@ -34,11 +35,37 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     stop = asyncio.Event()
+    from src.agent import service as agent_service
+    from src.agent import telegram as agent_telegram
+
+    try:
+        merchants = agent_service.bootstrap()
+        print(f"merchants registered: {sorted(merchants['merchants'])}")
+    except Exception as exc:  # a broken merchant never blocks the kernel
+        print(f"merchant bootstrap skipped: {exc}")
     sweeper = asyncio.create_task(sweep_forever(stop))
+    telegram_task: asyncio.Task | None = None
+    if agent_telegram.polling_enabled():
+        from . import deps as api_deps
+
+        telegram_task = asyncio.create_task(
+            agent_telegram.poll_forever(stop, conn_factory=api_deps.agent_conn)
+        )
+    elif agent_telegram.configured() and agent_telegram.webhook_url():
+        try:
+            await agent_telegram.install_webhook()
+        except Exception as exc:
+            print(f"telegram webhook registration skipped: {exc}")
     try:
         yield
     finally:
         stop.set()
+        if telegram_task is not None:
+            telegram_task.cancel()
+            try:
+                await telegram_task
+            except asyncio.CancelledError:
+                pass
         await sweeper
 
 
@@ -74,6 +101,7 @@ def create_app(custom_settings: Settings | None = None, service: object | None =
     application.include_router(audit.router)
     application.include_router(evidence.router)
     application.include_router(agent_bridge.router)
+    application.include_router(bot.router)
 
     @application.get("/health", tags=["ops"])
     async def health() -> dict:

@@ -6,6 +6,7 @@ vaulted card the agent never sees.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from . import db, registry, watcher
@@ -128,6 +129,11 @@ def seed_all(conn=None) -> dict[str, Any]:
         "UPDATE payment_instruments SET mandate_jti=? WHERE token_ref=?", (cop["jti"], cop_token)
     )
 
+    try:
+        rappi = seed_rappi_buyer(conn)
+    except Exception as exc:  # the flights demo must not need the rappi keys
+        rappi = {"skipped": str(exc)[:160]}
+
     return {
         "people": {"marta": marta, "sergio": sergio},
         "agent_id": agent_id,
@@ -136,4 +142,69 @@ def seed_all(conn=None) -> dict[str, Any]:
         "payment_token": token_ref,
         "offers": offers,
         "watch_id": watch["watch_id"],
+        "rappi_buyer": rappi,
     }
+
+
+def seed_rappi_buyer(conn=None) -> dict[str, Any]:
+    """The Rappi buyer: `scripts/seed-rappi-agent.py` as a function.
+
+    Lives in the standard seed so a DB reset brings the rappi agent back
+    together with the flights demo instead of losing it until someone
+    remembers the script. The kernel-lane SD-JWT needs the kernel signing
+    key; where that is unavailable the caller's guard skips this with a
+    note instead of failing the rest of the seed.
+    """
+    from .mocks.rail import vault_instrument
+
+    conn = conn or db.init()
+    owner = registry.add_person(conn, "Rappi Owner", "rappi@example.com", "owner")
+    agent_id = registry.create_agent(
+        conn,
+        "rappi_comprador",
+        owner_id=owner,
+        approver_id=owner,
+        ontology={
+            "role": "comprador Rappi bajo mandato",
+            "categories": ["food", "groceries", "retail"],
+        },
+        model_cfg={"model": "propose only"},
+        actor=owner,
+    )
+    token_ref = vault_instrument(conn, "pending", label="rappi-saved-card")
+    agent = registry.get_agent(conn, agent_id)
+    issued = mandate_mod.issue(
+        conn,
+        user_id=owner,
+        agent_id=agent_id,
+        agent_jwk=json.loads(agent["public_jwk"]),
+        payment_method_ref=token_ref,
+        scope={"categories": ["food", "groceries", "retail"], "merchants": ["rappi"]},
+        conditions={
+            "and": [
+                {"<": [{"var": "offer.price"}, 60000]},
+                {"in": [{"var": "offer.category"}, ["food", "groceries", "retail"]]},
+            ]
+        },
+        limits={
+            "max_per_txn": "60000.00",
+            "total_budget": "200000.00",
+            "max_txn": {"count": 4, "period": "month"},
+        },
+        validity={
+            "not_before": "2026-08-30T00:00:00Z",
+            "expires_at": "2026-09-30T23:59:59Z",
+            "exp": now_ts() + 30 * 24 * 3600,
+        },
+        currency="COP",
+        signed_with="passkey(mock): challenge = canonical hash of the mandate",
+    )
+    # kernel lane: same claims, kernel issuer signature
+    from src.api.services.mandate_registry import MandateRegistry
+
+    from trustlib.models import MandateClaims
+
+    claims = MandateClaims.model_validate(issued["claims"])
+    sd_jwt = MandateRegistry().sign(claims).sd_jwt
+    conn.execute("UPDATE mandates SET sd_jwt=? WHERE jti=?", (sd_jwt, issued["jti"]))
+    return {"agent_id": agent_id, "mandate_jti": issued["jti"]}

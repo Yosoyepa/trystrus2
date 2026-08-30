@@ -681,3 +681,39 @@ strings that NUMERIC would break silently.
 partitioned table, with nothing verifying one against the other (F5). Money as
 TEXT needs a cast to sort by price. `src/api/decision/` and `audit/` remain
 wired into tests rather than the running app.
+
+## 30 · The Rappi bridge is a merchant-rail, not a rail
+
+**Chose:** `src/rappi_bridge/` — a Python guard bridge that runs on the
+credential machine only (the Rappi session token never leaves it), ports the
+audited `@crafter/rappi-cli` endpoints natively, and is the only component
+allowed to touch Rappi. It enforces by code: DRY_RUN default-on, a hardcoded
+COP cap, clean-cart precondition with PUT-replace semantics, delivery-address
+binding against the mandate, cent-exact drift rejection against the
+kernel-approved amount, and single-flight idempotency (never re-clicking an
+`uncertain` order). The kernel mints `capture-token+jwt` tokens (TTL ≤ 120 s)
+binding `purchase_id + reservation_id + amount + cart_hash + dry_run`; the
+bridge verifies them against the kernel JWKS and refuses to arm the checkout
+without one — the human step-up is the key that unlocks the click. The click
+IS the capture (Rappi vaults the card; no payment rail involved), completing
+`pending_capture → captured`. Contract surface additive via
+`aval/contracts/rappi-bridge.yaml`; `api.yaml` stays frozen. Full record:
+`docs/decisions/0030-rappi-bridge-as-merchant-rail.md`.
+
+**Rejected:** exposing the CLI's MCP/tools to the agent (raw `place_order` =
+unguarded money path, S2); uploading the session to the cloud;
+Playwright/DOM as primary (plan C if the undocumented API rotates);
+client-side price tolerance (drift = reject + re-quote); re-clicking
+`uncertain`.
+
+**Why:** A live agentic run placed a real paid order and measured every
+failure the design predicted: search quote COP 9,400 vs checkout COP 10,300
+(store re-resolution + hidden service fee), search-coords vs account-active
+address split-brain, server-side store minimums, and no CVC at checkout.
+Kernel enforcement alone is not enough — the bridge is a second, independent
+enforcement point on the machine that holds the money button.
+
+**Does not solve:** undocumented-API drift (`app-version` hash rotation —
+smoke test per session); Rappi's ToS §10 right to silently cancel under
+fraud checks; purchases the owner makes outside the agent; human
+reconciliation beyond `bridge.reconciled` events.

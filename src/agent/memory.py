@@ -24,7 +24,7 @@ def recent_events(conn, mandate_jti: str, limit: int = 50) -> list[dict]:
         (mandate_jti, limit),
     ).fetchall()
     return [
-        {"type": r["type"], "at": r["created_at"], "payload": json.loads(r["payload"])}
+        {"type": r["type"], "at": r["created_at"], "payload": _as_mapping(r["payload"])}
         for r in rows
     ]
 
@@ -49,7 +49,7 @@ def purchase_history(conn, mandate_jti: str, limit: int = 20) -> list[dict]:
     history = []
     for row in rows:
         item = dict(row)
-        receipt = json.loads(item["receipt"]) if item.get("receipt") else {}
+        receipt = _as_mapping(item.get("receipt"))
         item["title"] = receipt.get("title") or item.pop("local_title", None)
         item["merchant_id"] = receipt.get("merchant_id")
         item["destination"] = item.pop("local_destination", None) or _destination_from(
@@ -69,6 +69,16 @@ def _destination_from(title: str | None) -> str | None:
         if len(token) == 7 and token[3] == "-" and token.replace("-", "").isalpha():
             return token.split("-")[1].upper()
     return None
+
+
+def _as_mapping(value: Any) -> dict:
+    """JSONB columns come back as dicts from psycopg; TEXT-era rows as JSON
+    strings (decision 0029 migrated storage mid-flight — accept both)."""
+    if isinstance(value, dict):
+        return value
+    if value:
+        return json.loads(value)
+    return {}
 
 
 def summarise(conn, mandate_jti: str) -> dict[str, Any]:

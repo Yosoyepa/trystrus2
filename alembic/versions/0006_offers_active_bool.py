@@ -17,7 +17,7 @@ def upgrade() -> None:
         DO $$ BEGIN
             ALTER TABLE offers ALTER COLUMN active DROP DEFAULT;
             ALTER TABLE offers ALTER COLUMN active TYPE BOOLEAN
-            USING (active::text = '1' OR active::text = 'true');
+                USING (active::text = '1' OR active::text = 'true');
             ALTER TABLE offers ALTER COLUMN active SET DEFAULT true;
         EXCEPTION WHEN others THEN NULL; END $$
     """)
@@ -28,7 +28,7 @@ def downgrade() -> None:
         DO $$ BEGIN
             ALTER TABLE offers ALTER COLUMN active DROP DEFAULT;
             ALTER TABLE offers ALTER COLUMN active TYPE INTEGER
-            USING (CASE WHEN active THEN 1 ELSE 0 END);
+                USING (CASE WHEN active THEN 1 ELSE 0 END);
             ALTER TABLE offers ALTER COLUMN active SET DEFAULT 1;
         EXCEPTION WHEN others THEN NULL; END $$
     """)

@@ -28,6 +28,11 @@ dependencies = [
     "webauthn>=2.5",
 ]
 
+[project.optional-dependencies]
+# Config Rappi OTP login capture (headful Chrome via channel="chrome");
+# the token never leaves the machine, so this stays an opt-in extra.
+rappi = ["playwright>=1.5"]
+
 [dependency-groups]
 dev = [
     "cbor2>=6.0",

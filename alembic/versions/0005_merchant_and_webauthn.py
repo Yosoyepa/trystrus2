@@ -19,7 +19,7 @@ def upgrade() -> None:
         DO $$ BEGIN
             ALTER TABLE offers ALTER COLUMN active DROP DEFAULT;
             ALTER TABLE offers ALTER COLUMN active TYPE BOOLEAN
-            USING (active::text = '1' OR active::text = 'true');
+                USING (active::text = '1' OR active::text = 'true');
             ALTER TABLE offers ALTER COLUMN active SET DEFAULT true;
         EXCEPTION WHEN others THEN NULL; END $$
     """)

@@ -287,7 +287,12 @@ def snapshot(conn) -> dict:
         "buckets": [
             dict(r)
             for r in conn.execute(
-                "SELECT key, ROUND(tokens,2) tokens, updated_at FROM rate_buckets ORDER BY key"
+                # `tokens` is DOUBLE PRECISION and Postgres has no
+                # round(double precision, int) -- only round(numeric, int).
+                # CAST, not `::`: the same SQL also runs on the SQLite test
+                # fake, which cannot parse Postgres cast syntax.
+                "SELECT key, ROUND(CAST(tokens AS numeric),2) tokens, updated_at "
+                "FROM rate_buckets ORDER BY key"
             ).fetchall()
         ],
         "counters": [
