@@ -1,6 +1,6 @@
 """Dispatcher scoring: deterministic agent/mandate selection."""
 
-from src.agent.router import score_candidates
+from src.agent.router import score_candidates, select_agent
 
 FLIGHTS = {
     "agent_id": "agt_a",
@@ -21,6 +21,14 @@ RAPPI = {
     },
     "currency": "COP",
 }
+
+
+class _NoCandidateConn:
+    def execute(self, _sql: str):
+        return self
+
+    def fetchall(self) -> list[dict]:
+        return []
 
 
 def test_rappi_request_prefers_rappi_agent() -> None:
@@ -52,6 +60,25 @@ def test_merchant_word_breaks_ties() -> None:
     assert scored[0]["mandate_jti"] == "mdt_b"
 
 
+def test_parse_fallback_water_is_groceries() -> None:
+    from src.agent.llm import _parse_fallback
+
+    assert _parse_fallback("buscame una botella de agua")["category"] == "groceries"
+    assert _parse_fallback("vuelo a cordoba")["category"] == "flights"
+    from src.agent.router import inferred_category
+
+    assert inferred_category("buscame una botella de agua") == "groceries"
+
+
+def test_water_request_prefers_rappi_even_if_parser_says_flights() -> None:
+    from src.agent.router import inferred_category
+
+    criteria = {"category": inferred_category("buscame una botella de agua")}
+    ranked = score_candidates([FLIGHTS, RAPPI], criteria, "buscame una botella de agua")
+    assert ranked[0]["mandate_jti"] == "mdt_b"
+    assert ranked[0]["score"] > ranked[1]["score"]
+
+
 def test_no_match_scores_zero_everywhere() -> None:
     scored = score_candidates(
         [FLIGHTS, RAPPI],
@@ -59,3 +86,12 @@ def test_no_match_scores_zero_everywhere() -> None:
         "quiero ir a la luna",
     )
     assert all(item["score"] == 0 for item in scored)
+
+
+def test_no_candidate_returns_before_calling_the_model(monkeypatch) -> None:
+    def model_must_not_run(_text: str) -> dict:
+        raise AssertionError("no active mandate should short-circuit before the LLM")
+
+    monkeypatch.setattr("src.agent.router.llm.parse_request", model_must_not_run)
+
+    assert select_agent(_NoCandidateConn(), "busca una botella de agua") is None

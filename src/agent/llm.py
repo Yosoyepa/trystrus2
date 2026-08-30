@@ -85,11 +85,15 @@ def _json(text: str) -> dict:
 
 # ── understanding what the human asked for ───────────────────────────────────
 PARSE_SYSTEM = (
-    "You turn a shopping request into search filters for a flight and hotel "
-    'catalog. Reply with JSON only: {"origin":str|null,"destination":str|null,'
-    '"date":"YYYY-MM-DD"|null,"category":"flights"|"hotels"|null,'
-    '"max_price":number|null,"notes":str}. Airport codes are 3 uppercase '
-    "letters (Bogota=BOG, Cordoba=COR, Medellin=MDE). Use null when unsure."
+    "You turn a shopping request into search filters. Reply with JSON only: "
+    '{"origin":str|null,"destination":str|null,'
+    '"date":"YYYY-MM-DD"|null,'
+    '"category":"flights"|"hotels"|"food"|"groceries"|"retail"|null,'
+    '"max_price":number|null,"notes":str}. '
+    "Airport codes are 3 uppercase letters (Bogota=BOG, Cordoba=COR, "
+    "Medellin=MDE). Water, snacks, supermarket → groceries. Pizza/restaurant "
+    "→ food. Flights/hotels only when the buyer asked for those. "
+    "Use null when unsure — never default to flights."
 )
 
 
@@ -117,7 +121,9 @@ def _parse_fallback(text: str) -> dict[str, Any]:
     }
     destination = next((code for name, code in cities.items() if name in lowered), None)
     price = re.search(r"(?:under|below|less than|max|<)\s*\$?\s*(\d+(?:\.\d{1,2})?)", lowered)
-    category = "hotels" if ("hotel" in lowered or "night" in lowered) else "flights"
+    from .router import inferred_category
+
+    category = inferred_category(text)
     return {
         "origin": None,
         "destination": destination,

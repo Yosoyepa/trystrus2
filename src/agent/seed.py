@@ -31,6 +31,37 @@ FLIGHTS_ONTOLOGY = {
 }
 
 
+# The API lazily installs the demo data for a completely empty database. A
+# volume reset can, however, leave the two demo agents behind while losing
+# every mandate row. Restrict recovery to these known demo identities: a
+# user-created agent that is simply waiting for a human-issued mandate must
+# remain fail-closed.
+DEMO_AGENT_NAMES = ("flights_marta", "rappi_comprador")
+
+
+def needs_demo_seed(conn) -> bool:
+    """Return whether the local demo seed is absent or only partially present.
+
+    Existing mandate rows are authority, including non-active rows. In
+    particular, a revoked, suspended, or expired mandate must never trigger a
+    replacement mandate. The only recoverable partial state is a recognised
+    demo agent with *no* mandate rows at all, which is what a failed demo seed
+    or an incomplete local volume reset leaves behind.
+    """
+    if conn.execute("SELECT 1 FROM agents LIMIT 1").fetchone() is None:
+        return True
+    if conn.execute("SELECT 1 FROM mandates LIMIT 1").fetchone() is not None:
+        return False
+    placeholders = ", ".join("?" for _ in DEMO_AGENT_NAMES)
+    return (
+        conn.execute(
+            f"SELECT 1 FROM agents WHERE name IN ({placeholders}) LIMIT 1",
+            DEMO_AGENT_NAMES,
+        ).fetchone()
+        is not None
+    )
+
+
 def seed_all(conn=None) -> dict[str, Any]:
     conn = conn or db.init()
     offers = merchant.seed(conn)
