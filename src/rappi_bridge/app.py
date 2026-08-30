@@ -116,13 +116,34 @@ def create_app(
         _guard_token(authorization)
         return {"query": q, "results": service.search(q)}
 
+    @app.post("/v1/rappi/cart/add")
+    def cart_add(body: dict[str, Any], authorization: str | None = Header(default=None)) -> Any:
+        """Replace the cart with exactly the approved product.
+
+        The kernel's capture flow calls this right before quoting: the cart
+        binding (cart_hash) is only trustworthy if the cart can hold nothing
+        but what this endpoint put there.
+        """
+        _guard_token(authorization)
+        return service.add_to_cart(
+            store_type=str(body.get("store_type", "restaurant")),
+            store_id=str(body.get("store_id", "")),
+            product_id=str(body.get("product_id", "")),
+            name=str(body.get("name", "")),
+            quantity=int(body.get("quantity", 1)),
+            price=int(body.get("price", 0)),
+        )
+
     @app.post("/v1/rappi/quote")
     def quote(
         authorization: str | None = Header(default=None),
         store_type: str = "restaurant",
+        require_clean_cart: bool = True,
     ) -> Any:
         _guard_token(authorization)
-        return service.quote(store_type).as_dict()
+        # require_clean_cart=False is for the capture flow, which owns the
+        # cart: it just replaced its contents with the approved product.
+        return service.quote(store_type, require_clean_cart=require_clean_cart).as_dict()
 
     @app.post("/v1/rappi/place_order")
     def place_order(
