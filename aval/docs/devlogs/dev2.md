@@ -7,6 +7,56 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — gate/gap analysis (8 parallel audits) + phase evolution plan
+- **Why:** after the parallel-phase run was verified and merged, the next
+  phase of Dev 2 needed ground truth: where the gate is incomplete, where the
+  lanes have gaps, and what to build next.
+- **Done:** ran 8 read-only audit agents over `dev2/gate-core` (+ coder WIP)
+  and `dev2/audit-evidence` — gate completeness & fail-closed, coder-1 WIP vs
+  brief, contracts↔code delta, threat/rule coverage + red-team, test matrix,
+  integration seams, R-IDEM/disputes, persistence/ops. Synthesized:
+  [`../research/2026-08-29-dev2-gate-gap-analysis.md`](../research/2026-08-29-dev2-gate-gap-analysis.md)
+  (finding register RT/G/W/B/H/I/P/TX, threat & ladder coverage, seam map,
+  open decisions Q-01..Q-10) and
+  [`../plans/2026-08-29-dev2-phase-evolution.md`](../plans/2026-08-29-dev2-phase-evolution.md)
+  (phases D2-C close-kernel → D2-I lanes-merge & seams → D2-S saga/recon →
+  D2-D evidence/disputes → D2-B baselines, each with an exit gate, plus the
+  cross-lane briefs Dev 3/1/4 need to unblock H-01..H-08).
+- **Key findings (action required):** UV bypass via `uv_verified` (RT-1) and
+  unwired replay protection (RT-2) must be closed before any HTTP wiring;
+  silent-degradation fallbacks weaken R-PRICE (RT-3/G-2); offer currency
+  unchecked (G-3); three divergent canonical JSONs (RT-9); decision hot-path
+  state still volatile (no PG adapters for mandate/offer/purchase/escalation);
+  P0 rules post-capture/webhook/evidence are orphaned across lanes with no
+  active brief.
+- **Snapshot caveat:** audits ran while the coder was live-editing
+  (`service.py` grew 821→934 lines); re-verify findings when the run lands.
+- **Decision:** none new (analysis only; Q-01..Q-10 listed for team).
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C1/C2 decision stores implemented
+- **Why:** the deterministic gate needs atomic velocity observations and a
+  replay-safe persistence boundary before the verify saga can safely write
+  business state.
+- **Done:** added the DEV2 decision ports, thread-safe in-memory fakes,
+  PostgreSQL adapters for velocity_counters and idempotency_keys, strict
+  cent-precision money validation, minute-bucket counters, cooldown and
+  open-authorization tracking, HMAC-derived idempotency keys, request
+  fingerprint conflict checks, 45-day expiry, and first-response
+  preservation. PostgreSQL velocity intent counters use one transaction for
+  the count and amount upserts; the adapter reads its spend snapshot through
+  one connection.
+- **Tests:** added English unit coverage for velocity transitions, cooldown
+  expiry, open authorization compensation, derived-key enforcement, replay,
+  body conflict, TTL expiry, and purge.
+- **Decision:** the frozen DDL has no fingerprint column or reservation
+  ledger. The idempotency adapter keeps its fingerprint in a namespaced
+  JSONB envelope and the reservation adapter uses the stable purchase key
+  plus existing purchases rows; no schema or contract files were changed.
+- **Contracts touched:** none.
+
 ## 2026-08-29 — domain/ brought up to the repo's ruff config
 - **Why:** verification of the parallel-phase run revealed that the
   `domain/` extraction (`f4d9a69`) had never passed `ruff check` under the
