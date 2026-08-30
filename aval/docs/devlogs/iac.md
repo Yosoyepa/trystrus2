@@ -6,6 +6,29 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 
 ---
 
+## 2026-08-29 — deployment playbook + DSN dialect fix
+- **Why:** the team needs the exact path from zero to deployed-with-CI/CD;
+  verification while writing it exposed a real bug in the IaC wiring.
+- **Bug fixed:** `AVAL_DATABASE_URL` (kernel async engine, needs
+  `postgresql+asyncpg://`) and `DATABASE_URL` (psycopg / alembic / jobs, needs
+  `postgresql://`) both pointed at the same secret. Split into
+  `aval-{env}-db-url` (psycopg) and `aval-{env}-db-url-async` (asyncpg);
+  added sensitive bootstrap outputs `db_password`, `db_dsn_psycopg`,
+  `db_dsn_asyncpg` (unix-socket DSNs ready to pipe into Secret Manager).
+- **Done:** [`../../../deploy/PLAYBOOK-CLOUDRUN.md`](../../../deploy/PLAYBOOK-CLOUDRUN.md) —
+  8 phases: project → state bucket → first local apply (creates the SAs CI
+  will later assume) → real secrets (DSNs from tofu outputs, PEMs via
+  `trustlib.jose.generate_pem_pair`, LLM keys) → WIF pool/provider/binding +
+  repo variables + prod environment with reviewers → app pipeline (merge,
+  auto deploy, migrations-first, smoke) → domain/LB/Armor hardening
+  (ingress via LB only, passkeys need the real domain) → post-deploy
+  checklist, ops table (rollback, rotations) and troubleshooting. `tofu
+  validate` green after the split.
+- **Decision:** none new.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — workstream opened: analysis (4 agents) + `iac/cloudrun` scaffold
 - **Why:** the team integrated all lanes on `main` (kernel + yuno_sim +
   merchant + SPA + Gemini chat); deployment to Cloud Run with IaC, LB,

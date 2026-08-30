@@ -15,6 +15,7 @@ locals {
   witness_bucket      = google_storage_bucket.witness.name
   kms_key_resource    = google_kms_crypto_key.evidence_root.id
   db_url_secret       = "${local.name_prefix}-db-url:latest"
+  db_url_async_secret = "${local.name_prefix}-db-url-async:latest"
   idem_secret         = "${local.name_prefix}-idem-secret:latest"
   llm_openai_secret   = "${local.name_prefix}-llm-openai-key:latest"
   llm_gemini_secret   = "${local.name_prefix}-llm-gemini-key:latest"
@@ -104,7 +105,7 @@ resource "google_cloud_run_v2_service" "kernel" {
         name = "AVAL_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = "${local.name_prefix}-db-url"
+            secret  = "${local.name_prefix}-db-url-async"
             version = "latest"
           }
         }

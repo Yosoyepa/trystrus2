@@ -30,6 +30,24 @@ output "db_password_note" {
   description = "Reminder: keep the password only in Secret Manager going forward."
 }
 
+output "db_password" {
+  value       = var.db_password != "" ? var.db_password : random_password.db.result
+  sensitive   = true
+  description = "Bootstrap convenience: pipe into the db-url secrets, then rely on Secret Manager alone."
+}
+
+output "db_dsn_psycopg" {
+  value       = "postgresql://aval:${var.db_password != "" ? var.db_password : random_password.db.result}@/aval?host=/cloudsql/${local.cloudsql_connection}"
+  sensitive   = true
+  description = "DSN for DATABASE_URL secrets (psycopg / alembic / jobs; unix socket)."
+}
+
+output "db_dsn_asyncpg" {
+  value       = "postgresql+asyncpg://aval:${var.db_password != "" ? var.db_password : random_password.db.result}@/aval?host=/cloudsql/${local.cloudsql_connection}"
+  sensitive   = true
+  description = "DSN for AVAL_DATABASE_URL (kernel async engine; unix socket)."
+}
+
 output "kms_key_resource" {
   value       = local.kms_key_resource
   description = "Value for AVAL_KMS_KEY_RESOURCE."

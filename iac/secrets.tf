@@ -8,6 +8,7 @@ locals {
     merchant_pem   = "aval-merchant-es256"
     yuno_webhook   = "aval-yuno-webhook-ed25519"
     db_url         = "${local.name_prefix}-db-url"
+    db_url_async   = "${local.name_prefix}-db-url-async"
     idem_secret    = "${local.name_prefix}-idem-secret"
     llm_openai_key = "${local.name_prefix}-llm-openai-key"
     llm_gemini_key = "${local.name_prefix}-llm-gemini-key"
