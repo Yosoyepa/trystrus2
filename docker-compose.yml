@@ -1,12 +1,5 @@
 # Aval (TryTrust) — Multi-Service Orchestration Compose File
 # NextWave Hackathon 2026 Challenge: "The buyer who isn't human" (Yuno x Nauta)
-#
-# Services:
-#   - db: PostgreSQL 16 Alpine + full schema & seed fixtures
-#   - kernel: FastAPI trust layer, SD-JWT mandates, policy gate & ledger (:8001)
-#   - yuno_sim: FastAPI Yuno-style AP2 simulated settlement rail (:8002)
-#   - merchant: FastAPI VuelaYa catalog & AP2 checkout (:8003)
-#   - web: React SPA + Nginx reverse proxy (:3000)
 
 name: aval
 
@@ -41,6 +34,9 @@ services:
     container_name: aval-kernel
     restart: unless-stopped
     command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: "8001"
       APP_MODULE: src.api.main:app
@@ -49,6 +45,11 @@ services:
       AVAL_RP_ORIGIN: http://localhost:3000
       AVAL_RP_ID: localhost
       AVAL_ISSUER: http://localhost:8001
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
       PYTHONPATH: /app/src:/app
     ports:
       - "8001:8001"

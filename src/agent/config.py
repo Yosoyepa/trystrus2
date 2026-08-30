@@ -32,10 +32,26 @@ ISSUER = f"https://api.{PRODUCT_DOMAIN}"
 
 # The database is a service, not a file: see src/agent/db.py DSN.
 
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")
-# Cheapest/dumbest tier on purpose: the model only proposes, it never decides.
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4.1-nano")
+# LLM configuration supporting OpenAI and Google Gemini
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+LLM_API_KEY = os.environ.get("LLM_API_KEY") or GEMINI_KEY or OPENAI_KEY or ""
+
+if GEMINI_KEY and not os.environ.get("LLM_BASE_URL"):
+    LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+else:
+    LLM_BASE_URL = os.environ.get(
+        "LLM_BASE_URL",
+        "https://generativelanguage.googleapis.com/v1beta/openai"
+        if GEMINI_KEY
+        else "https://api.openai.com/v1",
+    )
+
+if GEMINI_KEY and not os.environ.get("LLM_MODEL"):
+    LLM_MODEL = "gemini-1.5-flash"
+else:
+    LLM_MODEL = os.environ.get("LLM_MODEL", "gemini-1.5-flash" if GEMINI_KEY else "gpt-4.1-nano")
+
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "300"))
 LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "20"))
 

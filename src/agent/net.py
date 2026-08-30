@@ -17,7 +17,13 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
-DEFAULT_HOSTS = ("api.openai.com", "localhost", "127.0.0.1", "::1")
+DEFAULT_HOSTS = (
+    "api.openai.com",
+    "generativelanguage.googleapis.com",
+    "localhost",
+    "127.0.0.1",
+    "::1",
+)
 
 
 class EgressDenied(Exception):

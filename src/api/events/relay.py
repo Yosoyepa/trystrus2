@@ -8,6 +8,7 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from threading import RLock
 from typing import Any
 
 from .ports import Clock, OutboxEvent, OutboxStore, Sink, SystemClock, ensure_aware_utc
@@ -19,6 +20,8 @@ class PostgresOutboxStore:
     def __init__(self, dsn: str | None = None, clock: Clock | None = None) -> None:
         self._dsn = dsn or os.environ.get("DATABASE_URL", "")
         self._clock = clock or SystemClock()
+        self._lock = RLock()
+        self._in_flight: set[str] = set()
 
     def _connect(self) -> Any:
         try:
@@ -65,43 +68,54 @@ class PostgresOutboxStore:
                 )
 
     def fetch_unrelayed(self, limit: int = 100) -> Sequence[OutboxEvent]:
-        """Fetch unrelayed events using `FOR UPDATE SKIP LOCKED`."""
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT seq, event_id, type, aggregate_id, payload, relayed_at, created_at
-                    FROM outbox
-                    WHERE relayed_at IS NULL
-                    ORDER BY seq ASC
-                    LIMIT %s
-                    FOR UPDATE SKIP LOCKED
-                    """,
-                    (limit,),
-                )
-                rows = cur.fetchall()
-                events = []
-                for r in rows:
-                    payload = r["payload"]
-                    if isinstance(payload, str):
-                        payload = json.loads(payload)
-                    events.append(
-                        OutboxEvent(
-                            seq=int(r["seq"]),
-                            event_id=str(r["event_id"]),
-                            type=str(r["type"]),
-                            aggregate_id=str(r["aggregate_id"]),
-                            payload=payload,
-                            created_at=ensure_aware_utc(r["created_at"]),
-                            relayed_at=(
-                                ensure_aware_utc(r["relayed_at"]) if r.get("relayed_at") else None
-                            ),
-                        )
+        """Fetch unrelayed events using `FOR UPDATE SKIP LOCKED` and in-flight tracking."""
+        with self._lock:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT seq, event_id, type, aggregate_id, payload, relayed_at, created_at
+                        FROM outbox
+                        WHERE relayed_at IS NULL
+                        ORDER BY seq ASC
+                        LIMIT %s
+                        FOR UPDATE SKIP LOCKED
+                        """,
+                        (limit + len(self._in_flight),),
                     )
-                return events
+                    rows = cur.fetchall()
+                    events = []
+                    for r in rows:
+                        event_id = str(r["event_id"])
+                        if event_id in self._in_flight:
+                            continue
+                        self._in_flight.add(event_id)
+                        payload = r["payload"]
+                        if isinstance(payload, str):
+                            payload = json.loads(payload)
+                        events.append(
+                            OutboxEvent(
+                                seq=int(r["seq"]),
+                                event_id=event_id,
+                                type=str(r["type"]),
+                                aggregate_id=str(r["aggregate_id"]),
+                                payload=payload,
+                                created_at=ensure_aware_utc(r["created_at"]),
+                                relayed_at=(
+                                    ensure_aware_utc(r["relayed_at"])
+                                    if r.get("relayed_at")
+                                    else None
+                                ),
+                            )
+                        )
+                        if len(events) >= limit:
+                            break
+                    return events
 
     def mark_relayed(self, event_id: str, relayed_at: datetime) -> None:
-        """Mark event as relayed."""
+        """Mark event as relayed and release in-flight status."""
+        with self._lock:
+            self._in_flight.discard(event_id)
         ts = ensure_aware_utc(relayed_at)
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -114,6 +128,11 @@ class PostgresOutboxStore:
                     (ts, event_id),
                 )
                 conn.commit()
+
+    def release_in_flight(self, event_id: str) -> None:
+        """Release an event back into the pool after delivery failure."""
+        with self._lock:
+            self._in_flight.discard(event_id)
 
 
 class OutboxRelay:
