@@ -52,8 +52,8 @@ if GEMINI_KEY and not os.environ.get("LLM_MODEL"):
 else:
     LLM_MODEL = os.environ.get("LLM_MODEL", "gemini-1.5-flash" if GEMINI_KEY else "gpt-4.1-nano")
 
-LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "300"))
-LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "20"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "25"))
 
 ESCALATION_TIMEOUT_S = int(os.environ.get("TRYTRUST_ESCALATION_TIMEOUT_S", "120"))
 INTENT_TTL_S = 120  # C6: exp - iat <= 120s
