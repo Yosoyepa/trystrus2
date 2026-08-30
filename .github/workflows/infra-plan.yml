@@ -24,10 +24,10 @@ on:
         default: dev
 
 concurrency:
-  # push + pull_request for the same branch can target the same GCS state.
-  # Serialize by environment, not ref, so OpenTofu never races its own lock.
-  group: infra-plan-${{ github.repository }}-${{ inputs.environment || 'dev' }}
-  cancel-in-progress: true
+  # Plans, applies and recovery share this group across their workflows.
+  # Never cancel a state operation: an interrupted GCS lock needs recovery.
+  group: tofu-state-${{ github.repository }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -84,6 +84,14 @@ jobs:
               | .diagnostic.summary
               | select(type == "string")
               | "OpenTofu diagnostic: \(.)"
+            ' /tmp/tofu-plan.jsonl | sort -u
+            jq -Rr '
+              fromjson?
+              | select(.type == "diagnostic")
+              | select(.diagnostic.summary == "Error acquiring the state lock")
+              | .diagnostic.detail
+              | capture("ID:[[:space:]]*(?<id>[0-9A-Za-z-]+)")?
+              | "OpenTofu lock ID: \(.id)"
             ' /tmp/tofu-plan.jsonl | sort -u
             exit 1
           fi

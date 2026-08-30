@@ -13,9 +13,25 @@ on:
         options:
           - dev
           - prod
+      operation:
+        description: "Apply infrastructure or recover one exact stale lock"
+        required: true
+        type: choice
+        options:
+          - apply
+          - force-unlock
+        default: apply
+      lock_id:
+        description: "Exact infra-plan lock ID (force-unlock only)"
+        required: false
+        type: string
+      confirmation:
+        description: "Type FORCE_UNLOCK for force-unlock"
+        required: false
+        type: string
 
 concurrency:
-  group: infra-apply-${{ inputs.environment }}
+  group: tofu-state-${{ github.repository }}-${{ inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -27,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require the protected-production kill switch
-        if: inputs.environment == 'prod'
+        if: inputs.environment == 'prod' && inputs.operation == 'apply'
         env:
           PROD_DEPLOY_ENABLED: ${{ vars.PROD_DEPLOY_ENABLED }}
         run: |
@@ -62,6 +78,7 @@ jobs:
         run: tofu init -backend-config=environments/${{ inputs.environment }}.backend.hcl -input=false
 
       - name: Tofu apply (${{ inputs.environment }})
+        if: inputs.operation == 'apply'
         run: |
           set -euo pipefail
           if ! tofu apply \
@@ -75,3 +92,20 @@ jobs:
             exit 1
           fi
           echo "OpenTofu apply completed; state values were not printed."
+
+      - name: Force-unlock exact stale lock
+        if: inputs.operation == 'force-unlock'
+        env:
+          LOCK_ID: ${{ inputs.lock_id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRMATION" != "FORCE_UNLOCK" ]]; then
+            echo "Force-unlock requires the literal FORCE_UNLOCK confirmation."
+            exit 1
+          fi
+          if [[ ! "$LOCK_ID" =~ ^[0-9A-Za-z-]+$ ]]; then
+            echo "Invalid lock ID format."
+            exit 1
+          fi
+          tofu force-unlock -force "$LOCK_ID"

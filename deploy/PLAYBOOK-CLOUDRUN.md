@@ -321,6 +321,7 @@ curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo
 | Rotar la KMS | nueva versión de la clave + nuevo `kid` en JWKS (asimétricas no rotan solas) |
 | Ver plan de IaC en PR | automático con `infra-plan.yml` (comentario en el PR) |
 | Aplicar IaC | Actions → **infra-apply** → elegir `dev`/`prod` (prod pide approval) |
+| Recuperar lock huérfano | confirma que no hay plan/apply activo → copia el ID del diagnóstico → **infra-apply** / `force-unlock` con `FORCE_UNLOCK` |
 
 ### Troubleshooting rápido
 

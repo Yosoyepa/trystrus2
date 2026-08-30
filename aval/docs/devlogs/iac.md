@@ -29,7 +29,9 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
   documentación ya no reconstruyen/despliegan la app dev. Push y PR se
   serializan por ambiente para no competir por el mismo lock de estado GCS;
   un fallo publica solo el `diagnostic.summary` estructurado, nunca detalle ni
-  valores del plan.
+  valores del plan. Plan/apply/recovery comparten el mismo concurrency group y
+  la operación `force-unlock` de `infra-apply` exige ambiente, ID exacto y
+  confirmación literal para recuperar un lock huérfano sin adivinar el target.
 - **Prod state ownership fixed:** el primer plan prod reveló que dos estados
   del mismo proyecto querían crear APIs, Artifact Registry y secretos con los
   mismos nombres. Por [decisión 0031](../decisions/0031-single-project-iac-ownership.md),
