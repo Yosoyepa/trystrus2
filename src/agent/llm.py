@@ -16,6 +16,7 @@ or a malformed answer must never take the demo down.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -187,9 +188,15 @@ def propose(
                 "source": LLM_MODEL,
             }
         # A model that names an offer outside the catalog is simply ignored.
-        return {**_propose_fallback(offers), "concern": "model chose an unknown offer"}
+        return {
+            **_propose_fallback(offers, request=request),
+            "concern": "model chose an unknown offer",
+        }
     except (LLMUnavailable, json.JSONDecodeError, ValueError) as exc:
-        return {**_propose_fallback(offers), "concern": f"model unavailable: {exc}"}
+        return {
+            **_propose_fallback(offers, request=request),
+            "concern": f"model unavailable: {exc}",
+        }
 
 
 def propose_deterministic(offers: list[dict]) -> dict[str, Any]:
@@ -202,13 +209,33 @@ def propose_deterministic(offers: list[dict]) -> dict[str, Any]:
     return proposal
 
 
-def _propose_fallback(offers: list[dict]) -> dict[str, Any]:
+def _propose_fallback(offers: list[dict], *, request: str = "") -> dict[str, Any]:
     from decimal import Decimal
 
-    cheapest = min(offers, key=lambda o: Decimal(o["price"]))
+    # The deterministic fallback must preserve the same explicit-selection
+    # contract as the model path. Otherwise an unavailable LLM silently turns
+    # "buy offer X" into "buy the cheapest offer", which is safe only by
+    # accident and makes the S4 mandate-boundary invariant depend on network.
+    explicitly_requested = next(
+        (
+            offer
+            for offer in offers
+            if re.search(
+                rf"(?<![\w-]){re.escape(str(offer['offer_id']))}(?![\w-])",
+                request,
+                re.IGNORECASE,
+            )
+        ),
+        None,
+    )
+    selected = explicitly_requested or min(offers, key=lambda o: Decimal(o["price"]))
     return {
-        "offer_id": cheapest["offer_id"],
-        "why": f"cheapest match at {cheapest['price']}",
+        "offer_id": selected["offer_id"],
+        "why": (
+            "the requested offer"
+            if explicitly_requested
+            else f"cheapest match at {selected['price']}"
+        ),
         "concern": None,
         "source": "deterministic",
     }

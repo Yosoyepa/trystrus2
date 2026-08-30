@@ -111,8 +111,7 @@ class Session:
     def latest_run(self) -> dict[str, Any] | None:
         """Latest checkpoint, including runs that already finished or denied."""
         row = self.conn.execute(
-            "SELECT run_id FROM agent_runs WHERE session_id=? "
-            "ORDER BY created_at DESC LIMIT 1",
+            "SELECT run_id FROM agent_runs WHERE session_id=? ORDER BY created_at DESC LIMIT 1",
             (self.session_id,),
         ).fetchone()
         return graph._load(self.conn, row["run_id"]) if row else None

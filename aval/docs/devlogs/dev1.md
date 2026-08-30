@@ -7,6 +7,93 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — comprar en Mami por MCP: dos traducciones que faltaban
+
+- **Why:** pedido de enlazar el agente solo con Mami (el clon de MELI) y comprar
+  sus productos vía MCP. El transporte ya funcionaba —seis herramientas, `pay`
+  correctamente rechazado— pero ninguna compra llegaba a proponerse.
+- **Found (dos fallos distintos, ambos de vocabulario):**
+  1. `MamiMcp` exigía `category == "retail"` exacto. El modelo clasifica
+     "comprame un snack" como `food`, así que toda petición de mercado buscaba
+     en Mami y volvía vacía — se lee como catálogo vacío, no como desajuste de
+     vocabulario. Ahora acepta la familia (`MAMI_CATEGORIES`).
+  2. `search_products` de Mami hace matching literal, y el grafo le pasa la
+     frase entera del comprador. "comprame un snack barato" no coincide con
+     ninguna marca del catálogo (`Yupi`, `Tosh`, `Festival`), así que la
+     búsqueda era estructuralmente incapaz de acertar. Si la búsqueda literal
+     no devuelve nada, el adaptador cae a `list_products`: enseñar el estante
+     es lo que hace una tienda cuando no entiende lo que le pediste, y el gate
+     sigue decidiendo qué se puede comprar de él.
+- **Built:** ambos arreglos en `src/agent/ports/merchants_mcp.py`. Nada más: el
+  aislamiento a Mami no necesitó código, lo da el scope firmado del mandato.
+- **Tests:** 42/42 propiedades; pytest 410 pasan (el fallo restante es el DSN
+  fijo de `test_webhooks_and_mcp`, previo). Compra real contra Mami:
+  `Tosh Crackers Fusión de Cereales, 1750.00 COP`. Con ese mismo mandato, una
+  compra dirigida a `vuelaya` se rechaza con `CATEGORY_FORBIDDEN`.
+- **Open questions:** `setup()` registra `rappi` siempre (cae a fixture si el
+  bridge no responde), así que "solo Mami" es una propiedad del mandato, no del
+  registro. Es el sitio correcto —el scope está firmado y lo aplica el kernel—
+  pero no hay forma de apagar un comercio en el registro si alguna vez hace
+  falta.
+
+---
+
+## 2026-08-30 — el MCP del merchant, alcanzable en producción
+
+- **Why:** en producción no se podía llegar al MCP. La causa no era el
+  despliegue: `src/merchant/mcp_server.py` solo corría `run_stdio_async()`, un
+  transporte de mismo proceso. El servicio de Cloud Run sirve
+  `src.merchant.main:app`, que nunca montaba el MCP — no había nada escuchando
+  en red que alcanzar.
+- **Built:**
+  - `src/merchant/main.py` monta `mcp.streamable_http_app()` en `/mcp`, con
+    `streamable_http_path="/"` para no servir `/mcp/mcp`. El lifespan del MCP se
+    encadena al de la app: montar el ASGI sin correr su lifespan deja el session
+    manager sin inicializar y cada `tools/call` falla en runtime, no al arrancar.
+  - `TT_MCP_ALLOWED_HOSTS` + `var.mcp_allowed_hosts` en `iac/`. El LB ya
+    enrutaba `/merchant/*` con rewrite a `/`, así que la ruta pública
+    (`https://<dominio>/merchant/mcp/`) ya existía.
+- **Found:** la protección DNS-rebinding del transporte viene **activada con
+  allowlist vacía**, y `_validate_host` devuelve False para cualquier Host
+  cuando la lista está vacía. Desplegado tal cual, el MCP habría contestado
+  `421` a todo — un fallo que se lee como "el MCP está caído" y no como "rechazó
+  tu Host". Por eso la allowlist es explícita y viene del entorno.
+- **Tests:** 42/42 en la suite de propiedades; pytest 402 pasan. Los 2 fallos
+  (`test_webhooks_and_mcp` por su DSN fijo y `test_agent_router`) ya fallaban en
+  main sin este cambio — verificado con stash. Contra el merchant local:
+  `tools/list` devuelve las tres herramientas, `search_offers` responde por
+  HTTP, Host válido pasa y Host falso da 421.
+- **Open questions:** el kernel todavía no registra este MCP en producción — no
+  añadí `TT_VUELAYA_MCP_URL` al servicio kernel porque eso cambia qué comercios
+  ve el agente en prod, y hoy la demo va por el mock de vuelos. Es una env de
+  una línea cuando se quiera.
+
+---
+
+## 2026-08-30 — explicit offer selection survives an unavailable LLM
+
+- **Why:** the production-integration invariant run exposed that S4/K1 passed
+  only when a live model interpreted `buy offer ofr_cor_300`. With no key or a
+  model outage, the documented deterministic fallback ignored the explicit ID,
+  chose the globally cheapest catalog row and denied for the wrong reason.
+- **Built:** `_propose_fallback` now recognizes an exact catalog `offer_id` in
+  the buyer request before applying cheapest-match selection. The model still
+  has no enforcement authority; the selected offer goes through the unchanged
+  deterministic gate.
+- **Prod bridge auth:** `RappiBridgeMcp` accepts the separate tunnel bearer,
+  sends it on health/session/search/capture requests and refuses registration
+  when the authenticated bridge has no vaulted session. With
+  `AVAL_BRIDGE_LOCAL_TOKEN` set, even `/healthz` is closed; the Rappi `ft.`
+  session token remains local and is never the tunnel credential.
+- **Tests:** S4/K1 now exercises the hostile-ontology boundary without network
+  or an LLM key; bearer propagation and bridge-surface rejection have focused
+  tests. Full invariant and pytest results are recorded in the IaC release
+  entry.
+- **Decision:** none; this restores the existing proposal contract and S4.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-30 — every mandate a transaction was transacted against
 
 - **Why:** asked for a view showing, per transaction, every mandate involved.

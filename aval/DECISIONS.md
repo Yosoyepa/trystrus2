@@ -717,3 +717,23 @@ enforcement point on the machine that holds the money button.
 smoke test per session); Rappi's ToS §10 right to silently cancel under
 fraud checks; purchases the owner makes outside the agent; human
 reconciliation beyond `bridge.reconciled` events.
+
+## 31 · One owner for project-wide IaC resources
+
+**Chose:** In the shared `trytrust` GCP project, the dev state is the only
+owner of enabled APIs and the `aval` Artifact Registry repository. The prod
+state reads that repository, owns only `aval-prod-*` infrastructure and uses
+independent production signing secrets. Full record:
+`docs/decisions/0031-single-project-iac-ownership.md`.
+
+**Rejected:** importing the same resources into both state files; sharing
+signing keys across environments; migrating to a second GCP project during
+this release.
+
+**Why:** separate state files are ownership boundaries. Two states managing
+one object can fight or destroy it, while sharing a private signing key lets a
+dev compromise cross into production.
+
+**Does not solve:** dev and prod still share project quotas, billing, API
+enablement and part of the IAM blast radius. A separate production project is
+the later hardening step.

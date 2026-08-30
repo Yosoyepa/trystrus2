@@ -3,16 +3,26 @@
 # bootstrap (never in tfvars, never in git).
 
 locals {
-  secrets = {
-    issuer_pem     = "aval-issuer-ed25519"
-    merchant_pem   = "aval-merchant-es256"
-    yuno_webhook   = "aval-yuno-webhook-ed25519"
-    db_url         = "${local.name_prefix}-db-url"
-    db_url_async   = "${local.name_prefix}-db-url-async"
-    idem_secret    = "${local.name_prefix}-idem-secret"
-    llm_openai_key = "${local.name_prefix}-llm-openai-key"
-    llm_gemini_key = "${local.name_prefix}-llm-gemini-key"
+  # Keep the already-provisioned dev IDs stable. Production gets independent
+  # signing identities so a compromised dev runtime cannot mint prod tokens.
+  signing_secrets = {
+    issuer_pem   = var.environment == "dev" ? "aval-issuer-ed25519" : "${local.name_prefix}-issuer-ed25519"
+    merchant_pem = var.environment == "dev" ? "aval-merchant-es256" : "${local.name_prefix}-merchant-es256"
+    yuno_webhook = var.environment == "dev" ? "aval-yuno-webhook-ed25519" : "${local.name_prefix}-yuno-webhook-ed25519"
   }
+
+  environment_secrets = {
+    db_url                  = "${local.name_prefix}-db-url"
+    db_url_async            = "${local.name_prefix}-db-url-async"
+    idem_secret             = "${local.name_prefix}-idem-secret"
+    llm_openai_key          = "${local.name_prefix}-llm-openai-key"
+    llm_gemini_key          = "${local.name_prefix}-llm-gemini-key"
+    rappi_bridge_token      = "${local.name_prefix}-rappi-bridge-token"
+    telegram_bot_token      = "${local.name_prefix}-telegram-bot-token"
+    telegram_webhook_secret = "${local.name_prefix}-telegram-webhook-secret"
+  }
+
+  secrets = merge(local.signing_secrets, local.environment_secrets)
 }
 
 resource "google_secret_manager_secret" "secrets" {

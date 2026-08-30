@@ -12,6 +12,16 @@ variable "region" {
 variable "environment" {
   type        = string
   description = "dev | prod — used in resource names and labels."
+
+  validation {
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "environment must be either dev or prod."
+  }
+}
+
+variable "manage_shared_project_resources" {
+  type        = bool
+  description = "Exactly one state per GCP project owns shared APIs and Artifact Registry; other environments consume them without taking over their state."
 }
 
 variable "image" {
@@ -32,10 +42,28 @@ variable "domain" {
   description = "Custom domain for the LB + managed cert. Empty = no LB (direct run.app URLs)."
 }
 
+variable "rp_id" {
+  type        = string
+  default     = ""
+  description = "WebAuthn RP ID. Empty derives it from domain; prod uses the apex while the API lives on a subdomain."
+}
+
+variable "rp_origin" {
+  type        = string
+  default     = ""
+  description = "Exact browser origin allowed to complete WebAuthn ceremonies."
+}
+
 variable "yuno_sim_url" {
   type        = string
   default     = ""
   description = "Base URL the kernel uses to reach yuno_sim. Kept as a variable to avoid a kernel<->yuno resource cycle; the deploy workflow fills it with the service URL."
+}
+
+variable "rappi_bridge_url" {
+  type        = string
+  default     = ""
+  description = "Ephemeral authenticated HTTPS tunnel to the credential-machine Rappi bridge. Empty keeps the explicit fixture fallback."
 }
 
 variable "min_instances" {
@@ -107,4 +135,15 @@ locals {
       managed_by  = "tofu"
     },
   )
+}
+
+variable "mcp_allowed_hosts" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    Comma-separated Host values the merchant's MCP endpoint will accept
+    (DNS-rebinding protection). Empty derives it from var.domain. Set this
+    explicitly when the MCP is also reached on its *.run.app hostname, which
+    the LB-derived value does not cover. An entry may use a ":*" port wildcard.
+  EOT
 }

@@ -263,6 +263,14 @@ class VuelaYaMcp:
         }
 
 
+# What a person calls a bag of crisps, and what this catalogue calls it, are not
+# the same word. The model classifies "comprame un snack" as `food`; Mami files
+# the identical product under `retail`. Exact-matching one label meant every
+# grocery request searched Mami and came back empty, which reads as an empty
+# catalogue rather than a vocabulary mismatch. Translating is the adapter's job.
+MAMI_CATEGORIES = frozenset({"retail", "groceries", "food", "snacks", "supermarket"})
+
+
 class MamiMcp:
     """Groceries. Same boundary, different vocabulary."""
 
@@ -282,13 +290,21 @@ class MamiMcp:
     def search(
         self, conn, *, query=None, category=None, destination=None, limit: int = 12, **_: Any
     ) -> list[dict]:
-        if category and category not in (self.category, None):
+        if category and category.lower() not in MAMI_CATEGORIES:
             return []
+        rows: list[dict] = []
         if query:
             result = self.transport.call("search_products", query=query, limit=limit)
-        else:
-            result = self.transport.call("list_products", limit=limit)
-        return [self._to_offer(p) for p in _rows(result, "products")]
+            rows = _rows(result, "products")
+        # `search_products` matches literally, and the graph hands us the
+        # buyer's whole sentence -- "comprame un snack barato" matches no brand
+        # name, so a literal search returns nothing and the run dies as though
+        # the catalogue were empty. Browsing is the honest fallback: showing the
+        # shelf is what a shop does when it cannot parse what you asked for, and
+        # the gate still decides what may be bought from it.
+        if not rows:
+            rows = _rows(self.transport.call("list_products", limit=limit), "products")
+        return [self._to_offer(p) for p in rows]
 
     def get(self, conn, offer_id: str) -> dict | None:
         for call in (
@@ -396,9 +412,18 @@ class RappiBridgeMcp:
     # human approval IS the key that arms the bridge's guarded click.
     kernel_capture = True
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, *, token: str = ""):
         self.url = url.rstrip("/")
+        self._token = token
         self._quoted: dict[str, dict] = {}  # offer_id -> last search result
+
+    def _headers(self, *, idem_key: str | None = None) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        if idem_key:
+            headers["Idempotency-Key"] = idem_key
+        return headers
 
     def discover(self) -> dict[str, Any]:
         # Fail setup (so the fixture catalog can take over) if the bridge
@@ -406,24 +431,40 @@ class RappiBridgeMcp:
         # and the buyer just sees "nothing I am allowed to buy".
         import httpx
 
-        response = httpx.get(f"{self.url}/healthz", timeout=2.0)
+        response = httpx.get(f"{self.url}/healthz", headers=self._headers(), timeout=2.0)
         if response.status_code >= 400:
             raise RuntimeError(f"bridge healthz -> {response.status_code}")
         health = response.json()
         if health.get("ok") is not True:
             raise RuntimeError(f"bridge {self.url} is not healthy")
+        session = httpx.get(
+            f"{self.url}/v1/rappi/session/status",
+            headers=self._headers(),
+            timeout=2.0,
+        )
+        if session.status_code >= 400:
+            raise RuntimeError(f"bridge session status -> {session.status_code}")
+        session_status = session.json()
+        if not session_status.get("has_token"):
+            raise RuntimeError("bridge has no active Rappi session")
         return {
             "merchant_id": self.merchant_id,
             "bridge": self.url,
             "reachable": True,
             "dry_run": bool(health.get("dry_run", True)),
             "cap_cop": health.get("cap_cop"),
+            "session_state": session_status.get("state"),
         }
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         import httpx
 
-        response = httpx.get(f"{self.url}{path}", params=params, timeout=20.0)
+        response = httpx.get(
+            f"{self.url}{path}",
+            params=params,
+            headers=self._headers(),
+            timeout=20.0,
+        )
         if response.status_code >= 400:
             raise RuntimeError(f"bridge {path} -> {response.status_code}")
         return response.json()
@@ -438,9 +479,12 @@ class RappiBridgeMcp:
     ) -> Any:
         import httpx
 
-        headers = {"Idempotency-Key": idem_key} if idem_key else {}
         response = httpx.post(
-            f"{self.url}{path}", params=params, json=body or {}, headers=headers, timeout=30.0
+            f"{self.url}{path}",
+            params=params,
+            json=body or {},
+            headers=self._headers(idem_key=idem_key),
+            timeout=30.0,
         )
         if response.status_code >= 400:
             detail = response.text[:200]

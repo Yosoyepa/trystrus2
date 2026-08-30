@@ -30,8 +30,14 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def engine():
     global _engine
     if _engine is None:
+        url = settings().database_url
+        # The db-url-async secret may carry the sync scheme (same value as the
+        # sync secret); asyncpg needs the async one. Merchant rewrites it the
+        # same way — without this every session route 500s at first connect.
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         _engine = create_async_engine(
-            settings().database_url,
+            url,
             pool_size=5,
             max_overflow=2,
             pool_pre_ping=True,  # Cloud Run scales to zero; connections go stale

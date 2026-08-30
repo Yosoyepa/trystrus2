@@ -3,11 +3,27 @@
 # APP_MODULE; the SPA has its own image (web/Dockerfile, nginx on :3000).
 
 resource "google_artifact_registry_repository" "docker" {
+  count = var.manage_shared_project_resources ? 1 : 0
+
   location      = var.region
   repository_id = "aval"
   format        = "DOCKER"
   description   = "Aval backend and web images"
   depends_on    = [google_project_service.apis]
+}
+
+# The original dev state used the unindexed address. Keep that object in place
+# while making ownership conditional for environments sharing one GCP project.
+moved {
+  from = google_artifact_registry_repository.docker
+  to   = google_artifact_registry_repository.docker[0]
+}
+
+data "google_artifact_registry_repository" "docker" {
+  count = var.manage_shared_project_resources ? 0 : 1
+
+  location      = var.region
+  repository_id = "aval"
 }
 
 locals {
@@ -22,8 +38,9 @@ locals {
 
   # Passkeys require a registrable domain: *.run.app is on the Public Suffix
   # List, so rp_id must be the real domain in prod (ADR-018).
-  rp_id     = var.domain != "" ? var.domain : "localhost"
-  rp_origin = var.domain != "" ? "https://${var.domain}" : "http://localhost:3000"
+  rp_id      = var.rp_id != "" ? var.rp_id : (var.domain != "" ? var.domain : "localhost")
+  rp_origin  = var.rp_origin != "" ? var.rp_origin : (var.domain != "" ? "https://${var.domain}" : "http://localhost:3000")
+  issuer_url = var.domain != "" ? "https://${var.domain}/api" : "https://api.aval.example"
 }
 
 # --- kernel (FastAPI: mandates, decision, audit, evidence, agent bridge) ---
@@ -32,6 +49,11 @@ resource "google_cloud_run_v2_service" "kernel" {
   location = var.region
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
+
+  lifecycle {
+    # GitHub Actions owns immutable image promotion; IaC owns service shape.
+    ignore_changes = [template[0].containers[0].image]
+  }
 
   template {
     service_account                  = google_service_account.runtime.email
@@ -65,6 +87,18 @@ resource "google_cloud_run_v2_service" "kernel" {
         value = var.project_id
       }
       env {
+        name  = "AVAL_ISSUER_KEY_SECRET"
+        value = local.secrets.issuer_pem
+      }
+      env {
+        name  = "AVAL_MERCHANT_KEY_SECRET"
+        value = local.secrets.merchant_pem
+      }
+      env {
+        name  = "AVAL_ISSUER"
+        value = local.issuer_url
+      }
+      env {
         name  = "AVAL_RP_ID"
         value = local.rp_id
       }
@@ -85,12 +119,43 @@ resource "google_cloud_run_v2_service" "kernel" {
         value = var.yuno_sim_url
       }
       env {
+        name  = "TT_RAPPI_BRIDGE_URL"
+        value = var.rappi_bridge_url
+      }
+      env {
+        name = "TT_RAPPI_BRIDGE_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-rappi-bridge-token"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "TELEGRAM_BOT_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-telegram-bot-token"
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "TELEGRAM_WEBHOOK_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = "${local.name_prefix}-telegram-webhook-secret"
+            version = "latest"
+          }
+        }
+      }
+      env {
         name  = "LLM_PROVIDER"
         value = "gemini"
       }
       env {
         name  = "LLM_MODEL"
-        value = "gemini-2.5-flash"
+        value = "gemini-3.7-flash"
       }
       env {
         name = "DATABASE_URL"
@@ -176,6 +241,10 @@ resource "google_cloud_run_v2_service" "yuno_sim" {
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "120s"
@@ -204,7 +273,15 @@ resource "google_cloud_run_v2_service" "yuno_sim" {
       }
       env {
         name  = "YUNO_ISSUER_URL"
-        value = "${google_cloud_run_v2_service.kernel.uri}/api"
+        value = var.domain != "" ? "https://${var.domain}/api" : google_cloud_run_v2_service.kernel.uri
+      }
+      env {
+        name  = "YUNO_GCP_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "YUNO_WEBHOOK_KEY_SECRET"
+        value = local.secrets.yuno_webhook
       }
       env {
         name = "YUNO_DATABASE_URL"
@@ -249,6 +326,10 @@ resource "google_cloud_run_v2_service" "merchant" {
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "120s"
@@ -277,15 +358,32 @@ resource "google_cloud_run_v2_service" "merchant" {
       }
       env {
         name  = "MERCHANT_KERNEL_URL"
-        value = google_cloud_run_v2_service.kernel.uri
+        value = var.domain != "" ? "https://${var.domain}/api" : google_cloud_run_v2_service.kernel.uri
       }
       env {
         name  = "MERCHANT_YUNO_SIM_URL"
-        value = google_cloud_run_v2_service.yuno_sim.uri
+        value = var.domain != "" ? "https://${var.domain}/yuno" : google_cloud_run_v2_service.yuno_sim.uri
+      }
+      env {
+        name  = "MERCHANT_GCP_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "MERCHANT_MERCHANT_KEY_SECRET"
+        value = local.secrets.merchant_pem
       }
       env {
         name  = "MERCHANT_FIXTURES_DIR"
         value = "/app/aval/contracts/fixtures"
+      }
+      # The MCP transport's DNS-rebinding guard ships on with an empty
+      # allowlist, and an empty allowlist rejects every Host with 421. Behind
+      # the LB the Host is the public domain, so it has to be named here or the
+      # deployed MCP answers nothing at all. Direct *.run.app access needs its
+      # own entry via var.mcp_allowed_hosts; the port wildcard covers :443.
+      env {
+        name  = "TT_MCP_ALLOWED_HOSTS"
+        value = var.mcp_allowed_hosts != "" ? var.mcp_allowed_hosts : (var.domain != "" ? "${var.domain},${var.domain}:*" : "")
       }
       env {
         name = "MERCHANT_DATABASE_URL"
@@ -330,6 +428,10 @@ resource "google_cloud_run_v2_service" "web" {
   ingress  = "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "60s"
@@ -372,6 +474,10 @@ resource "google_cloud_run_v2_job" "migrations" {
   name     = "${local.name_prefix}-migrations"
   location = var.region
   labels   = local.labels
+
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
 
   template {
     template {
@@ -422,6 +528,10 @@ resource "google_cloud_run_v2_job" "outbox_relay" {
   location = var.region
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
   template {
     template {
       service_account = google_service_account.jobs.email
@@ -471,6 +581,10 @@ resource "google_cloud_run_v2_job" "sweeper" {
   name     = "${local.name_prefix}-sweeper"
   location = var.region
   labels   = local.labels
+
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
 
   template {
     template {

@@ -60,7 +60,8 @@ def create_app(
             raise HTTPException(status_code=401, detail="bad bridge token")
 
     @app.get("/healthz")
-    def healthz() -> dict[str, Any]:
+    def healthz(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        _guard_token(authorization)
         return {
             "ok": True,
             "dry_run": config.dry_run,

@@ -13,6 +13,21 @@ on:
     paths:
       - "iac/**"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to plan"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+
+concurrency:
+  # Plans, applies and recovery share this group across their workflows.
+  # Never cancel a state operation: an interrupted GCS lock needs recovery.
+  group: tofu-state-${{ github.repository }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,6 +38,9 @@ jobs:
   plan:
     if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
+
+    env:
+      TARGET_ENV: ${{ inputs.environment || 'dev' }}
 
     defaults:
       run:
@@ -44,35 +62,70 @@ jobs:
         run: tofu fmt -check -recursive
 
       - name: Tofu init
-        run: tofu init -backend-config=environments/dev.backend.hcl -input=false
+        run: tofu init -backend-config="environments/${TARGET_ENV}.backend.hcl" -input=false
 
       - name: Tofu validate
         run: tofu validate
 
-      - name: Tofu plan (dev)
+      - name: Tofu plan
         id: plan
-        run: tofu plan -var-file=environments/dev.tfvars -input=false -no-color -out=plan.out
+        run: |
+          set -euo pipefail
+          if ! tofu plan -json \
+              -var-file="environments/${TARGET_ENV}.tfvars" \
+              -var="project_id=${{ vars.GCP_PROJECT }}" \
+              -input=false \
+              -out=plan.out \
+              >/tmp/tofu-plan.jsonl 2>&1; then
+            echo "OpenTofu plan failed. Detailed values are withheld from public logs."
+            jq -Rr '
+              fromjson?
+              | select(.type == "diagnostic")
+              | .diagnostic.summary
+              | select(type == "string")
+              | "OpenTofu diagnostic: \(.)"
+            ' /tmp/tofu-plan.jsonl | sort -u
+            jq -Rr '
+              fromjson?
+              | select(.type == "diagnostic")
+              | select(.diagnostic.summary == "Error acquiring the state lock")
+              | .diagnostic.detail
+              | capture("ID:[[:space:]]*(?<id>[0-9A-Za-z-]+)")?
+              | "OpenTofu lock ID: \(.id)"
+            ' /tmp/tofu-plan.jsonl | sort -u
+            exit 1
+          fi
+          tofu show -json plan.out | jq -r '
+            .resource_changes[]
+            | select(.change.actions != ["no-op"])
+            | "\(.address): \(.change.actions | join(","))"
+          '
 
       - name: Comment plan on the PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
             const { execSync } = require('child_process');
-            let body = '### `tofu plan` (dev)\n```\n';
+            const target = process.env.TARGET_ENV || 'dev';
+            let body = `### \`tofu plan\` (${target}) — sanitized summary\n\`\`\`\n`;
             try {
-              body += execSync('tofu show -no-color plan.out', { cwd: 'iac' }).toString();
+              const plan = JSON.parse(
+                execSync('tofu show -json plan.out', { cwd: 'iac' }).toString()
+              );
+              const changes = (plan.resource_changes || [])
+                .filter(r => JSON.stringify(r.change.actions) !== JSON.stringify(['no-op']))
+                .map(r => `${r.address}: ${r.change.actions.join(',')}`);
+              body += changes.length ? changes.join('\n') : 'No changes.';
             } catch (e) {
-              body += 'plan show failed: ' + e.message;
+              body += 'Plan summary unavailable; values are never published.';
             }
             body += '\n```';
-            if (body.length > 60000) body = body.slice(0, 60000) + '\n… (truncated)';
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const marker = '### `tofu plan` (dev)';
+            const marker = `### \`tofu plan\` (${target}) — sanitized summary`;
             const existing = comments.find(c => c.body && c.body.startsWith(marker));
             if (existing) {
               await github.rest.issues.updateComment({

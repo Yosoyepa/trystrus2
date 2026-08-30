@@ -24,18 +24,18 @@ Fija estas variables una sola vez y reemplázalas en todos los comandos:
 
 ```bash
 export OWNER_REPO="bysergr/trytrust-backend"        # dueño/repo de GitHub
-export PROJECT_ID="aval-demo-001"                   # id del proyecto GCP (global, único)
+export PROJECT_ID="trytrust"                        # proyecto GCP actual
 export REGION="southamerica-east1"
-export DOMAIN="trytrust.lat"                        # vacío en dev si aún no hay DNS
+export DOMAIN="api.trytrust.lat"                    # LB backend; el apex sigue en Vercel
 ```
 
 ### Gate de código (NO desplegar sin esto)
 
 | Gate | Qué | Dueño |
 |---|---|---|
-| CR-01 | Unificar el DDL de `mandates` (kernel `aval/contracts/fixtures/schema.sql` vs `src/agent/db.py.SCHEMA`/alembic-0001). Si se despliega sin esto, quien provisiona primero gana y el otro carril devuelve 503. | Dev 2 + Dev 3 |
+| CR-01 | **Cerrado** por decisión 0029 + migración 0009: `src/agent/db.py.SCHEMA` deriva del fixture canónico y la cadena converge bases dev antiguas. | Dev 1 + Dev 2 + Dev 3 |
 | CR-02 | Componer el kernel con los adaptadores Postgres/KMS/GCS en `deps.py` (hoy usa stores en memoria: multi-instancia pierde compras/evidencia/idempotencia). | Dev 2 |
-| Rotación | El `.env` local contiene una clave Gemini real — **rotarla** antes de cualquier demo o compartición. | Equipo |
+| Rotación | La clave Gemini local y las credenciales Telegram detectadas en env/logs públicos deben **rotarse** antes de cualquier demo. Borrar el log no las revoca. | Equipo |
 
 Para un `dev` humo de infraestructura se puede aplicar sin los gates, pero el
 pipeline de app no será fiable hasta cerrarlos.
@@ -50,18 +50,20 @@ gcloud billing projects link "$PROJECT_ID" --billing-account=BILLING_ID
 gcloud config set project "$PROJECT_ID"
 ```
 
-Las ~14 APIs las habilita el propio `tofu apply` (archivo `iac/apis.tf`).
-Verificación: `gcloud services list --enabled | head`.
+Las ~14 APIs las habilita el apply bootstrap de `dev` (archivo
+`iac/apis.tf`). Por decisión 0031 hay un solo owner de recursos globales del
+proyecto: prod reutiliza las APIs y el repositorio, nunca los importa a su
+estado. Verificación: `gcloud services list --enabled | head`.
 
 ---
 
 ## Fase 2 — Bucket de estado (fuera del estado)
 
 ```bash
-gcloud storage buckets create "gs://aval-tfstate" \
+gcloud storage buckets create "gs://trytrust-tfstate" \
   --location="$REGION" --uniform-bucket-level-access \
   --public-access-prevention
-gcloud storage buckets update gs://aval-tfstate --versioning
+gcloud storage buckets update gs://trytrust-tfstate --versioning
 ```
 
 ---
@@ -81,7 +83,7 @@ tofu apply -var-file=environments/dev.tfvars -input=false
 ```
 
 Crea: APIs, Artifact Registry `aval`, Cloud SQL PG16, KMS
-`EC_SIGN_ED25519`, bucket witness, los 7 secretos (placeholders), las SAs
+`EC_SIGN_ED25519`, bucket witness, los 11 secretos (placeholders), las SAs
 (runtime/jobs/deploy) con mínimos privilegios, 4 servicios Cloud Run y 3 jobs.
 
 `tofu plan` tarda; en dev (`domain=""`) no se crea LB ni cert — los servicios
@@ -120,6 +122,10 @@ for s in aval-issuer-ed25519 aval-merchant-es256 aval-yuno-webhook-ed25519; do
 done
 ```
 
+Esos nombres conservan compatibilidad con dev. Para prod genera material nuevo
+y cárgalo en `aval-prod-issuer-ed25519`, `aval-prod-merchant-es256` y
+`aval-prod-yuno-webhook-ed25519`; nunca copies las claves dev.
+
 ### 4.3 Idempotencia y claves LLM
 
 ```bash
@@ -127,6 +133,22 @@ openssl rand -hex 32 | gcloud secrets versions add aval-dev-idem-secret --data-f
 # Gemini (ai.google.dev) y OpenAI (platform.openai.com) — claves POR ENTORNO:
 echo -n "GEMINI_KEY"  | gcloud secrets versions add aval-dev-llm-gemini-key --data-file=-
 echo -n "OPENAI_KEY"  | gcloud secrets versions add aval-dev-llm-openai-key --data-file=-
+# Tras rotarlos en BotFather / generador del webhook:
+printf %s "TELEGRAM_BOT_TOKEN_NUEVO" | \
+  gcloud secrets versions add aval-dev-telegram-bot-token --data-file=-
+printf %s "TELEGRAM_WEBHOOK_SECRET_NUEVO" | \
+  gcloud secrets versions add aval-dev-telegram-webhook-secret --data-file=-
+```
+
+El bearer del túnel Rappi es distinto de la sesión `ft.` y se genera por
+entorno. Nunca se guarda en git ni se reutiliza como token de Rappi:
+
+```bash
+export RAPPI_TUNNEL_TOKEN="$(openssl rand -hex 32)"
+printf %s "$RAPPI_TUNNEL_TOKEN" | \
+  gcloud secrets versions add aval-prod-rappi-bridge-token --data-file=-
+# En la máquina propietaria, solo durante la demo:
+export AVAL_BRIDGE_LOCAL_TOKEN="$RAPPI_TUNNEL_TOKEN"
 ```
 
 Verificación: `gcloud secrets versions list <secret> | head -3` — ninguna
@@ -170,9 +192,18 @@ gh variable set DEPLOY_SA     --body "$DEPLOY_SA"
 ```
 
 Mientras `WIF_PROVIDER` no exista, todos los workflows de deploy **se
-auto-saltan** (safe gate ya implementado). Environment `prod` con
+auto-saltan** (safe gate ya implementado). Crea el environment `prod` con
 **required reviewers**: GitHub → Settings → Environments → New environment
-`prod` → Required reviewers.
+`prod` → Required reviewers. Solo después arma el segundo seguro:
+
+```bash
+gh variable set PROD_DEPLOY_ENABLED --body true
+gh variable set PROD_BASE_URL --env prod --body "https://api.trytrust.lat"
+```
+
+Sin esa variable, tanto `infra-apply(prod)` como `deploy-prod` fallan antes de
+entrar al environment; GitHub no puede crear accidentalmente un `prod` sin
+protección por el simple hecho de despachar el workflow.
 
 ### 5.4 Si prefieres dar permisos a nivel proyecto al SA de deploy
 
@@ -188,10 +219,11 @@ endurecimiento post-hackathon: mover esos bindings a recursos concretos
    solo). Al mergear, `deploy-dev.yml` se dispara automáticamente.
 2. Primer deploy manual (recomendado para ver los logs en vivo):
    Actions → **deploy-dev** → Run workflow.
-3. El pipeline hace, en orden: build+push de `backend` y `web` → **job de
-   migraciones** (`alembic upgrade head`, `--wait`: si falla, NO despliega) →
-   deploy del kernel con secretos y Cloud SQL por socket → smoke
-   `curl /healthz | grep ok` → ejecución única de relay y sweeper.
+3. El pipeline hace, en orden: build+push de `backend` y `web` con SHA →
+   actualiza los tres jobs a ese SHA → **job de migraciones** (`alembic
+   upgrade head`, `--wait`: si falla, NO despliega) → actualiza kernel,
+   merchant, yuno-sim y web al mismo SHA → smoke de los cuatro servicios →
+   ejecución única de relay y sweeper.
 
 Verificación:
 
@@ -210,10 +242,16 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
 
    ```bash
    cd iac
-   # prod.tfvars ya trae domain="trytrust.lat" → el apply crea LB + cert
+   # prod.tfvars usa api.trytrust.lat; el apex vivo en Vercel no se toca
+   tofu init -reconfigure -backend-config=environments/prod.backend.hcl
+   tofu plan -var-file=environments/prod.tfvars -input=false
    tofu apply -var-file=environments/prod.tfvars -input=false
-   tofu output -raw lb_ip   # → registro A de trytrust.lat (y de api., si se usa)
+   tofu output -raw lb_ip   # → registro A de api.trytrust.lat
    ```
+
+   El plan no debe crear `google_project_service.apis` ni
+   `google_artifact_registry_repository.docker`: pertenecen al estado dev. Si
+   aparecen, detén el apply; hay dos estados intentando poseer lo mismo.
 
 2. El certificado gestionado tarda **15–60 min** en emitirse tras propagar el
    DNS: `gcloud compute ssl-certificates describe aval-prod-cert`.
@@ -224,16 +262,36 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
    nadie bypasea el Armor por la URL `*.run.app` —, Cloud Armor en `preview`
    la primera semana (revisar logs de falsos positivos) y luego quitar
    `preview` para exigir las reglas.
-5. **Passkeys**: solo funcionan con el dominio real (`*.run.app` está en la
-   Public Suffix List). Probar registro de passkey en `https://trytrust.lat`
-   antes del demo.
+5. **Frontend + passkeys**: `trytrust.lat` continúa en Vercel. Configura allí
+   `KERNEL_API_URL=https://api.trytrust.lat/api`. IaC fija
+   `rp_id=trytrust.lat` y `rp_origin=https://trytrust.lat`; probar la ceremonia
+   desde el apex antes del demo (`*.run.app` está en la Public Suffix List).
+6. **Rappi real**: el bridge y su sesión no se despliegan. La decisión 0030
+   exige que permanezcan en la máquina propietaria. Para habilitar búsqueda
+   real en producción, arranca el bridge con `AVAL_BRIDGE_LOCAL_TOKEN`, abre el
+   túnel y registra su URL solo en el environment protegido:
+
+   ```bash
+   uv run python -m src.rappi_bridge.app
+   cloudflared tunnel --url http://127.0.0.1:8010
+   gh variable set RAPPI_BRIDGE_URL --env prod \
+     --body "https://URL-EFIMERA.trycloudflare.com"
+   ```
+
+   En la máquina del bridge configura además
+   `AVAL_BRIDGE_KERNEL_JWKS_URL=https://api.trytrust.lat/api/.well-known/jwks.json`.
+   IaC entrega al kernel el bearer `aval-prod-rappi-bridge-token`; el deploy
+   hace una búsqueda por `/api/agent/dispatch` y exige ofertas `rappi_*`. Si el
+   bridge está caído, el token no coincide o aparece un fixture `ofr_*`, el
+   smoke prod falla. Sin URL, el fallback fixture sigue disponible pero debe
+   mostrarse como simulado.
 
 ---
 
 ## Fase 8 — Verificación post-despliegue (checklist del demo)
 
 ```bash
-BASE="https://${DOMAIN}"          # o la KERNEL_URL de dev
+BASE="https://${DOMAIN}"          # prod: https://api.trytrust.lat
 curl -fsS "$BASE/api/healthz" | grep ok
 curl -fsS "$BASE/api/audit/verify" -X POST | jq .ok      # cadena íntegra
 curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo
@@ -263,6 +321,7 @@ curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo
 | Rotar la KMS | nueva versión de la clave + nuevo `kid` en JWKS (asimétricas no rotan solas) |
 | Ver plan de IaC en PR | automático con `infra-plan.yml` (comentario en el PR) |
 | Aplicar IaC | Actions → **infra-apply** → elegir `dev`/`prod` (prod pide approval) |
+| Recuperar lock huérfano | confirma que no hay plan/apply activo → copia el ID del diagnóstico → **infra-apply** / `force-unlock` con `FORCE_UNLOCK` |
 
 ### Troubleshooting rápido
 
@@ -283,7 +342,7 @@ curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo
 ```bash
 # 1. proyecto + estado
 gcloud projects create $PROJECT_ID && gcloud billing projects link $PROJECT_ID --billing-account=BILLING_ID
-gcloud storage buckets create gs://aval-tfstate --location=$REGION --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets create gs://trytrust-tfstate --location=$REGION --uniform-bucket-level-access --public-access-prevention
 # 2. infra (local, primera vez)
 cd iac && gcloud auth application-default login
 tofu init -backend-config=environments/dev.backend.hcl

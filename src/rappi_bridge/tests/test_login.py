@@ -114,6 +114,18 @@ def test_session_endpoints_over_http(tmp_path) -> None:
     assert client.request("DELETE", "/v1/rappi/session").json()["has_token"] is False
 
 
+def test_tunnel_token_guards_health_and_session_surface(tmp_path) -> None:
+    config = make_config(tmp_path, local_token="tunnel-secret")
+    app = create_app(config, service=object(), login_flow=LoginFlow(config))
+    client = TestClient(app)
+    auth = {"Authorization": "Bearer tunnel-secret"}
+
+    assert client.get("/healthz").status_code == 401
+    assert client.get("/v1/rappi/session/status").status_code == 401
+    assert client.get("/healthz", headers=auth).status_code == 200
+    assert client.get("/v1/rappi/session/status", headers=auth).status_code == 200
+
+
 def test_cors_allows_platform_front(tmp_path) -> None:
     config = make_config(tmp_path)
     app = create_app(config, service=object(), login_flow=LoginFlow(config))
