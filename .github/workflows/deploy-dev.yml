@@ -1,12 +1,20 @@
 name: deploy-dev
 
-# Deploys dev on every push to main. Gated on WIF bootstrap: while the GitHub
-# repo vars (WIF_PROVIDER/DEPLOY_SA/GCP_PROJECT/GCP_REGION) are not set, this
-# job skips so merging this branch cannot fire a broken deploy.
+# Deploys dev when application paths change on main or the integration branch.
+# Gated on WIF bootstrap: while the GitHub repo vars are not set, this job
+# skips so merging this branch cannot fire a broken deploy.
 
 on:
   push:
     branches: [main, iac/cloudrun]
+    paths:
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "alembic/**"
+      - "src/**"
+      - "web/**"
+      - "aval/contracts/**"
   workflow_dispatch:
 
 concurrency:

@@ -24,6 +24,9 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
   `PROD_DEPLOY_ENABLED=true`, que solo se arma después de crear el environment
   `prod` con required reviewers, y rechazan cualquier tag que no sea un SHA
   completo de 40 caracteres.
+- **Plan ergonomics:** `infra-plan` acepta `dev|prod` al despacharse
+  manualmente y mantiene el resumen redactado; los pushes puramente de IaC o
+  documentación ya no reconstruyen/despliegan la app dev.
 - **Wiring fixed:** `YUNO_ISSUER_URL` ya no añade `/api` a la URL directa de
   Cloud Run en dev; en prod, yuno y merchant usan las rutas del LB que sí
   reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto

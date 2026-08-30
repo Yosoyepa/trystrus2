@@ -13,6 +13,15 @@ on:
     paths:
       - "iac/**"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to plan"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
 
 concurrency:
   group: infra-plan-${{ github.repository }}-${{ github.ref }}
@@ -27,6 +36,9 @@ jobs:
   plan:
     if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
+
+    env:
+      TARGET_ENV: ${{ inputs.environment || 'dev' }}
 
     defaults:
       run:
@@ -48,16 +60,20 @@ jobs:
         run: tofu fmt -check -recursive
 
       - name: Tofu init
-        run: tofu init -backend-config=environments/dev.backend.hcl -input=false
+        run: tofu init -backend-config="environments/${TARGET_ENV}.backend.hcl" -input=false
 
       - name: Tofu validate
         run: tofu validate
 
-      - name: Tofu plan (dev)
+      - name: Tofu plan
         id: plan
         run: |
           set -euo pipefail
-          if ! tofu plan -var-file=environments/dev.tfvars -input=false -out=plan.out \
+          if ! tofu plan \
+              -var-file="environments/${TARGET_ENV}.tfvars" \
+              -var="project_id=${{ vars.GCP_PROJECT }}" \
+              -input=false \
+              -out=plan.out \
               >/tmp/tofu-plan.log 2>&1; then
             echo "OpenTofu plan failed. Detailed values are withheld from public logs."
             exit 1
@@ -74,7 +90,8 @@ jobs:
         with:
           script: |
             const { execSync } = require('child_process');
-            let body = '### `tofu plan` (dev) — sanitized summary\n```\n';
+            const target = process.env.TARGET_ENV || 'dev';
+            let body = `### \`tofu plan\` (${target}) — sanitized summary\n\`\`\`\n`;
             try {
               const plan = JSON.parse(
                 execSync('tofu show -json plan.out', { cwd: 'iac' }).toString()
@@ -91,7 +108,7 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const marker = '### `tofu plan` (dev) — sanitized summary';
+            const marker = `### \`tofu plan\` (${target}) — sanitized summary`;
             const existing = comments.find(c => c.body && c.body.startsWith(marker));
             if (existing) {
               await github.rest.issues.updateComment({
