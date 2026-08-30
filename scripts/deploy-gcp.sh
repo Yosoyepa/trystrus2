@@ -29,16 +29,24 @@ echo -e "\n${BLUE}📦 [1/6] Building Backend Container Image...${NC}"
 gcloud builds submit \
   --project="${PROJECT_ID}" \
   --tag="${REPO}/backend:${GIT_SHA}" \
-  --tag="${REPO}/backend:latest" \
   .
+
+gcloud artifacts docker tags add \
+  "${REPO}/backend:${GIT_SHA}" \
+  "${REPO}/backend:latest" \
+  --project="${PROJECT_ID}" || true
 
 # 2. Build and push frontend image using Cloud Build
 echo -e "\n${BLUE}📦 [2/6] Building Frontend Web Container Image...${NC}"
 gcloud builds submit \
   --project="${PROJECT_ID}" \
   --tag="${REPO}/web:${GIT_SHA}" \
-  --tag="${REPO}/web:latest" \
   web/
+
+gcloud artifacts docker tags add \
+  "${REPO}/web:${GIT_SHA}" \
+  "${REPO}/web:latest" \
+  --project="${PROJECT_ID}" || true
 
 # 3. Execute database migrations
 echo -e "\n${BLUE}🗄️  [3/6] Running Database Migrations Job...${NC}"
