@@ -78,6 +78,13 @@ gcloud run services update aval-dev-yuno-sim \
   --image="${REPO}/backend:${GIT_SHA}" \
   --quiet
 
+echo "Updating aval-dev-bridge..."
+gcloud run services update aval-dev-bridge \
+  --project="${PROJECT_ID}" \
+  --region="${REGION}" \
+  --image="${REPO}/backend:${GIT_SHA}" \
+  --quiet
+
 echo "Updating aval-dev-web..."
 gcloud run services update aval-dev-web \
   --project="${PROJECT_ID}" \
@@ -93,7 +100,7 @@ gcloud run jobs execute aval-dev-sweeper --project="${PROJECT_ID}" --region="${R
 # 6. Verify Service Health
 echo -e "\n${BLUE}🔍 [6/6] Verifying Live Healthchecks...${NC}"
 fail=0
-for svc in aval-dev-kernel aval-dev-merchant aval-dev-yuno-sim aval-dev-web; do
+for svc in aval-dev-kernel aval-dev-merchant aval-dev-yuno-sim aval-dev-bridge aval-dev-web; do
   URL=$(gcloud run services describe "$svc" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')
   REV=$(gcloud run services describe "$svc" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.latestReadyRevisionName)')
   CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' --connect-timeout 5 "$URL/health" 2>/dev/null || echo "ERR")
