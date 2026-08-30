@@ -122,6 +122,13 @@ Whatever survives the first three layers still lands in the hash chain, with the
 agent version pinned to the run, and `audit_events` refusing `UPDATE` and
 `DELETE` at the database level.
 
+Deployment evidence is not a secret store. OpenTofu plan/apply output is
+suppressed in public Actions logs and the PR summary contains only resource
+addresses plus create/update/delete actions. Runtime credentials are Secret
+Manager references, never literal Cloud Run env values. Any manually added
+plaintext env var must be removed and rotated before the next release; deleting
+a workflow log only contains disclosure, it does not revoke the credential.
+
 ## Verify it
 
     uv run python -m src.agent.tests        # G1-G8 cover this file

@@ -1,12 +1,20 @@
 name: deploy-dev
 
-# Deploys dev on every push to main. Gated on WIF bootstrap: while the GitHub
-# repo vars (WIF_PROVIDER/DEPLOY_SA/GCP_PROJECT/GCP_REGION) are not set, this
-# job skips so merging this branch cannot fire a broken deploy.
+# Deploys dev when application paths change on main or the integration branch.
+# Gated on WIF bootstrap: while the GitHub repo vars are not set, this job
+# skips so merging this branch cannot fire a broken deploy.
 
 on:
   push:
     branches: [main, iac/cloudrun]
+    paths:
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "alembic/**"
+      - "src/**"
+      - "web/**"
+      - "aval/contracts/**"
   workflow_dispatch:
 
 concurrency:
@@ -69,19 +77,53 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Point Cloud Run Jobs at this revision
+        run: |
+          set -euo pipefail
+          for job in aval-dev-migrations aval-dev-outbox-relay aval-dev-sweeper; do
+            gcloud run jobs update "$job" \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --image="$REPO/backend:${GITHUB_SHA}" \
+              --quiet
+          done
+
       - name: Run migrations (Cloud Run Job)
         run: |
-          gcloud run jobs execute aval-dev-migrations \
-            --project="$PROJECT" \
-            --region="$REGION" \
-            --wait
+          set -euo pipefail
+          if ! gcloud run jobs execute aval-dev-migrations \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --wait; then
+            gcloud run jobs executions list \
+              --job=aval-dev-migrations \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --limit=1 || true
+            exit 1
+          fi
 
-      - name: Deploy Cloud Run Services
+      - name: Remove compromised plaintext Telegram configuration
         run: |
           gcloud run services update aval-dev-kernel \
             --project="$PROJECT" \
             --region="$REGION" \
+            --remove-env-vars=TELEGRAM_BOT_TOKEN,TELEGRAM_WEBHOOK_SECRET \
+            --quiet
+
+      - name: Deploy Cloud Run Services
+        run: |
+          set -euo pipefail
+          YUNO_URL=$(gcloud run services describe aval-dev-yuno-sim \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --format='value(status.url)')
+
+          gcloud run services update aval-dev-kernel \
+            --project="$PROJECT" \
+            --region="$REGION" \
             --image="${{ env.REPO }}/backend:${{ github.sha }}" \
+            --update-env-vars="AVAL_YUNO_SIM_URL=${YUNO_URL}" \
             --quiet
 
           gcloud run services update aval-dev-merchant \

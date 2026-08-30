@@ -33,7 +33,7 @@ tofu validate
 
 ## Bootstrap (once, with a GCP project)
 
-1. `gcloud storage buckets create gs://aval-tfstate --location=southamerica-east1 --uniform-bucket-level-access --public-access-prevention`
+1. `gcloud storage buckets create gs://trytrust-tfstate --location=southamerica-east1 --uniform-bucket-level-access --public-access-prevention`
 2. WIF for GitHub Actions:
    ```bash
    gcloud iam workload-identity-pools create aval-github --location=global
@@ -47,10 +47,22 @@ tofu validate
    ```
 3. Real secrets: `gcloud secrets versions add <secret> --data-file=-` for
    `*-db-url`, `*-idem-secret`, `*-llm-gemini-key`, `*-llm-openai-key`,
-   `aval-issuer-ed25519`, `aval-merchant-es256`, `aval-yuno-webhook-ed25519`.
+   `*-rappi-bridge-token`, `*-telegram-bot-token`,
+   `*-telegram-webhook-secret`; dev keeps the existing
+   `aval-{issuer-ed25519,merchant-es256,yuno-webhook-ed25519}` IDs and prod
+   uses independent `aval-prod-*` signing-key IDs.
 4. Repo variables (GitHub → Settings → Variables): `GCP_PROJECT`,
-   `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. Until `WIF_PROVIDER` is set,
-   all deploy workflows self-skip.
+   `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. After configuring required
+   reviewers on the `prod` environment, set `PROD_DEPLOY_ENABLED=true`.
+   Set the ephemeral topology-B tunnel as the environment variable
+   `RAPPI_BRIDGE_URL`; its bearer lives only in Secret Manager as
+   `aval-prod-rappi-bridge-token`.
+   Production's LB base is `https://api.trytrust.lat`; the apex remains on
+   Vercel. Set `PROD_BASE_URL=https://api.trytrust.lat` in the protected
+   environment and `KERNEL_API_URL=https://api.trytrust.lat/api` in Vercel.
+   Until WIF exists, deploy workflows self-skip; until the explicit prod
+   switch exists, both prod apply and prod promotion fail before selecting the
+   GitHub environment.
 
 ## Deploy
 
@@ -60,7 +72,12 @@ tofu init -backend-config=environments/dev.backend.hcl
 tofu plan  -var-file=environments/dev.tfvars
 tofu apply -var-file=environments/dev.tfvars
 
-# app (after infra): GitHub Actions → deploy-dev (auto on main) / deploy-prod (manual)
+# prod uses its own state; dev remains the sole owner of project APIs/repo
+tofu init -reconfigure -backend-config=environments/prod.backend.hcl
+tofu plan -var-file=environments/prod.tfvars
+
+# app (after infra): GitHub Actions → deploy-dev (auto on main/iac) /
+# deploy-prod (manual, exact commit SHA, protected environment)
 ```
 
 ## Decisions baked in (see aval/docs/research/2026-08-29-iac-cloudrun-analysis.md)
@@ -68,7 +85,23 @@ tofu apply -var-file=environments/dev.tfvars
 - **LB gestionado + Cloud Armor, no nginx**: nginx no puede adjuntar Armor;
   `ingress=internal-and-cloud-load-balancing` evita el bypass por `*.run.app`.
 - **Jobs (relay/sweeper/migrations) como Cloud Run Jobs**, no lifespan loops.
+- **Promoción separada del IaC**: OpenTofu administra la forma de servicios y
+  jobs; Actions actualiza únicamente imágenes inmutables y siempre apunta los
+  jobs a la revisión nueva antes de ejecutar migraciones.
 - **Secrets siempre por `--set-secrets`** (nunca env vars planas).
+- **Planes públicos sin valores**: CI publica únicamente la dirección de cada
+  recurso y su acción. El plan completo puede contener drift secreto y nunca
+  se imprime ni se comenta en un PR.
+- **Un solo owner por recurso global**: con dev/prod en el mismo proyecto,
+  `env/dev` administra APIs y Artifact Registry; `env/prod` los consume y
+  administra solo recursos `aval-prod-*` (decisión 0031). Las claves de firma
+  sí son independientes por ambiente.
 - **Gemini por API key hoy; Vertex/ADC es el endurecimiento recomendado.**
 - **Dominio propio requerido en prod**: sin DNS no hay cert/LB y las passkeys
-  fallan en `*.run.app` (Public Suffix List, ADR-018).
+  fallan en `*.run.app` (Public Suffix List, ADR-018). El cert del backend usa
+  `api.trytrust.lat`; RP ID/origen siguen siendo el apex servido por Vercel.
+- **Rappi no se hospeda en Cloud Run**: por decisión 0030, la sesión vive en
+  la máquina propietaria. Producción necesita un túnel autenticado desde el
+  kernel hacia ese bridge. Cuando `RAPPI_BRIDGE_URL` está armado,
+  `deploy-prod` exige una búsqueda con IDs nativos `rappi_*`; sin él, el agente
+  usa el catálogo fixture y no se presenta como búsqueda real.

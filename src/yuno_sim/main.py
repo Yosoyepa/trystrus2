@@ -65,9 +65,11 @@ _verifier: AP2Verifier | None = None
 def _session_factory() -> async_sessionmaker[AsyncSession]:
     global _engine, _factory
     if _factory is None:
-        _engine = create_async_engine(
-            settings().database_url, pool_size=5, max_overflow=2, pool_pre_ping=True
-        )
+        url = settings().database_url
+        # Same as merchant/kernel: tolerate the sync scheme in the secret.
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        _engine = create_async_engine(url, pool_size=5, max_overflow=2, pool_pre_ping=True)
         _factory = async_sessionmaker(_engine, expire_on_commit=False, autoflush=False)
     return _factory
 

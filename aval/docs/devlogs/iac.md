@@ -6,6 +6,82 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 
 ---
 
+## 2026-08-30 — `main` integrado + promoción segura de una sola revisión
+- **Why:** `main@1c5af4e` contiene la reparación de búsqueda real de Rappi,
+  pero su deploy dev falló: el pipeline construía la imagen nueva y ejecutaba
+  el job de migraciones todavía fijado a la imagen anterior. El workflow prod
+  además actualizaba solo el kernel y usaba `latest`, por lo que podía mezclar
+  revisiones entre cuatro servicios.
+- **Done:** merge limpio de `origin/main` en `iac/cloudrun`; dev y prod ahora
+  fijan migrations/relay/sweeper al mismo SHA del backend antes de migrar,
+  abortan antes de tocar tráfico cuando la migración falla y promueven kernel,
+  merchant, yuno-sim y web como una sola revisión. Prod comprueba que ambas
+  imágenes existen y hace smoke de las cuatro rutas del LB. OpenTofu conserva
+  la forma de los recursos e ignora únicamente el campo de imagen, cuyo dueño
+  es el pipeline de promoción.
+- **Release guard:** CI vuelve a ejecutar los 42 invariantes del agente sin
+  clave LLM; los workflows prod exigen el kill switch
+  `PROD_DEPLOY_ENABLED=true`, que solo se arma después de crear el environment
+  `prod` con required reviewers, y rechazan cualquier tag que no sea un SHA
+  completo de 40 caracteres.
+- **Plan ergonomics:** `infra-plan` acepta `dev|prod` al despacharse
+  manualmente y mantiene el resumen redactado; los pushes puramente de IaC o
+  documentación ya no reconstruyen/despliegan la app dev. Push y PR se
+  serializan por ambiente para no competir por el mismo lock de estado GCS;
+  un fallo publica solo el `diagnostic.summary` estructurado, nunca detalle ni
+  valores del plan. Plan/apply/recovery comparten el mismo concurrency group y
+  la operación `force-unlock` de `infra-apply` exige ambiente, ID exacto y
+  confirmación literal para recuperar un lock huérfano sin adivinar el target.
+- **Prod state ownership fixed:** el primer plan prod reveló que dos estados
+  del mismo proyecto querían crear APIs, Artifact Registry y secretos con los
+  mismos nombres. Por [decisión 0031](../decisions/0031-single-project-iac-ownership.md),
+  dev conserva ownership de APIs/repo y prod los consume sin administrarlos;
+  todas las claves de firma prod pasan a nombres `aval-prod-*` independientes.
+  Merchant y Yuno reciben además `*_GCP_PROJECT` y el nombre exacto de su
+  clave, para que una operación firmada no dependa de archivos ausentes del
+  contenedor.
+- **Wiring fixed:** `YUNO_ISSUER_URL` ya no añade `/api` a la URL directa de
+  Cloud Run en dev; en prod, yuno y merchant usan las rutas del LB que sí
+  reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto
+  real `trytrust`, a imágenes existentes y al rail bajo la base prod; el estado
+  comparte `trytrust-tfstate` bajo el prefijo aislado `env/prod`.
+- **Rappi topology B wired:** IaC crea el secreto separado
+  `aval-{env}-rappi-bridge-token`; el kernel recibe ese bearer por Secret
+  Manager y la URL efímera por la variable de environment
+  `RAPPI_BRIDGE_URL`. El deploy prod, cuando la URL está armada, ejecuta una
+  búsqueda de chat real y exige IDs nativos `rappi_*`; un fixture `ofr_*` no
+  puede hacer pasar el smoke. La sesión `ft.` nunca sale de la máquina.
+- **Live-domain split respected:** `trytrust.lat` ya sirve el frontend Next en
+  Vercel; reemplazar su registro A cortaría la app. El LB/cert prod se mueve a
+  `api.trytrust.lat`, mientras WebAuthn conserva `rp_id=trytrust.lat` y
+  `rp_origin=https://trytrust.lat`. Vercel debe usar
+  `KERNEL_API_URL=https://api.trytrust.lat/api`; el workflow usa la misma base
+  para kernel, Yuno, merchant y el smoke real de Rappi.
+- **Credential incident contained:** un plan dev reveló que Telegram había
+  sido configurado manualmente como dos env vars planas; el diff de OpenTofu
+  imprimió sus valores en logs públicos. Se eliminaron exactamente los tres
+  runs afectados y el comentario de PR afectado. Plan/apply ahora silencian el
+  detalle y publican solo direcciones + acciones; ejecuciones concurrentes se
+  serializan. IaC mueve bot token y webhook secret a Secret Manager y el
+  próximo deploy elimina las variables planas. Ambos valores siguen
+  requiriendo rotación en su proveedor: borrar logs no revoca credenciales.
+- **Verification:** Ruff limpio; 411 pytest pasan (2 GCP excluidos) sobre una
+  base PostgreSQL creada desde la cadena Alembic; invariantes del agente 42/42
+  sin clave LLM; build Vite/TypeScript limpio; `tofu fmt` y `tofu validate`
+  verdes; YAML parsea y `docs-guard` pasa.
+- **Release gates still open:** CR-02 continúa abierto (`src/api/deps.py`
+  compone compras, evidencia e idempotencia con memoria); el environment
+  GitHub `prod` todavía debe tener required reviewers; la clave Gemini expuesta
+  durante diagnóstico y las dos credenciales Telegram expuestas deben rotarse.
+  Rappi real no se sube a Cloud Run por la decisión 0030: requiere un túnel
+  autenticado hacia la máquina que custodia la sesión; sin él, producción cae
+  explícitamente al fixture.
+- **Decision:** [0031](../decisions/0031-single-project-iac-ownership.md)
+  fija un solo owner por recurso global del proyecto y separa claves prod.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — deployment playbook + DSN dialect fix
 - **Why:** the team needs the exact path from zero to deployed-with-CI/CD;
   verification while writing it exposed a real bug in the IaC wiring.

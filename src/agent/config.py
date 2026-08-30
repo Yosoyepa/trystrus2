@@ -48,9 +48,9 @@ else:
     )
 
 if GEMINI_KEY and not os.environ.get("LLM_MODEL"):
-    LLM_MODEL = "gemini-1.5-flash"
+    LLM_MODEL = "gemini-3.7-flash"
 else:
-    LLM_MODEL = os.environ.get("LLM_MODEL", "gemini-1.5-flash" if GEMINI_KEY else "gpt-4.1-nano")
+    LLM_MODEL = os.environ.get("LLM_MODEL", "gemini-3.7-flash" if GEMINI_KEY else "gpt-4.1-nano")
 
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
 LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "25"))

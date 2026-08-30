@@ -1,12 +1,12 @@
 name: ci
 
-# PRs and pushes to main: lint + tests (with a Postgres service) + image build.
+# PRs and integrated-branch pushes: lint + tests (with Postgres) + image build.
 
 on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, iac/cloudrun]
 
 jobs:
   test:
@@ -55,6 +55,11 @@ jobs:
           YUNO_DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
           MERCHANT_DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
         run: uv run pytest -m "not gcp" -q
+
+      - name: Agent safety invariants (no LLM/network dependency)
+        env:
+          DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
+        run: uv run python -m src.agent.tests
 
   build-backend:
     runs-on: ubuntu-latest

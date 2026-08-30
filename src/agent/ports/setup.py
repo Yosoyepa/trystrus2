@@ -31,6 +31,7 @@ class MerchantEndpoints(BaseSettings):
     tt_vuelaya_mcp_url: str = ""
     tt_mami_mcp_url: str = ""
     tt_rappi_bridge_url: str = ""
+    tt_rappi_bridge_token: str = ""
 
 
 def configured_endpoints() -> MerchantEndpoints:
@@ -79,7 +80,7 @@ def setup(
     rappi_url = rappi_url or endpoints.tt_rappi_bridge_url
     rappi_live = False
     if rappi_url:
-        merchant = RappiBridgeMcp(rappi_url)
+        merchant = RappiBridgeMcp(rappi_url, token=endpoints.tt_rappi_bridge_token)
         try:
             report["rappi"] = merchant.discover()
             register_merchant(merchant)

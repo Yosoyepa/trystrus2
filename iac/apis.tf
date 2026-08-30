@@ -21,7 +21,7 @@ locals {
 }
 
 resource "google_project_service" "apis" {
-  for_each = toset(local.apis)
+  for_each = var.manage_shared_project_resources ? toset(local.apis) : toset([])
 
   service            = each.value
   disable_on_destroy = false

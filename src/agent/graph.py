@@ -191,10 +191,9 @@ def node_perceive(conn, run: dict) -> str:
     # Rappi accepts the buyer's original text as its search query. Asking a
     # flight/hotel parser to reinterpret that text adds no useful filter and
     # can consume the frontend's entire request timeout before search starts.
-    direct_read_only_search = (
-        state.get("request_mode") == "search"
-        and set(state.get("allowed_merchants") or ()) == {"rappi"}
-    )
+    direct_read_only_search = state.get("request_mode") == "search" and set(
+        state.get("allowed_merchants") or ()
+    ) == {"rappi"}
     state["direct_read_only_search"] = direct_read_only_search
     summary = memory.summarise(conn, run["mandate_jti"])
     state["ontology_text"] = limits.clamp_text(ontology_mod.render(onto))
@@ -212,8 +211,7 @@ def node_perceive(conn, run: dict) -> str:
     else:
         limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
         state["criteria"] = llm.parse_request(
-            state["request"]
-            + (" " + " ".join(state["guidance"]) if state["guidance"] else "")
+            state["request"] + (" " + " ".join(state["guidance"]) if state["guidance"] else "")
         )
     _save(
         conn,

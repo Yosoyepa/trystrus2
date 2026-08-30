@@ -1,2 +1,2 @@
-bucket = "aval-tfstate"
+bucket = "trytrust-tfstate"
 prefix = "env/prod"

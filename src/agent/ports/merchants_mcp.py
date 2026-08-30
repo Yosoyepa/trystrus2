@@ -396,9 +396,18 @@ class RappiBridgeMcp:
     # human approval IS the key that arms the bridge's guarded click.
     kernel_capture = True
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, *, token: str = ""):
         self.url = url.rstrip("/")
+        self._token = token
         self._quoted: dict[str, dict] = {}  # offer_id -> last search result
+
+    def _headers(self, *, idem_key: str | None = None) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        if idem_key:
+            headers["Idempotency-Key"] = idem_key
+        return headers
 
     def discover(self) -> dict[str, Any]:
         # Fail setup (so the fixture catalog can take over) if the bridge
@@ -406,24 +415,40 @@ class RappiBridgeMcp:
         # and the buyer just sees "nothing I am allowed to buy".
         import httpx
 
-        response = httpx.get(f"{self.url}/healthz", timeout=2.0)
+        response = httpx.get(f"{self.url}/healthz", headers=self._headers(), timeout=2.0)
         if response.status_code >= 400:
             raise RuntimeError(f"bridge healthz -> {response.status_code}")
         health = response.json()
         if health.get("ok") is not True:
             raise RuntimeError(f"bridge {self.url} is not healthy")
+        session = httpx.get(
+            f"{self.url}/v1/rappi/session/status",
+            headers=self._headers(),
+            timeout=2.0,
+        )
+        if session.status_code >= 400:
+            raise RuntimeError(f"bridge session status -> {session.status_code}")
+        session_status = session.json()
+        if not session_status.get("has_token"):
+            raise RuntimeError("bridge has no active Rappi session")
         return {
             "merchant_id": self.merchant_id,
             "bridge": self.url,
             "reachable": True,
             "dry_run": bool(health.get("dry_run", True)),
             "cap_cop": health.get("cap_cop"),
+            "session_state": session_status.get("state"),
         }
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         import httpx
 
-        response = httpx.get(f"{self.url}{path}", params=params, timeout=20.0)
+        response = httpx.get(
+            f"{self.url}{path}",
+            params=params,
+            headers=self._headers(),
+            timeout=20.0,
+        )
         if response.status_code >= 400:
             raise RuntimeError(f"bridge {path} -> {response.status_code}")
         return response.json()
@@ -438,9 +463,12 @@ class RappiBridgeMcp:
     ) -> Any:
         import httpx
 
-        headers = {"Idempotency-Key": idem_key} if idem_key else {}
         response = httpx.post(
-            f"{self.url}{path}", params=params, json=body or {}, headers=headers, timeout=30.0
+            f"{self.url}{path}",
+            params=params,
+            json=body or {},
+            headers=self._headers(idem_key=idem_key),
+            timeout=30.0,
         )
         if response.status_code >= 400:
             detail = response.text[:200]
