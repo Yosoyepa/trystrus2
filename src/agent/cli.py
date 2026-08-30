@@ -105,6 +105,26 @@ def cmd_chat(args) -> None:
             print(f"agent> {line}")
 
 
+def cmd_telegram(args) -> None:
+    """Long-poll Telegram so the same chat as /agent/dispatch runs on a phone."""
+    import asyncio
+
+    from . import service
+    from . import telegram as tg
+
+    if not tg.bot_token():
+        sys.exit("set TELEGRAM_BOT_TOKEN (BotFather) first")
+    service.bootstrap()
+    conn = _conn()
+    stop = asyncio.Event()
+    print(f"{PRODUCT_NAME} · telegram polling · Ctrl-C to stop")
+    print(BAR)
+    try:
+        asyncio.run(tg.poll_forever(stop, conn_factory=lambda: conn))
+    except KeyboardInterrupt:
+        print()
+
+
 def cmd_ask(args) -> None:
     conn = _conn()
     agent_id, mandate_jti = _default_session(conn)
@@ -539,6 +559,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p = add("chat", cmd_chat, "interactive chat with the agent")
     p.add_argument("--person", default="Marta")
+    add("telegram", cmd_telegram, "talk to the agent over Telegram (long-poll)")
     p = add("ask", cmd_ask, "one-shot request")
     p.add_argument("text", nargs="+")
     p.add_argument("--person", default="Marta")

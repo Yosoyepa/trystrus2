@@ -73,21 +73,18 @@ async def dispatch_agent(body: DispatchRequest) -> dict[str, Any]:
             "Agent storage connection is not available",
         )
 
-    from src.agent import router as agent_router
     from src.agent import service
 
-    picked = agent_router.select_agent(conn, body.text)
-    if picked is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no active agent matches this request")
-    result = service.ask(
+    result = service.turn(
         conn,
         text=body.text,
-        agent_id=picked["agent_id"],
-        mandate_jti=picked["mandate_jti"],
         session_id=body.session_id,
         person=body.person,
+        channel="web",
     )
-    return {**result, "dispatch": picked}
+    if result.get("dispatch") is None and not result.get("continued"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no active agent matches this request")
+    return result
 
 
 @router.post("/ask")

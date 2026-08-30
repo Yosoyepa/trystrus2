@@ -7,7 +7,30 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
-## 2026-08-30 — one schema, and the console stops inventing evidence
+## 2026-08-30 — Telegram talks to the same /agent conversation
+
+- **Why:** the buyer console already hits `/agent/ask` and `/agent/dispatch`;
+  judges operate from their phones (decision #13). The webhook in the contract
+  was an empty path.
+- **Decision:** none needed (#13 already chose Telegram). Webhook at
+  `POST /bot/telegram` (always 200, secret-token fail-closed). Local demo
+  long-polls (`TELEGRAM_MODE=polling`) so we do not need a public HTTPS URL.
+  One Telegram chat = one `session_id` (`tg:<chat_id>`); a live run stays on
+  that agent, a new request goes through the dispatcher. Approve/Reject are
+  inline buttons; the pending message mutates to APROBADO/RECHAZADO.
+- **Built:**
+  - `src/agent/telegram.py`: parse Update, `service.turn`, inline keyboard, Bot API via httpx.
+  - `src/api/routers/bot.py` mounted on the kernel; polling in kernel lifespan.
+  - `src/agent/service.turn` + `session_binding` so `/agent/dispatch` and Telegram share the continue-or-route rule.
+  - CLI: `uv run python -m src.agent.cli telegram`.
+- **Tests:** `tests/test_telegram_bot.py` — parse, session bind, secret fail-closed, webhook always 200, buttons on escalation.
+- **Open questions:** `/revoke` from Telegram still refuses (passkey is the
+  revocation ceremony). Binding a Telegram `user_id` to a passkey identity
+  is not in this cut.
+
+---
+
+
 
 - **Why:** the database had four descriptions that disagreed, and the console
   fell back to a 990-line mock engine on any backend failure — including on the

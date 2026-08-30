@@ -51,6 +51,77 @@ def health(conn) -> dict[str, Any]:
 
 
 # ── the buyer's conversation ─────────────────────────────────────────────────
+NO_AGENT_REPLY = (
+    "No encuentro un agente con mandato activo para eso. "
+    "Prueba con un vuelo, un hotel, comida o mercado."
+)
+
+
+def session_binding(conn, session_id: str | None) -> dict[str, str] | None:
+    """If this conversation already has a live run, keep that agent/mandate."""
+    if not session_id:
+        return None
+    row = conn.execute(
+        "SELECT agent_id, mandate_jti FROM agent_runs "
+        "WHERE session_id=? AND status IN ('running','awaiting_human') "
+        "ORDER BY created_at DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"agent_id": row["agent_id"], "mandate_jti": row["mandate_jti"]}
+
+
+def turn(
+    conn,
+    *,
+    text: str,
+    session_id: str | None = None,
+    person: str = "buyer",
+    channel: str = "chat",
+) -> dict[str, Any]:
+    """One conversation turn without the caller naming an agent.
+
+    A live run on this session wins (approve / reject / guidance must not
+    re-route). Otherwise the dispatcher picks the mandate whose scope matches.
+    """
+    from . import router as agent_router
+
+    bound = session_binding(conn, session_id)
+    if bound:
+        result = ask(
+            conn,
+            text=text,
+            agent_id=bound["agent_id"],
+            mandate_jti=bound["mandate_jti"],
+            session_id=session_id,
+            person=person,
+            channel=channel,
+        )
+        return {**result, "dispatch": None, "continued": True}
+
+    picked = agent_router.select_agent(conn, text)
+    if picked is None:
+        return {
+            "session_id": session_id,
+            "replies": [NO_AGENT_REPLY],
+            "run": None,
+            "awaiting_human": False,
+            "dispatch": None,
+            "continued": False,
+        }
+    result = ask(
+        conn,
+        text=text,
+        agent_id=picked["agent_id"],
+        mandate_jti=picked["mandate_jti"],
+        session_id=session_id,
+        person=person,
+        channel=channel,
+    )
+    return {**result, "dispatch": picked, "continued": False}
+
+
 def ask(
     conn,
     *,
@@ -59,6 +130,7 @@ def ask(
     mandate_jti: str,
     session_id: str | None = None,
     person: str = "buyer",
+    channel: str = "chat",
 ) -> dict[str, Any]:
     """A turn. Starts a run, answers an escalation, or redirects one in flight."""
     # Resolve agent_id to existing DB agent if needed
@@ -81,7 +153,12 @@ def ask(
         mandate_jti = m_row["jti"]
 
     session = chat.Session(
-        conn, agent_id=agent_id, mandate_jti=mandate_jti, session_id=session_id, person=person
+        conn,
+        agent_id=agent_id,
+        mandate_jti=mandate_jti,
+        session_id=session_id,
+        person=person,
+        channel=channel,
     )
     replies = session.send(text)
     run = session.active_run()

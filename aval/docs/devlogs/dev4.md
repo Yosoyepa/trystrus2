@@ -7,7 +7,23 @@ day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md) §3. Entry protocol:
 
 ---
 
-## 2026-08-29 — Full Docker / Podman Containerization & Compose Orchestration
+## 2026-08-30 — Telegram webhook mounted on the kernel (`/bot/telegram`)
+
+- **Why:** C19 / decision #13: the bot is a light process with its webhook on
+  the `api` deployable so we do not ship a service just for it.
+- **Decision:** none needed.
+- **Contracts touched:** none (`api.yaml` already had `POST /bot/telegram`).
+- **Built:** `src/api/routers/bot.py` validates `X-Telegram-Bot-Api-Secret-Token`
+  and always returns 200. Conversation logic lives in the agent lane
+  (`src/agent/telegram.py`) so this router stays a mount point. Compose
+  passes `TELEGRAM_BOT_TOKEN` / `TELEGRAM_MODE=polling` for local phones.
+- **Tests:** `tests/test_telegram_bot.py`.
+- **Open questions:** production still needs `TELEGRAM_WEBHOOK_URL=https://api.<domain>/bot/telegram`
+  and the secret in Secret Manager.
+
+---
+
+
 - **Why:** Enable one-command reproducible local and demo deployment across all 5 Aval microservices.
 - **Implemented:**
   - Multi-stage `Dockerfile` (Python 3.13-slim + `uv`) for backend deployables (`kernel` :8001, `yuno_sim` :8002, `merchant` :8003).
