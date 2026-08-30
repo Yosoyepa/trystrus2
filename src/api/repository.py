@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trustlib.models import MandateClaims, MandateStatus
@@ -130,8 +131,13 @@ async def _current_status(session: AsyncSession,
 # ==========================================================================
 async def link_instrument(session: AsyncSession, *, token_ref: str,
                           mandate_jti: str, rail: str = "yuno_sim") -> None:
-    session.add(PaymentInstrument(
-        token_ref=token_ref, mandate_jti=mandate_jti, rail=rail))
+    """Persist the opaque rail token once; activation retries stay idempotent."""
+    await session.execute(
+        insert(PaymentInstrument)
+        .values(token_ref=token_ref, mandate_jti=mandate_jti, rail=rail,
+                status="active")
+        .on_conflict_do_nothing(index_elements=[PaymentInstrument.token_ref])
+    )
     await session.flush()
 
 
@@ -168,7 +174,8 @@ async def store_challenge(session: AsyncSession, challenge: Challenge) -> None:
     await session.flush()
 
 
-async def consume_challenge(session: AsyncSession, value: str) -> Challenge | None:
+async def consume_challenge(session: AsyncSession, value: str,
+                            purpose: Purpose | None = None) -> Challenge | None:
     """Claim a challenge exactly once.
 
     The `consumed_at IS NULL` guard is the replay defence, and it is in the
@@ -178,7 +185,8 @@ async def consume_challenge(session: AsyncSession, value: str) -> Challenge | No
     result = await session.execute(
         update(WebAuthnChallenge)
         .where(WebAuthnChallenge.challenge == value,
-               WebAuthnChallenge.consumed_at.is_(None))
+               WebAuthnChallenge.consumed_at.is_(None),
+               *([WebAuthnChallenge.purpose == purpose.value] if purpose else []))
         .values(consumed_at=datetime.now(UTC))
         .returning(WebAuthnChallenge.user_id, WebAuthnChallenge.purpose,
                    WebAuthnChallenge.mandate_id, WebAuthnChallenge.expires_at)

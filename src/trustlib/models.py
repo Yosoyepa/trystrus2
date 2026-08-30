@@ -241,6 +241,9 @@ class Offer(BaseModel):
     title: str
     amount: str
     currency: str = "USD"
+    origin: str | None = None
+    destination: str | None = None
+    date: str | None = None
     description: str | None = None
 
     @property
@@ -299,6 +302,7 @@ class DisputeRef(BaseModel):
 class WebhookEvent(BaseModel):
     event_id: str
     type: str
+    aggregate_id: str
     payload: dict[str, Any]
     created_at: datetime
 

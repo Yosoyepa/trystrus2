@@ -1,10 +1,45 @@
 # Devlog — Dev 3 · API backend (kernel: identity + merchant service)
 
 Mission: every API surface exists — mandates with passkeys, escalations,
-catalog + MCP tools, checkout, PayPal rail — and VuelaYa verifies the mandate
+catalog + MCP tools, checkout, Yuno-style simulated rail — and VuelaYa verifies the mandate
 BEFORE charging. Scope and day plan:
 [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md) §3. Entry protocol:
 [`README.md`](README.md) — newest first, every PR.
+
+---
+
+## 2026-08-30 00:45 — VuelaYa M2 + escalations/revocation M3 complete
+- **Why:** the merchant lane was empty even though the demo requires an
+  independently verifying merchant before the rail; the prior API also could
+  not transport the payload of its detached JWS or the Checkout JWT it said it
+  would verify. Revocation had no fresh passkey-options endpoint.
+- **Decision:** [`0025`](../decisions/0025-merchant-checkout-and-revocation-contract-completion.md).
+  Contract is now v1.1: quote → intent hash → charge carries all signed
+  artefacts; offer detail/hot-price routes and `/webhooks/yuno` exist; a
+  WebAuthn challenge key includes purpose so revoke can use the same canonical
+  mandate hash independently of activation.
+- **Implemented:** `src/merchant/` (catalogue seed/filter/price, exactly three
+  MCP tools, persisted ES256 Checkout JWT, seven-step charge); escalation API
+  with signed approval receipts and lazy + background fail-closed expiry;
+  persistent opaque instruments + passkey revoke options; signed simulator
+  webhooks. No MCP tool imports or calls a payment rail.
+- **Tests:** 15 new focused cases green: catalogue/hot price, rail spy proves
+  verify rejection and bad proof/binding make zero captures, escalation receipt
+  + timeout, T14 401 invalid webhook and captured-event dispatch, exact three
+  MCP tools, mock refusal, checkout replay returns its receipt without a
+  second capture, and passkey → state revoke → rail DELETE under 2 s.
+  **234 tests green** in the
+  full suite.
+- **Open questions:**
+  - **Dev 1 + Dev 2:** `request_purchase(offer_id, mandate_jti)` cannot carry
+    the agent's detached signed intent. It safely POSTs only those references
+    and cannot charge, but the `/purchases` integration needs an agreed
+    agent-context handoff before the interactive MCP happy path is live.
+  - **Dev 2:** consume `escalation.resolved` only as permission to re-run your
+    gate; `REJECT` and expiry emit `escalation.expired` for compensation.
+  - **Dev 4:** update generated OpenAPI types from v1.1 and use
+    `/mandates/{id}/revoke/options` before `POST .../revoke`; show
+    `simulated: true` for all rail interactions.
 
 ---
 

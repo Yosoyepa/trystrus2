@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Signs outgoing webhooks so the merchant can verify them (T14).
     secrets_dir: Path = REPO_ROOT / "secrets"
     webhook_key_file: str = "yuno_webhook_ed25519.pem"
+    gcp_project: str | None = None
+    webhook_key_secret: str = "aval-yuno-webhook-ed25519"
+    webhook_kid: str = "yuno-webhook-v1"
+    merchant_webhook_url: str | None = None
 
     # Where the human "approves" the instrument during enrollment.
     approval_base_url: str = "http://localhost:8002/simulated-approval"

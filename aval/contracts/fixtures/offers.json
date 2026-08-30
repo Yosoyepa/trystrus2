@@ -6,6 +6,9 @@
     "title": "BOG->COR morning flight",
     "amount": "130.00",
     "currency": "USD",
+    "origin": "BOG",
+    "destination": "COR",
+    "date": "2026-08-30",
     "description": null
   },
   {
@@ -15,6 +18,9 @@
     "title": "BOG->MDE afternoon flight",
     "amount": "95.00",
     "currency": "USD",
+    "origin": "BOG",
+    "destination": "MDE",
+    "date": "2026-08-30",
     "description": null
   },
   {
@@ -24,6 +30,9 @@
     "title": "BOG->MIA direct",
     "amount": "300.00",
     "currency": "USD",
+    "origin": "BOG",
+    "destination": "MIA",
+    "date": "2026-08-31",
     "description": null
   },
   {
@@ -33,6 +42,9 @@
     "title": "Hotel Cartagena, 2 nights",
     "amount": "120.00",
     "currency": "USD",
+    "origin": "BOG",
+    "destination": "CTG",
+    "date": "2026-08-30",
     "description": null
   }
 ]

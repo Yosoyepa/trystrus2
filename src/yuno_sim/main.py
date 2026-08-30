@@ -20,7 +20,7 @@ import logging
 from collections.abc import AsyncIterator
 from decimal import Decimal, InvalidOperation
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -43,6 +43,7 @@ from .schemas import (
     ReceiptView,
     SetupTokenView,
 )
+from .webhooks_out import deliver, signer
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -115,6 +116,12 @@ async def refusal_handler(_: Request, exc: PaymentRefused) -> JSONResponse:
 async def health() -> dict:
     return {"status": "ok", "service": "yuno_sim", "simulated": True,
             "provider": settings().provider_name}
+
+
+@app.get("/.well-known/jwks.json", tags=["webhooks"])
+async def webhook_jwks() -> dict:
+    """The public key VuelaYa needs to verify rail-originated events."""
+    return signer().jwks()
 
 
 # ==========================================================================
@@ -198,6 +205,7 @@ async def delete_token(token_id: str,
 # ==========================================================================
 @app.post("/v1/payments", response_model=ReceiptView, tags=["payments"])
 async def create_payment(
+    background_tasks: BackgroundTasks,
     body: CaptureRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
@@ -221,8 +229,11 @@ async def create_payment(
         purchase_id=body.purchase_id or body.intent_ref,
         mandate_sd_jwt=body.mandate_sd_jwt, checkout_jwt=body.checkout_jwt,
     )
-    return ReceiptView(**settlement.to_receipt(
-        purchase_id=body.purchase_id or body.intent_ref))
+    receipt = settlement.to_receipt(purchase_id=body.purchase_id or body.intent_ref)
+    background_tasks.add_task(deliver, signer().event(
+        type="payment.captured", payload=receipt,
+        aggregate_id=settlement.payment_id))
+    return ReceiptView(**receipt)
 
 
 # ==========================================================================
@@ -231,12 +242,18 @@ async def create_payment(
 @app.post("/v1/payments/{payment_id}/disputes", response_model=DisputeView,
           tags=["disputes"])
 async def open_dispute(payment_id: str, body: DisputeRequest,
+                       background_tasks: BackgroundTasks,
                        session: AsyncSession = Depends(get_session)):
     try:
         row = await disputes.open_dispute(session, payment_id,
                                           reason=body.reason)
     except disputes.DisputeError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if background_tasks is not None:
+        background_tasks.add_task(deliver, signer().event(
+            type="dispute.opened",
+            payload={"capture_id": row.payment_id, "dispute_id": row.dispute_id,
+                     "reason": row.reason}, aggregate_id=row.payment_id))
     return DisputeView(dispute_id=row.dispute_id, capture_id=row.payment_id,
                        reason=row.reason, status=row.status)
 
@@ -244,12 +261,18 @@ async def open_dispute(payment_id: str, body: DisputeRequest,
 @app.post("/v1/disputes/{dispute_id}/adjudicate", response_model=DisputeView,
           tags=["disputes"])
 async def adjudicate(dispute_id: str, evidence: dict,
+                     background_tasks: BackgroundTasks,
                      session: AsyncSession = Depends(get_session)):
     """Decide the dispute from the evidence bundle (T18, with Dev 2)."""
     try:
         row = await disputes.adjudicate(session, dispute_id, evidence)
     except disputes.DisputeError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if background_tasks is not None:
+        background_tasks.add_task(deliver, signer().event(
+            type="dispute.resolved",
+            payload={"capture_id": row.payment_id, "dispute_id": row.dispute_id,
+                     "outcome": row.outcome}, aggregate_id=row.payment_id))
     return DisputeView(dispute_id=row.dispute_id, capture_id=row.payment_id,
                        reason=row.reason, status=row.status,
                        outcome=row.outcome,

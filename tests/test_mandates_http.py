@@ -320,6 +320,59 @@ async def test_revocation_requires_the_same_gesture_as_creation(
     assert response.status_code == 401
 
 
+async def test_revocation_passkey_deletes_the_persisted_rail_token_under_two_seconds(
+        client, mandate_body, user_id, session):
+    """M3's two kill switches, timed from the fresh revoke ceremony.
+
+    The spy is important: a green 200 alone does not prove the opaque token
+    actually travelled to the rail-side DELETE.
+    """
+    from time import perf_counter
+
+    from trustlib.models import SetupToken
+
+    class RailSpy:
+        def __init__(self):
+            self.deleted: list[str] = []
+
+        async def create_setup_token(self, mandate_id):
+            return SetupToken(setup_token_id="yst_test", approve_url="https://sim/approve",
+                              simulated=True)
+
+        async def delete_payment_token(self, token_id):
+            self.deleted.append(token_id)
+
+    spy = RailSpy()
+    deps._rail = spy
+    authenticator = await enrol(client, user_id)
+    body = {**mandate_body, "payment_method_ref": "ynt_live_token"}
+    created = (await client.post("/mandates", json=body)).json()
+    mandate_id = created["mandate_id"]
+    active = await client.post(
+        f"/mandates/{mandate_id}/passkey/assert",
+        json=authenticator.assert_(created["passkey_challenge"]["challenge"]),
+    )
+    assert active.status_code == 200
+
+    options = await client.post(f"/mandates/{mandate_id}/revoke/options")
+    assert options.status_code == 200
+    started = perf_counter()
+    revoked = await client.post(
+        f"/mandates/{mandate_id}/revoke",
+        json=authenticator.assert_(options.json()["challenge"]),
+    )
+    elapsed = perf_counter() - started
+
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["status"] == "revoked"
+    assert elapsed < 2
+    assert spy.deleted == ["ynt_live_token"]
+    from sqlalchemy import text
+    instrument_status = (await session.execute(text(
+        "SELECT status FROM payment_instruments WHERE token_ref = 'ynt_live_token'"))).scalar_one()
+    assert instrument_status == "deleted"
+
+
 async def test_reading_a_mandate_that_does_not_exist(client):
     assert (await client.get("/mandates/mdt_nope")).status_code == 404
 

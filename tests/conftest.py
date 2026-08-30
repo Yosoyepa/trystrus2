@@ -22,7 +22,7 @@ DATABASE_URL = os.environ.get("AVAL_TEST_DATABASE_URL", DEFAULT_DB)
 # Every table this suite touches, in dependency order for truncation.
 TABLES = (
     "webauthn_challenges", "webauthn_credentials",
-    "payment_instruments", "escalations", "outbox", "mandates",
+    "merchant_orders", "offers", "payment_instruments", "escalations", "outbox", "mandates",
     "yuno_idempotency", "yuno_disputes", "yuno_payments",
     "yuno_payment_tokens", "yuno_setup_tokens",
 )

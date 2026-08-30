@@ -60,14 +60,31 @@ CREATE INDEX IF NOT EXISTS webauthn_credentials_user_idx
   ON webauthn_credentials (user_id);
 
 CREATE TABLE IF NOT EXISTS webauthn_challenges (
-  challenge TEXT PRIMARY KEY,
+  challenge TEXT NOT NULL,
   user_id TEXT NOT NULL,
   mandate_id TEXT,                             -- set when the challenge is a mandate hash
   purpose TEXT NOT NULL,                       -- register|activate|revoke
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ,                     -- single use; NULL until spent
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (challenge, purpose)
 );
+-- A mandate's canonical hash intentionally stays identical for activation
+-- and revocation. Store purpose in its primary key so a fresh revocation
+-- ceremony cannot collide with an already-consumed activation challenge.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'webauthn_challenges_pkey'
+      AND conrelid = 'webauthn_challenges'::regclass
+      AND pg_get_constraintdef(oid) NOT LIKE 'PRIMARY KEY (challenge, purpose)%'
+  ) THEN
+    ALTER TABLE webauthn_challenges DROP CONSTRAINT webauthn_challenges_pkey;
+    ALTER TABLE webauthn_challenges
+      ADD CONSTRAINT webauthn_challenges_pkey PRIMARY KEY (challenge, purpose);
+  END IF;
+END $$;
 
 -- ==========================================================================
 -- [2] decision + evidence
@@ -138,7 +155,6 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- ==========================================================================
 -- [3] commerce
 -- ==========================================================================
@@ -160,9 +176,38 @@ CREATE TABLE IF NOT EXISTS offers (
   title TEXT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   currency TEXT NOT NULL,
+  origin TEXT,
+  destination TEXT,
+  travel_date DATE,
   description TEXT,
   active BOOLEAN NOT NULL DEFAULT true
 );
+-- Existing local development databases predate v1.1; keep bootstrap
+-- idempotent instead of requiring everyone to destroy their demo state.
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS origin TEXT;
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS destination TEXT;
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS travel_date DATE;
+
+-- Merchant-owned checkout record. A Checkout JWT is persisted before the
+-- agent signs its hash, so a charge can verify the exact cart rather than
+-- reconstructing one after the fact.
+CREATE TABLE IF NOT EXISTS merchant_orders (
+  id TEXT PRIMARY KEY,
+  offer_id TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  currency TEXT NOT NULL,
+  checkout_jwt TEXT UNIQUE NOT NULL,
+  checkout_hash TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'quoted',
+  purchase_id TEXT,
+  receipt JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- A purchase has one cart and a cart has one captured purchase. The partial
+-- form leaves unlimited quoted carts with no purchase id.
+CREATE UNIQUE INDEX IF NOT EXISTS merchant_orders_purchase_id_unique
+  ON merchant_orders (purchase_id) WHERE purchase_id IS NOT NULL;
 
 -- ==========================================================================
 -- [3] the simulated Yuno-style AP2 orchestrator (decision 0024)

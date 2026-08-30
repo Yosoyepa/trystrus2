@@ -553,3 +553,27 @@ reasons outside our control. Our tests cannot discover what we failed to
 imagine (partial captures, settlement latency, network partitions). And our
 conformance is self-asserted; x402 on day 3 is the only path to being checked
 by a rail we did not write.
+
+---
+
+## 25. Make the merchant's cryptographic checks and revoke ceremony expressible
+
+**Chose:** contract v1.1 carries the canonical payload alongside the detached
+intent JWS, the persisted ES256 Checkout JWT, and the mandate id needed for
+live verify; VuelaYa gets catalogue/detail/price routes and signed Yuno-style
+webhooks. WebAuthn challenges use `(challenge, purpose)` so activation and
+revocation can independently sign the same exact mandate hash. Full record:
+`docs/decisions/0025-merchant-checkout-and-revocation-contract-completion.md`.
+
+**Rejected:** trying to verify a detached JWS with no payload, creating the
+cart after the agent's intent, title-string filters, reusing a consumed
+activation challenge for revocation, and unsigned rail webhooks.
+
+**Why:** the merchant must verify evidence it actually received before it
+calls the rail; the former transport could not express that proof. The new
+revoke ceremony preserves the mandated hash binding while remaining
+independently single-use.
+
+**Does not solve:** the frozen two-argument MCP `request_purchase` has no
+carrier for the agent's signed intent; it safely cannot charge, but Dev 1/2
+still need to agree on the handoff context for a live purchase.

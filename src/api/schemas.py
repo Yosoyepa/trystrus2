@@ -14,6 +14,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from trustlib.models import (
+    Escalation,
+    EscalationStatus,
     MandateLimits,
     MandateScope,
     MandateValidity,
@@ -112,6 +114,22 @@ class Rejection(BaseModel):
     reason_code: ReasonCode
     message: str | None = None
     purchase_id: str | None = None
+
+
+# ==========================================================================
+# Escalations — the human may authorize a retry, never bypass the gate
+# ==========================================================================
+class ResolveRequest(BaseModel):
+    decision: Literal["APPROVE", "REJECT"]
+    approver: str
+    channel: Literal["telegram", "web"]
+    # The frozen API exposes sticky approvals.  The first M3 implementation
+    # deliberately handles non-sticky resolutions; it refuses sticky rather
+    # than granting a broader mandate without returning the derived SD-JWT.
+    sticky: dict[str, Any] | None = None
+
+
+EscalationView = Escalation
 
 
 # ==========================================================================
