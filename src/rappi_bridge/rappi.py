@@ -222,7 +222,13 @@ class LazyRappiClient:
         data = self._request(
             "POST",
             "/api/pns-global-search-api/v1/unified-search?is_prime=false",
-            body={"query": query, "lat": self._session.lat, "lng": self._session.lng},
+            # Coordinates must be JSON numbers: the session stores them as
+            # text and Rappi answers a bare 400 with stores=null otherwise.
+            body={
+                "query": query,
+                "lat": float(self._session.lat),
+                "lng": float(self._session.lng),
+            },
         )
         results: list[dict[str, Any]] = []
         for store in data.get("stores", []) if isinstance(data, dict) else []:
