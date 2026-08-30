@@ -287,7 +287,10 @@ def snapshot(conn) -> dict:
         "buckets": [
             dict(r)
             for r in conn.execute(
-                "SELECT key, ROUND(tokens,2) tokens, updated_at FROM rate_buckets ORDER BY key"
+                # `tokens` is DOUBLE PRECISION and Postgres has no
+                # round(double precision, int) -- only round(numeric, int).
+                "SELECT key, ROUND(tokens::numeric,2) tokens, updated_at "
+                "FROM rate_buckets ORDER BY key"
             ).fetchall()
         ],
         "counters": [
