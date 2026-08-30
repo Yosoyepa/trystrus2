@@ -72,7 +72,7 @@ jobs:
             AVAL_RP_ORIGIN=https://trytrust.lat
             AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno
             LLM_PROVIDER=gemini
-            LLM_MODEL=gemini-2.5-flash
+            LLM_MODEL=gemini-3.7-flash
           secrets: |-
             DATABASE_URL=aval-prod-db-url:latest
             AVAL_DATABASE_URL=aval-prod-db-url:latest

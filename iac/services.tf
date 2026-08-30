@@ -90,7 +90,7 @@ resource "google_cloud_run_v2_service" "kernel" {
       }
       env {
         name  = "LLM_MODEL"
-        value = "gemini-2.5-flash"
+        value = "gemini-3.7-flash"
       }
       env {
         name = "DATABASE_URL"
