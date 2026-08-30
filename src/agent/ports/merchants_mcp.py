@@ -394,6 +394,7 @@ class RappiBridgeMcp:
 
     def __init__(self, url: str):
         self.url = url.rstrip("/")
+        self._quoted: dict[str, dict] = {}  # offer_id -> last search result
 
     def discover(self) -> dict[str, Any]:
         return {"merchant_id": self.merchant_id, "bridge": self.url}
@@ -433,10 +434,17 @@ class RappiBridgeMcp:
                     merchant_id=self.merchant_id,
                 )
             )
+        self._quoted = {o["offer_id"]: o for o in offers}
         return offers
 
     def get(self, conn, offer_id: str) -> dict | None:
-        return None  # search results are the only quoting surface tonight
+        """Re-fetch a quoted offer for the kernel's settle-time check.
+
+        The bridge only quotes through search, so results are remembered
+        here; the bridge's own guards (cart hash, price drift, cap) are what
+        make the final price safe, not this snapshot.
+        """
+        return self._quoted.get(offer_id)
 
     def settle(self, conn, **_: Any) -> dict:
         return {
