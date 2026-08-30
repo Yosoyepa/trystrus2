@@ -27,6 +27,14 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 - **Plan ergonomics:** `infra-plan` acepta `dev|prod` al despacharse
   manualmente y mantiene el resumen redactado; los pushes puramente de IaC o
   documentación ya no reconstruyen/despliegan la app dev.
+- **Prod state ownership fixed:** el primer plan prod reveló que dos estados
+  del mismo proyecto querían crear APIs, Artifact Registry y secretos con los
+  mismos nombres. Por [decisión 0031](../decisions/0031-single-project-iac-ownership.md),
+  dev conserva ownership de APIs/repo y prod los consume sin administrarlos;
+  todas las claves de firma prod pasan a nombres `aval-prod-*` independientes.
+  Merchant y Yuno reciben además `*_GCP_PROJECT` y el nombre exacto de su
+  clave, para que una operación firmada no dependa de archivos ausentes del
+  contenedor.
 - **Wiring fixed:** `YUNO_ISSUER_URL` ya no añade `/api` a la URL directa de
   Cloud Run en dev; en prod, yuno y merchant usan las rutas del LB que sí
   reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto
@@ -63,8 +71,8 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
   Rappi real no se sube a Cloud Run por la decisión 0030: requiere un túnel
   autenticado hacia la máquina que custodia la sesión; sin él, producción cae
   explícitamente al fixture.
-- **Decision:** ninguna nueva; se aplican decisiones 0029/0030 y el playbook
-  existente.
+- **Decision:** [0031](../decisions/0031-single-project-iac-ownership.md)
+  fija un solo owner por recurso global del proyecto y separa claves prod.
 - **Contracts touched:** none.
 
 ---

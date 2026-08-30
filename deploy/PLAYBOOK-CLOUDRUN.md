@@ -50,8 +50,10 @@ gcloud billing projects link "$PROJECT_ID" --billing-account=BILLING_ID
 gcloud config set project "$PROJECT_ID"
 ```
 
-Las ~14 APIs las habilita el propio `tofu apply` (archivo `iac/apis.tf`).
-Verificación: `gcloud services list --enabled | head`.
+Las ~14 APIs las habilita el apply bootstrap de `dev` (archivo
+`iac/apis.tf`). Por decisión 0031 hay un solo owner de recursos globales del
+proyecto: prod reutiliza las APIs y el repositorio, nunca los importa a su
+estado. Verificación: `gcloud services list --enabled | head`.
 
 ---
 
@@ -119,6 +121,10 @@ for s in aval-issuer-ed25519 aval-merchant-es256 aval-yuno-webhook-ed25519; do
   gcloud secrets versions add "$s" --data-file="/tmp/$s.pem"
 done
 ```
+
+Esos nombres conservan compatibilidad con dev. Para prod genera material nuevo
+y cárgalo en `aval-prod-issuer-ed25519`, `aval-prod-merchant-es256` y
+`aval-prod-yuno-webhook-ed25519`; nunca copies las claves dev.
 
 ### 4.3 Idempotencia y claves LLM
 
@@ -237,9 +243,15 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
    ```bash
    cd iac
    # prod.tfvars usa api.trytrust.lat; el apex vivo en Vercel no se toca
+   tofu init -reconfigure -backend-config=environments/prod.backend.hcl
+   tofu plan -var-file=environments/prod.tfvars -input=false
    tofu apply -var-file=environments/prod.tfvars -input=false
    tofu output -raw lb_ip   # → registro A de api.trytrust.lat
    ```
+
+   El plan no debe crear `google_project_service.apis` ni
+   `google_artifact_registry_repository.docker`: pertenecen al estado dev. Si
+   aparecen, detén el apply; hay dos estados intentando poseer lo mismo.
 
 2. El certificado gestionado tarda **15–60 min** en emitirse tras propagar el
    DNS: `gcloud compute ssl-certificates describe aval-prod-cert`.

@@ -12,6 +12,16 @@ variable "region" {
 variable "environment" {
   type        = string
   description = "dev | prod — used in resource names and labels."
+
+  validation {
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "environment must be either dev or prod."
+  }
+}
+
+variable "manage_shared_project_resources" {
+  type        = bool
+  description = "Exactly one state per GCP project owns shared APIs and Artifact Registry; other environments consume them without taking over their state."
 }
 
 variable "image" {

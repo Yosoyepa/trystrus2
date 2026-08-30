@@ -3,11 +3,27 @@
 # APP_MODULE; the SPA has its own image (web/Dockerfile, nginx on :3000).
 
 resource "google_artifact_registry_repository" "docker" {
+  count = var.manage_shared_project_resources ? 1 : 0
+
   location      = var.region
   repository_id = "aval"
   format        = "DOCKER"
   description   = "Aval backend and web images"
   depends_on    = [google_project_service.apis]
+}
+
+# The original dev state used the unindexed address. Keep that object in place
+# while making ownership conditional for environments sharing one GCP project.
+moved {
+  from = google_artifact_registry_repository.docker
+  to   = google_artifact_registry_repository.docker[0]
+}
+
+data "google_artifact_registry_repository" "docker" {
+  count = var.manage_shared_project_resources ? 0 : 1
+
+  location      = var.region
+  repository_id = "aval"
 }
 
 locals {
@@ -69,6 +85,14 @@ resource "google_cloud_run_v2_service" "kernel" {
       env {
         name  = "AVAL_GCP_PROJECT"
         value = var.project_id
+      }
+      env {
+        name  = "AVAL_ISSUER_KEY_SECRET"
+        value = local.secrets.issuer_pem
+      }
+      env {
+        name  = "AVAL_MERCHANT_KEY_SECRET"
+        value = local.secrets.merchant_pem
       }
       env {
         name  = "AVAL_ISSUER"
@@ -252,6 +276,14 @@ resource "google_cloud_run_v2_service" "yuno_sim" {
         value = var.domain != "" ? "https://${var.domain}/api" : google_cloud_run_v2_service.kernel.uri
       }
       env {
+        name  = "YUNO_GCP_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "YUNO_WEBHOOK_KEY_SECRET"
+        value = local.secrets.yuno_webhook
+      }
+      env {
         name = "YUNO_DATABASE_URL"
         value_source {
           secret_key_ref {
@@ -331,6 +363,14 @@ resource "google_cloud_run_v2_service" "merchant" {
       env {
         name  = "MERCHANT_YUNO_SIM_URL"
         value = var.domain != "" ? "https://${var.domain}/yuno" : google_cloud_run_v2_service.yuno_sim.uri
+      }
+      env {
+        name  = "MERCHANT_GCP_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "MERCHANT_MERCHANT_KEY_SECRET"
+        value = local.secrets.merchant_pem
       }
       env {
         name  = "MERCHANT_FIXTURES_DIR"

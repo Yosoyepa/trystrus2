@@ -48,8 +48,9 @@ tofu validate
 3. Real secrets: `gcloud secrets versions add <secret> --data-file=-` for
    `*-db-url`, `*-idem-secret`, `*-llm-gemini-key`, `*-llm-openai-key`,
    `*-rappi-bridge-token`, `*-telegram-bot-token`,
-   `*-telegram-webhook-secret`, `aval-issuer-ed25519`,
-   `aval-merchant-es256`, `aval-yuno-webhook-ed25519`.
+   `*-telegram-webhook-secret`; dev keeps the existing
+   `aval-{issuer-ed25519,merchant-es256,yuno-webhook-ed25519}` IDs and prod
+   uses independent `aval-prod-*` signing-key IDs.
 4. Repo variables (GitHub → Settings → Variables): `GCP_PROJECT`,
    `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. After configuring required
    reviewers on the `prod` environment, set `PROD_DEPLOY_ENABLED=true`.
@@ -71,6 +72,10 @@ tofu init -backend-config=environments/dev.backend.hcl
 tofu plan  -var-file=environments/dev.tfvars
 tofu apply -var-file=environments/dev.tfvars
 
+# prod uses its own state; dev remains the sole owner of project APIs/repo
+tofu init -reconfigure -backend-config=environments/prod.backend.hcl
+tofu plan -var-file=environments/prod.tfvars
+
 # app (after infra): GitHub Actions → deploy-dev (auto on main/iac) /
 # deploy-prod (manual, exact commit SHA, protected environment)
 ```
@@ -87,6 +92,10 @@ tofu apply -var-file=environments/dev.tfvars
 - **Planes públicos sin valores**: CI publica únicamente la dirección de cada
   recurso y su acción. El plan completo puede contener drift secreto y nunca
   se imprime ni se comenta en un PR.
+- **Un solo owner por recurso global**: con dev/prod en el mismo proyecto,
+  `env/dev` administra APIs y Artifact Registry; `env/prod` los consume y
+  administra solo recursos `aval-prod-*` (decisión 0031). Las claves de firma
+  sí son independientes por ambiente.
 - **Gemini por API key hoy; Vertex/ADC es el endurecimiento recomendado.**
 - **Dominio propio requerido en prod**: sin DNS no hay cert/LB y las passkeys
   fallan en `*.run.app` (Public Suffix List, ADR-018). El cert del backend usa
