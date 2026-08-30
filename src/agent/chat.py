@@ -254,10 +254,14 @@ class Session:
     def _offer_line(self, state: dict, proposal: dict) -> str:
         for offer in state.get("offers", []):
             if offer["offer_id"] == proposal.get("offer_id"):
-                return (
+                line = (
                     f"{offer['title']} at {offer['price']} {offer['currency']} "
                     f"({offer['offer_id']})"
                 )
+                images = offer.get("images") or []
+                if images:
+                    line += "\n" + "\n".join(f"Image: {url}" for url in images)
+                return line
         return proposal.get("offer_id", "an offer")
 
 

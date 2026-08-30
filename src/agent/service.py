@@ -106,6 +106,9 @@ def _run_view(run: dict) -> dict[str, Any]:
         "agent_version": run["agent_version"],
         "escalation_id": run.get("escalation_id"),
         "proposal": state.get("proposal"),
+        # What the search actually found, with each merchant's own CDN image
+        # URLs, so a UI can show the real product pictures instead of none.
+        "offers": (state.get("offers") or [])[:12],
         "result": state.get("result"),
     }
 

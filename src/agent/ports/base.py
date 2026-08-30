@@ -17,6 +17,7 @@ recorded and never called.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -24,6 +25,27 @@ from ..crypto.money import fmt
 
 READ, SUBMIT = "read", "submit"
 EFFECTS = (READ, SUBMIT)
+
+
+def offer_images(raw: dict) -> list[str]:
+    """Every merchant CDN picture this offer carries, first one primary.
+
+    Merchants name the field `image`, `image_url` or `images`; whatever
+    arrives is passed through untouched -- these are the merchant's own CDN
+    URLs, and rewriting them would break the picture the buyer can verify.
+    """
+    urls: list[str] = []
+    candidates = raw.get("images")
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    for url in candidates or []:
+        if isinstance(url, str) and url and url not in urls:
+            urls.append(url)
+    for key in ("image", "image_url"):
+        url = raw.get(key)
+        if isinstance(url, str) and url and url not in urls:
+            urls.append(url)
+    return urls
 
 
 def normalise_offer(raw: dict, *, merchant_id: str) -> dict:
@@ -39,6 +61,7 @@ def normalise_offer(raw: dict, *, merchant_id: str) -> dict:
         "destination": raw.get("destination"),
         "depart_date": raw.get("depart_date"),
         "description": raw.get("description") or "",
+        "images": offer_images(raw),  # merchant CDN URLs, verbatim
         "native": raw.get("native", {}),  # merchant-specific handles, opaque to us
     }
 
@@ -114,28 +137,46 @@ def merchant_for(offer_or_id: dict | str | None) -> MerchantPort:
 
 
 def search_all(conn, *, allowed: list[str] | None = None, **criteria: Any) -> list[dict]:
-    """Fan out across every registered merchant.
+    """Fan out across every registered merchant, concurrently.
 
     `allowed` is the mandate's `scope.merchants`. Filtering here is a courtesy
     that saves pointless calls; the gate enforces it regardless, so registering
     a merchant never widens anyone's permission.
+
+    Merchants are independent network calls, so they run at the same time --
+    the slowest merchant sets the latency, not the sum of all of them. Results
+    are collected in registry order so the fan-out stays deterministic, and
+    one broken merchant still cannot blind the agent.
     """
     _bootstrap_local()
+    targets = [
+        (merchant_id, merchant)
+        for merchant_id, merchant in MERCHANTS.items()
+        if not allowed or merchant_id in allowed
+    ]
     offers: list[dict] = []
-    for merchant_id, merchant in MERCHANTS.items():
-        if allowed and merchant_id not in allowed:
-            continue
-        try:
-            offers.extend(merchant.search(conn, **criteria))
-        except Exception as exc:  # one broken merchant must not blind the agent
-            from .. import audit
+    failures: list[tuple[str, Exception]] = []
+    if not targets:
+        return offers
+    with ThreadPoolExecutor(max_workers=min(len(targets), 8)) as pool:
+        futures = [
+            (merchant_id, pool.submit(merchant.search, conn, **criteria))
+            for merchant_id, merchant in targets
+        ]
+        for merchant_id, future in futures:
+            try:
+                offers.extend(future.result())
+            except Exception as exc:  # one broken merchant must not blind the agent
+                failures.append((merchant_id, exc))
+    for merchant_id, exc in failures:
+        from .. import audit
 
-            audit.append(
-                conn,
-                "merchant.unreachable",
-                {"merchant_id": merchant_id, "error": str(exc)[:300]},
-                relay=False,
-            )
+        audit.append(
+            conn,
+            "merchant.unreachable",
+            {"merchant_id": merchant_id, "error": str(exc)[:300]},
+            relay=False,
+        )
     return offers
 
 

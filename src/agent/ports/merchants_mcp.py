@@ -300,18 +300,20 @@ class MamiMcp:
         return None
 
     def _to_offer(self, p: dict) -> dict:
-        return normalise_offer(
-            {
-                "offer_id": str(p["id"]),
-                "category": self.category,
-                "title": p.get("name", ""),
-                "price": p.get("price_cop"),
-                "currency": self.currency,
-                "description": f"{p.get('description', '')} ({p.get('properties', '')})",
-                "native": {"product_id": p["id"], "sku": p.get("sku")},
-            },
-            merchant_id=self.merchant_id,
-        )
+        raw = {
+            "offer_id": str(p["id"]),
+            "category": self.category,
+            "title": p.get("name", ""),
+            "price": p.get("price_cop"),
+            "currency": self.currency,
+            "description": f"{p.get('description', '')} ({p.get('properties', '')})",
+            "native": {"product_id": p["id"], "sku": p.get("sku")},
+        }
+        # The merchant catalog's own CDN picture, if their MCP exposes it.
+        for key in ("images", "image", "image_url"):
+            if p.get(key):
+                raw[key] = p[key]
+        return normalise_offer(raw, merchant_id=self.merchant_id)
 
     def settle(
         self,
@@ -412,6 +414,7 @@ class RappiBridgeMcp:
         data = self._get("/v1/rappi/search", {"q": query})
         offers: list[dict] = []
         for item in data.get("results", []):
+            images = [u for u in (item.get("images") or [item.get("image")]) if u]
             offers.append(
                 {
                     "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
@@ -421,6 +424,7 @@ class RappiBridgeMcp:
                     "amount": str(int(item.get("price", 0))),
                     "currency": self.currency,
                     "eta": item.get("eta"),
+                    "images": images,  # Rappi's own CDN URLs, verbatim
                     "description": (
                         f"delivery {item.get('shipping_cost', 0)} COP"
                         f" · {item.get('eta', '')}"

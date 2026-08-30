@@ -27,6 +27,19 @@ PAYMENT_RESOLVER_PATH = "/api/ms/payment-method/resolver/v6"
 PAYMENT_PUT_PATH = "/api/ms/shopping-cart/v1/{store_type}/payment-method"
 ORDERS_PATH = "/api/user-order-home/orders"
 
+# Rappi answers with bare image paths; the CDN prefixes below are what the
+# audited CLI (`@crafter/rappi-cli`, formatters.ts) stitches in front of them.
+IMAGES_BASE_URL = "https://images.rappi.com"
+
+
+def absolute_image_url(path: Any, prefix: str = "products") -> str | None:
+    """Turn a Rappi image path into the CDN URL a browser can load."""
+    if not path or not isinstance(path, str):
+        return None
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return f"{IMAGES_BASE_URL}/{prefix}/{path.lstrip('/')}"
+
 # The web build hash rotates with Rappi's frontend deploys; if requests start
 # failing en masse, refresh from a live browser session (smoke test F0).
 _APP_VERSION = "e1de6be43aa29091011474615d7ac0810051c36a"
@@ -220,7 +233,18 @@ class LazyRappiClient:
         )
         results: list[dict[str, Any]] = []
         for store in data.get("stores", []) if isinstance(data, dict) else []:
+            logo = absolute_image_url(store.get("logo"), "restaurants_logo")
             for product in store.get("products", []):
+                image = absolute_image_url(product.get("image"))
+                extra = [
+                    url
+                    for url in (
+                        absolute_image_url(p) for p in (product.get("images") or [])
+                    )
+                    if url
+                ]
+                if image and image not in extra:
+                    extra.insert(0, image)
                 results.append(
                     {
                         "sku": str(product.get("product_id")),
@@ -231,6 +255,11 @@ class LazyRappiClient:
                         "store_name": str(store.get("store_name", "")),
                         "eta": str(store.get("eta", "")),
                         "shipping_cost": store.get("shipping_cost", 0),
+                        # Merchant CDN URLs, passed through untouched: the
+                        # buyer sees the same picture the Rappi app shows.
+                        "image": image,
+                        "images": extra,
+                        "store_logo": logo,
                     }
                 )
         return results
