@@ -43,6 +43,11 @@ jobs:
           uv run ruff check .
           uv run ruff format --check
 
+      - name: Load the one schema into the service DB
+        run: |
+          PGPASSWORD=aval psql -h localhost -U aval -d aval \
+            -v ON_ERROR_STOP=1 -f aval/contracts/fixtures/schema.sql
+
       - name: Tests (Postgres service for db-marked tests)
         env:
           DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
