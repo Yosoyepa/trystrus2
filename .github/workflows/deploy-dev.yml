@@ -102,7 +102,7 @@ jobs:
             --image="${{ env.REPO }}/web:${{ github.sha }}" \
             --quiet
 
-      - name: Smoke test (verbose: URL, revision, code, body)
+      - name: Smoke test (verbose URL/revision/code/body)
         run: |
           set -u
           fail=0
