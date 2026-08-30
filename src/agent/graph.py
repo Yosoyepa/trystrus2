@@ -19,6 +19,7 @@ framework, the same functions wrap unchanged.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -53,6 +54,30 @@ TERMINAL = {
     "ESCALATION_TIMEOUT_DENIED",
     "RAIL_TOKEN_DELETED",
 }
+
+_PURCHASE_WORDS = re.compile(
+    r"\b(compra|comprar|c[oó]mprame|pide|p[ií]deme|ordena|buy|purchase|order)\b",
+    re.IGNORECASE,
+)
+_SEARCH_WORDS = re.compile(
+    r"\b(busca|buscar|b[uú]scame|encuentra|encontrar|muestra|mu[eé]strame|"
+    r"compara|comparar|cotiza|opciones|search|find|show|compare)\b",
+    re.IGNORECASE,
+)
+
+
+def request_mode(text: str) -> str:
+    """Classify an explicit catalogue lookup without giving a model authority.
+
+    Purchase language wins when a buyer asks to both find and buy. Everything
+    ambiguous keeps the existing purchase flow; only an explicit search verb
+    earns the read-only short circuit.
+    """
+    if _PURCHASE_WORDS.search(text):
+        return "purchase"
+    if _SEARCH_WORDS.search(text):
+        return "search"
+    return "purchase"
 
 
 def _parse_json(val: Any) -> Any:
@@ -125,7 +150,13 @@ def start(
     version = int(agent["current_version"])  # E8/K3: pinned now, never re-read
     run_id = new_id("run")
     stamp = now_iso()
-    state = {"request": request, "guidance": [], "replans": 0, "messages": []}
+    state = {
+        "request": request,
+        "request_mode": request_mode(request),
+        "guidance": [],
+        "replans": 0,
+        "messages": [],
+    }
     conn.execute(
         "INSERT INTO agent_runs(run_id,agent_id,agent_version,mandate_jti,session_id,"
         "node,state,status,created_at,updated_at) VALUES(?,?,?,?,?,'perceive',?, "
@@ -154,17 +185,36 @@ def node_perceive(conn, run: dict) -> str:
     claims = _parse_json(mandate_row["claims"]) if mandate_row else {}
     # The scope is a filter here only to save pointless calls; the gate enforces
     # it regardless, so a merchant the buyer never allowed can never be bought from.
-    run["state"]["allowed_merchants"] = (claims.get("scope") or {}).get("merchants")
-    run["state"]["currency"] = claims.get("currency", "USD")
-    summary = memory.summarise(conn, run["mandate_jti"])
-    run["state"]["ontology_text"] = limits.clamp_text(ontology_mod.render(onto))
-    run["state"]["memory"] = summary
-    run["state"]["memory_text"] = memory.render(summary)
-    limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
-    run["state"]["criteria"] = llm.parse_request(
-        run["state"]["request"]
-        + (" " + " ".join(run["state"]["guidance"]) if run["state"]["guidance"] else "")
+    state = run["state"]
+    state["allowed_merchants"] = (claims.get("scope") or {}).get("merchants")
+    state["currency"] = claims.get("currency", "USD")
+    # Rappi accepts the buyer's original text as its search query. Asking a
+    # flight/hotel parser to reinterpret that text adds no useful filter and
+    # can consume the frontend's entire request timeout before search starts.
+    direct_read_only_search = (
+        state.get("request_mode") == "search"
+        and set(state.get("allowed_merchants") or ()) == {"rappi"}
     )
+    state["direct_read_only_search"] = direct_read_only_search
+    summary = memory.summarise(conn, run["mandate_jti"])
+    state["ontology_text"] = limits.clamp_text(ontology_mod.render(onto))
+    state["memory"] = summary
+    state["memory_text"] = memory.render(summary)
+    if direct_read_only_search:
+        state["criteria"] = {
+            "origin": None,
+            "destination": None,
+            "date": None,
+            "category": None,
+            "max_price": None,
+            "notes": "direct read-only merchant search",
+        }
+    else:
+        limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
+        state["criteria"] = llm.parse_request(
+            state["request"]
+            + (" " + " ".join(state["guidance"]) if state["guidance"] else "")
+        )
     _save(
         conn,
         run,
@@ -222,25 +272,35 @@ def node_search(conn, run: dict) -> str:
 
 
 def node_propose(conn, run: dict) -> str:
-    """The only node with a model in it (S1)."""
+    """Rank offers; direct read-only Rappi search stays deterministic."""
     state = run["state"]
-    limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
-    proposal = llm.propose(
-        request=state["request"],
-        offers=state["offers"],
-        ontology_text=state.get("ontology_text", ""),
-        memory_text=state.get("memory_text", ""),
-        guidance=" ".join(state.get("guidance", [])),
-    )
+    if state.get("direct_read_only_search"):
+        proposal = llm.propose_deterministic(state["offers"])
+    else:
+        limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
+        proposal = llm.propose(
+            request=state["request"],
+            offers=state["offers"],
+            ontology_text=state.get("ontology_text", ""),
+            memory_text=state.get("memory_text", ""),
+            guidance=" ".join(state.get("guidance", [])),
+        )
     chosen = next((o for o in state["offers"] if o["offer_id"] == proposal.get("offer_id")), None)
     # The merchant's own CDN pictures ride along with the proposal: the model
     # never authors a URL, it only picked which offer to show.
     if chosen:
         proposal["images"] = chosen.get("images", [])
         proposal["merchant_id"] = chosen.get("merchant_id")
+        proposal["title"] = chosen.get("title")
         proposal["price"] = chosen.get("price", proposal.get("price"))
         proposal["currency"] = chosen.get("currency", proposal.get("currency"))
     state["proposal"] = proposal
+    search_only = state.get("request_mode") == "search" and bool(proposal.get("offer_id"))
+    if search_only:
+        state["result"] = {
+            "status": "proposed",
+            "detail": "read-only catalogue search; no purchase was submitted",
+        }
     _save(
         conn,
         run,
@@ -249,8 +309,11 @@ def node_propose(conn, run: dict) -> str:
             "offer_id": proposal.get("offer_id"),
             "source": proposal.get("source"),
             "concern": proposal.get("concern"),
+            "request_mode": state.get("request_mode"),
         },
     )
+    if search_only:
+        return "done"
     return "gate" if proposal.get("offer_id") else "denied"
 
 

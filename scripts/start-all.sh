@@ -91,6 +91,7 @@ if [ "$MODE" = "compose" ]; then
   echo "   - Kernel Trust Layer:      http://localhost:8001"
   echo "   - Yuno AP2 Sim Rail:       http://localhost:8002"
   echo "   - VuelaYa Merchant:        http://localhost:8003"
+  echo "   - Rappi Bridge (DRY_RUN):  http://localhost:8010"
   echo "   - PostgreSQL Database:     localhost:5432 (User: aval, DB: aval)"
   echo "======================================================================"
   echo "Stop services with: scripts/start-all.sh --stop"
@@ -105,7 +106,7 @@ if [ "$MODE" = "local" ]; then
   stop_services
 
   # Create directories
-  mkdir -p secrets var
+  mkdir -p secrets var var/rappi-bridge
 
   # Ensure DB is up if docker is present
   if [ -n "$COMPOSE_CMD" ]; then
@@ -117,6 +118,29 @@ if [ "$MODE" = "local" ]; then
   export AVAL_DATABASE_URL="${AVAL_DATABASE_URL:-postgresql+asyncpg://aval:aval@localhost:5432/aval}"
   export YUNO_DATABASE_URL="${YUNO_DATABASE_URL:-postgresql+asyncpg://aval:aval@localhost:5432/aval}"
   export MERCHANT_DATABASE_URL="${MERCHANT_DATABASE_URL:-postgresql+asyncpg://aval:aval@localhost:5432/aval}"
+  export TT_RAPPI_BRIDGE_URL="${TT_RAPPI_BRIDGE_URL:-http://127.0.0.1:8010}"
+
+  echo "--> Starting local Rappi Bridge in DRY_RUN mode (:8010)..."
+  uv run uvicorn --factory src.rappi_bridge.app:create_app --host 127.0.0.1 --port 8010 > var/rappi-bridge/bridge.log 2>&1 &
+  bridge_pid=$!
+  echo "$bridge_pid" >> "$PID_FILE"
+
+  for attempt in {1..30}; do
+    if curl -fsS http://127.0.0.1:8010/healthz >/dev/null; then
+      break
+    fi
+    if ! kill -0 "$bridge_pid" 2>/dev/null; then
+      echo "ERROR: Rappi bridge stopped during startup; see var/rappi-bridge/bridge.log" >&2
+      stop_services
+      exit 1
+    fi
+    if [ "$attempt" -eq 30 ]; then
+      echo "ERROR: Rappi bridge did not become healthy within 30 seconds" >&2
+      stop_services
+      exit 1
+    fi
+    sleep 1
+  done
 
   echo "--> Starting Kernel service (:8001)..."
   uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 > var/kernel.log 2>&1 &
@@ -146,6 +170,7 @@ if [ "$MODE" = "local" ]; then
   echo "   - Kernel Trust Layer:      http://localhost:8001"
   echo "   - Yuno AP2 Sim Rail:       http://localhost:8002"
   echo "   - VuelaYa Merchant:        http://localhost:8003"
+  echo "   - Rappi Bridge (DRY_RUN):  http://localhost:8010"
   echo "======================================================================"
   echo "To view logs: tail -f var/*.log"
   echo "To stop all:  scripts/start-all.sh --stop"

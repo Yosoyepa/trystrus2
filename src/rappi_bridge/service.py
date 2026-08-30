@@ -97,6 +97,30 @@ class Quote:
 KeysProvider = dict[str, Any] | Callable[[], dict[str, Any]]
 
 
+def _canonical_cart_value(value: Any) -> Any:
+    """Make Rappi's loose JSON number types stable and JCS-safe.
+
+    The undocumented API can return the same COP value as `1725`, `1725.0`,
+    or `"1725"` on consecutive recalculations. Numbers in a cart binding are
+    therefore decimal strings; booleans remain booleans rather than becoming
+    the integers Python considers them to be.
+    """
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (int, float, Decimal)):
+        number = Decimal(str(value))
+        if not number.is_finite():
+            raise RappiError("cart contains a non-finite numeric value")
+        if number == 0:
+            return "0"
+        return format(number.normalize(), "f")
+    if isinstance(value, dict):
+        return {str(key): _canonical_cart_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_cart_value(item) for item in value]
+    raise RappiError(f"cart contains an unsupported value: {type(value).__name__}")
+
+
 def compute_cart_hash(store_type: str, store: dict[str, Any]) -> str:
     """Stable binding of the quoted cart (post store/address resolution).
     Volatile checkout fields (ETA, timestamps) are deliberately excluded."""
@@ -105,7 +129,7 @@ def compute_cart_hash(store_type: str, store: dict[str, Any]) -> str:
             {
                 "store_type": store_type,
                 "store_id": store.get("id"),
-                "products": store.get("products", []),
+                "products": _canonical_cart_value(store.get("products", [])),
                 "total": str(parse_money(str(store.get("total", "0")))),
             }
         )

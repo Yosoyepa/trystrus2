@@ -192,6 +192,16 @@ def propose(
         return {**_propose_fallback(offers), "concern": f"model unavailable: {exc}"}
 
 
+def propose_deterministic(offers: list[dict]) -> dict[str, Any]:
+    """Pick the cheapest live offer without a network/model dependency."""
+    proposal = _propose_fallback(offers)
+    chosen = next(offer for offer in offers if offer["offer_id"] == proposal["offer_id"])
+    proposal["why"] = (
+        f"Es el resultado coincidente de menor precio: {chosen['price']} {chosen['currency']}."
+    )
+    return proposal
+
+
 def _propose_fallback(offers: list[dict]) -> dict[str, Any]:
     from decimal import Decimal
 

@@ -108,6 +108,15 @@ class Session:
         ).fetchone()
         return graph._load(self.conn, row["run_id"]) if row else None
 
+    def latest_run(self) -> dict[str, Any] | None:
+        """Latest checkpoint, including runs that already finished or denied."""
+        row = self.conn.execute(
+            "SELECT run_id FROM agent_runs WHERE session_id=? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (self.session_id,),
+        ).fetchone()
+        return graph._load(self.conn, row["run_id"]) if row else None
+
     # ── the one entry point ──────────────────────────────────────────────────
     def send(self, text: str) -> list[str]:
         _log(self.conn, self.session_id, "buyer", text)
@@ -126,7 +135,7 @@ class Session:
                 self.session_id,
                 "agent",
                 line,
-                run_id=(self.active_run() or {}).get("run_id"),
+                run_id=(self.active_run() or self.latest_run() or {}).get("run_id"),
             )
         return replies
 
@@ -225,6 +234,13 @@ class Session:
             return lines
 
         status = result.get("status")
+        if status == "proposed":
+            lines.append(f"Encontré: {self._offer_line(state, proposal)}")
+            if proposal.get("why"):
+                lines.append(f"Por qué esta opción: {proposal['why']}")
+            lines.append("No inicié ninguna compra; esta búsqueda fue de solo lectura.")
+            return lines
+
         if status == "captured":
             receipt = result.get("receipt") or {}
             lines.append(

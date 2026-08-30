@@ -409,7 +409,16 @@ class RappiBridgeMcp:
         response = httpx.get(f"{self.url}/healthz", timeout=2.0)
         if response.status_code >= 400:
             raise RuntimeError(f"bridge healthz -> {response.status_code}")
-        return {"merchant_id": self.merchant_id, "bridge": self.url}
+        health = response.json()
+        if health.get("ok") is not True:
+            raise RuntimeError(f"bridge {self.url} is not healthy")
+        return {
+            "merchant_id": self.merchant_id,
+            "bridge": self.url,
+            "reachable": True,
+            "dry_run": bool(health.get("dry_run", True)),
+            "cap_cop": health.get("cap_cop"),
+        }
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         import httpx

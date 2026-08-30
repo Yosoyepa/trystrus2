@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Aval (TryTrust) — Automated Smoke Test & Healthcheck Suite
-# Verifies all 4 HTTP services (Kernel, Yuno AP2, Merchant, Web SPA)
+# Verifies all 5 HTTP services (Kernel, Yuno AP2, Merchant, Rappi bridge, Web SPA)
 # ==============================================================================
 
 set -euo pipefail
@@ -48,13 +48,15 @@ echo "--- 1. Direct Service Healthchecks ---"
 check_endpoint "Kernel Service (:8001)" "http://localhost:8001/health" 200 || failures=$((failures + 1))
 check_endpoint "Yuno AP2 Rail (:8002)"   "http://localhost:8002/health" 200 || failures=$((failures + 1))
 check_endpoint "Merchant Service (:8003)" "http://localhost:8003/health" 200 || failures=$((failures + 1))
+check_endpoint "Rappi Bridge (:8010)" "http://localhost:8010/healthz" 200 || failures=$((failures + 1))
 check_endpoint "Frontend Web SPA (:3000)" "http://localhost:3000/" 200 || failures=$((failures + 1))
 
 echo
-echo "--- 2. Reverse Proxy Routing (through :3000) ---"
-check_endpoint "Proxy -> Kernel (/api/health)" "http://localhost:3000/api/health" 200 || failures=$((failures + 1))
-check_endpoint "Proxy -> Yuno (/yuno/health)"   "http://localhost:3000/yuno/health" 200 || failures=$((failures + 1))
-check_endpoint "Proxy -> Merchant (/merchant/health)" "http://localhost:3000/merchant/health" 200 || failures=$((failures + 1))
+echo "--- 2. Web Routing (through :3000) ---"
+check_endpoint "Web -> Kernel (/api/health)" "http://localhost:3000/api/health" 200 || failures=$((failures + 1))
+check_endpoint "Web -> Agent (/api/agent/mandate)" "http://localhost:3000/api/agent/mandate" 200 || failures=$((failures + 1))
+check_endpoint "Web -> Yuno (/yuno/health)" "http://localhost:3000/yuno/health" 200 || failures=$((failures + 1))
+check_endpoint "Web -> Merchant (/merchant/health)" "http://localhost:3000/merchant/health" 200 || failures=$((failures + 1))
 
 echo
 echo "======================================================================"

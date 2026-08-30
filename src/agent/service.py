@@ -161,7 +161,10 @@ def ask(
         channel=channel,
     )
     replies = session.send(text)
-    run = session.active_run()
+    # Completed and denied runs still carry the real offers/proposal the UI
+    # must render. `active_run()` intentionally hides them because it is used
+    # for conversation control, not response presentation.
+    run = session.latest_run()
     return {
         "session_id": session.session_id,
         "replies": replies,
