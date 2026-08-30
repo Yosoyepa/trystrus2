@@ -59,8 +59,9 @@ TRANSITION_EVENTS: dict[MandateStatus, str] = {
 class InvalidTransition(Exception):
     """A transition the state machine does not admit."""
 
-    def __init__(self, frm: MandateStatus, to: MandateStatus,
-                 reason: ReasonCode | None = None) -> None:
+    def __init__(
+        self, frm: MandateStatus, to: MandateStatus, reason: ReasonCode | None = None
+    ) -> None:
         self.frm, self.to, self.reason_code = frm, to, reason
         super().__init__(f"{frm.value} -> {to.value} is not allowed")
 

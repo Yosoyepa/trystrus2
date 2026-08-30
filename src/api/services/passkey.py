@@ -21,7 +21,6 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
 
 from webauthn import (
     generate_authentication_options,
@@ -76,7 +75,7 @@ class CloneDetected(PasskeyError):
 
 @dataclass(frozen=True)
 class Challenge:
-    value: str                  # base64url
+    value: str  # base64url
     user_id: str
     purpose: Purpose
     expires_at: datetime
@@ -107,8 +106,9 @@ class PasskeyService:
         self._config = config or settings()
 
     # -- registration: the user enrols an authenticator once ---------------
-    def registration_options(self, *, user_id: str,
-                             user_name: str | None = None) -> tuple[dict, Challenge]:
+    def registration_options(
+        self, *, user_id: str, user_name: str | None = None
+    ) -> tuple[dict, Challenge]:
         options = generate_registration_options(
             rp_id=self._config.rp_id,
             rp_name=self._config.rp_name,
@@ -124,8 +124,11 @@ class PasskeyService:
         challenge = self._issue(options.challenge, user_id, Purpose.REGISTER)
         return options_to_json(options), challenge
 
-    def verify_registration(self, response: dict, challenge: Challenge,
-                            ) -> StoredCredential:
+    def verify_registration(
+        self,
+        response: dict,
+        challenge: Challenge,
+    ) -> StoredCredential:
         self._assert_usable(challenge)
         try:
             verified = verify_registration_response(
@@ -165,12 +168,10 @@ class PasskeyService:
             challenge=digest,
             user_verification=UserVerificationRequirement.REQUIRED,
             allow_credentials=[
-                PublicKeyCredentialDescriptor(id=_decode(c.credential_id))
-                for c in credentials
+                PublicKeyCredentialDescriptor(id=_decode(c.credential_id)) for c in credentials
             ],
         )
-        challenge = self._issue(digest, claims.sub, purpose,
-                                mandate_id=claims.jti)
+        challenge = self._issue(digest, claims.sub, purpose, mandate_id=claims.jti)
         return options_to_json(options), challenge
 
     def verify_assertion(
@@ -215,21 +216,20 @@ class PasskeyService:
         # the spec and common on platform authenticators.
         if credential.sign_count > 0 and verified.new_sign_count <= credential.sign_count:
             raise CloneDetected(
-                f"sign_count did not advance "
-                f"({credential.sign_count} -> {verified.new_sign_count})"
+                f"sign_count did not advance ({credential.sign_count} -> {verified.new_sign_count})"
             )
         return verified.new_sign_count
 
     # -- challenge lifetime ------------------------------------------------
-    def _issue(self, digest: bytes, user_id: str, purpose: Purpose,
-               *, mandate_id: str | None = None) -> Challenge:
+    def _issue(
+        self, digest: bytes, user_id: str, purpose: Purpose, *, mandate_id: str | None = None
+    ) -> Challenge:
         return Challenge(
             value=b64u_encode(digest),
             user_id=user_id,
             purpose=purpose,
             mandate_id=mandate_id,
-            expires_at=datetime.now(UTC)
-            + timedelta(seconds=self._config.challenge_ttl_seconds),
+            expires_at=datetime.now(UTC) + timedelta(seconds=self._config.challenge_ttl_seconds),
         )
 
     @staticmethod

@@ -73,11 +73,9 @@ class IssuerClient:
         age = time.monotonic() - self._fetched_at
         if self._jwks is None or age > self._config.jwks_cache_seconds:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(
-                    f"{self._config.issuer_url}/.well-known/jwks.json")
+                response = await client.get(f"{self._config.issuer_url}/.well-known/jwks.json")
                 response.raise_for_status()
-            self._jwks = {k["kid"]: jwk_from_dict(k)
-                          for k in response.json()["keys"]}
+            self._jwks = {k["kid"]: jwk_from_dict(k) for k in response.json()["keys"]}
             self._fetched_at = time.monotonic()
         return self._jwks
 
@@ -90,15 +88,13 @@ class IssuerClient:
         """
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                response = await client.get(
-                    f"{self._config.issuer_url}/mandates/by-jti/{jti}")
+                response = await client.get(f"{self._config.issuer_url}/mandates/by-jti/{jti}")
             if response.status_code == 404:
                 return None
             response.raise_for_status()
             return MandateStatus(response.json()["status"])
         except Exception:
-            log.warning("issuer unreachable for mandate %s — refusing", jti,
-                        exc_info=True)
+            log.warning("issuer unreachable for mandate %s — refusing", jti, exc_info=True)
             return None
 
     def invalidate(self) -> None:
@@ -109,8 +105,7 @@ class IssuerClient:
 class AP2Verifier:
     """Verifies an AP2 Payment Mandate presentation before settlement."""
 
-    def __init__(self, issuer: IssuerClient | None = None,
-                 config: Settings | None = None) -> None:
+    def __init__(self, issuer: IssuerClient | None = None, config: Settings | None = None) -> None:
         self._issuer = issuer or IssuerClient(config)
         self._config = config or settings()
 
@@ -126,8 +121,7 @@ class AP2Verifier:
         if not mandate_sd_jwt:
             return VerificationResult.refused(
                 ReasonCode.INVALID_SIGNATURE,
-                "no mandate presented — this rail does not charge on a "
-                "merchant's word alone",
+                "no mandate presented — this rail does not charge on a merchant's word alone",
             )
 
         # --- 1 & 2: issuer signature and temporal window ------------------
@@ -135,19 +129,16 @@ class AP2Verifier:
             keys = await self._issuer.keys()
         except Exception:
             log.error("cannot fetch issuer JWKS", exc_info=True)
-            return VerificationResult.refused(
-                ReasonCode.RAIL_ERROR, "issuer JWKS unavailable")
+            return VerificationResult.refused(ReasonCode.RAIL_ERROR, "issuer JWKS unavailable")
 
         try:
             claims = sdjwt.verify(mandate_sd_jwt, keys)
         except sdjwt.Expired as exc:
             return VerificationResult.refused(ReasonCode.MANDATE_EXPIRED, str(exc))
         except sdjwt.NotYetValid as exc:
-            return VerificationResult.refused(
-                ReasonCode.MANDATE_NOT_YET_VALID, str(exc))
+            return VerificationResult.refused(ReasonCode.MANDATE_NOT_YET_VALID, str(exc))
         except sdjwt.InvalidKeyBinding as exc:
-            return VerificationResult.refused(
-                ReasonCode.INVALID_PROOF_OF_POSSESSION, str(exc))
+            return VerificationResult.refused(ReasonCode.INVALID_PROOF_OF_POSSESSION, str(exc))
         except sdjwt.SDJWTError as exc:
             return VerificationResult.refused(ReasonCode.INVALID_SIGNATURE, str(exc))
 
@@ -162,17 +153,16 @@ class AP2Verifier:
         status = await self._issuer.mandate_status(jti)
         if status is None:
             return VerificationResult.refused(
-                ReasonCode.RAIL_ERROR,
-                f"issuer could not confirm mandate {jti} is live")
+                ReasonCode.RAIL_ERROR, f"issuer could not confirm mandate {jti} is live"
+            )
         if status is not MandateStatus.ACTIVE:
-            return VerificationResult.refused(
-                _reason_for(status), f"mandate is {status.value}")
+            return VerificationResult.refused(_reason_for(status), f"mandate is {status.value}")
 
-        return VerificationResult(ok=True, mandate_jti=jti,
-                                  checkout_hash=binding.checkout_hash)
+        return VerificationResult(ok=True, mandate_jti=jti, checkout_hash=binding.checkout_hash)
 
-    def _check_checkout(self, checkout_jwt: str | None, keys: dict,
-                        amount: Decimal, currency: str) -> VerificationResult:
+    def _check_checkout(
+        self, checkout_jwt: str | None, keys: dict, amount: Decimal, currency: str
+    ) -> VerificationResult:
         """Verify the merchant's Checkout JWT and that it matches the charge.
 
         Skipping the checkout is allowed but recorded: it degrades the
@@ -189,12 +179,13 @@ class AP2Verifier:
             if key is None:
                 return VerificationResult.refused(
                     ReasonCode.INVALID_SIGNATURE,
-                    f"no published key for checkout kid={header_kid!r}")
+                    f"no published key for checkout kid={header_kid!r}",
+                )
             checkout = verify_compact(checkout_jwt, key)
         except Exception as exc:
             return VerificationResult.refused(
-                ReasonCode.INVALID_SIGNATURE,
-                f"checkout JWT does not verify: {exc}")
+                ReasonCode.INVALID_SIGNATURE, f"checkout JWT does not verify: {exc}"
+            )
 
         signed_total = checkout.get("total_price")
         charged = ap2.to_minor_units(amount)
@@ -202,16 +193,15 @@ class AP2Verifier:
             # The cart was restated between approval and settlement.
             return VerificationResult.refused(
                 ReasonCode.CONDITION_FAILED,
-                f"amount {charged} does not match the signed checkout "
-                f"total {signed_total}",
+                f"amount {charged} does not match the signed checkout total {signed_total}",
             )
         if checkout.get("currency") != currency:
             return VerificationResult.refused(
                 ReasonCode.CONDITION_FAILED,
-                f"currency {currency} does not match the signed checkout")
+                f"currency {currency} does not match the signed checkout",
+            )
 
-        return VerificationResult(ok=True,
-                                  checkout_hash=ap2.checkout_hash(checkout_jwt))
+        return VerificationResult(ok=True, checkout_hash=ap2.checkout_hash(checkout_jwt))
 
 
 def _kid_of(token: str) -> str | None:

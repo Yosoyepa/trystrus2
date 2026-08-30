@@ -73,29 +73,33 @@ class SoftAuthenticator:
         import cbor2
 
         numbers = self.key.public_key().public_numbers()
-        return cbor2.dumps({
-            1: 2,   # kty: EC2
-            3: -7,  # alg: ES256
-            -1: 1,  # crv: P-256
-            -2: numbers.x.to_bytes(32, "big"),
-            -3: numbers.y.to_bytes(32, "big"),
-        })
+        return cbor2.dumps(
+            {
+                1: 2,  # kty: EC2
+                3: -7,  # alg: ES256
+                -1: 1,  # crv: P-256
+                -2: numbers.x.to_bytes(32, "big"),
+                -3: numbers.y.to_bytes(32, "big"),
+            }
+        )
 
     def _client_data(self, challenge: str, ceremony: str) -> bytes:
-        return json.dumps({
-            "type": ceremony,
-            "challenge": challenge,
-            "origin": ORIGIN,
-            "crossOrigin": False,
-        }, separators=(",", ":")).encode()
+        return json.dumps(
+            {
+                "type": ceremony,
+                "challenge": challenge,
+                "origin": ORIGIN,
+                "crossOrigin": False,
+            },
+            separators=(",", ":"),
+        ).encode()
 
     def register(self, challenge: str) -> dict:
         import cbor2
 
         client_data = self._client_data(challenge, "webauthn.create")
         auth_data = self._authenticator_data(attested=True)
-        attestation = cbor2.dumps({"fmt": "none", "attStmt": {},
-                                   "authData": auth_data})
+        attestation = cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth_data})
         return {
             "id": _b64u(self.credential_id),
             "rawId": _b64u(self.credential_id),
@@ -147,8 +151,7 @@ async def client(session, tmp_path, monkeypatch):
     from api.db import get_session
     from api.main import app
 
-    config = Settings(secrets_dir=tmp_path, rp_id=RP_ID, rp_origin=ORIGIN,
-                      gcp_project=None)
+    config = Settings(secrets_dir=tmp_path, rp_id=RP_ID, rp_origin=ORIGIN, gcp_project=None)
     deps.reset()
     deps._registry = MandateRegistry(KeyStore(config), config)
     deps._passkey = PasskeyService(config)
@@ -157,8 +160,7 @@ async def client(session, tmp_path, monkeypatch):
         yield session
 
     app.dependency_overrides[get_session] = override
-    async with AsyncClient(transport=ASGITransport(app=app),
-                           base_url="http://kernel") as http:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://kernel") as http:
         yield http
     app.dependency_overrides.clear()
     deps.reset()
@@ -172,8 +174,11 @@ def mandate_body(user_id):
         "agent_id": "agt_flights",
         "currency": "USD",
         "scope": {"categories": ["flights"], "merchants": ["vuelaya"]},
-        "limits": {"max_per_txn": "150", "total_budget": "400",
-                   "max_txn": {"count": 3, "period": "month"}},
+        "limits": {
+            "max_per_txn": "150",
+            "total_budget": "400",
+            "max_txn": {"count": 3, "period": "month"},
+        },
         "validity": {
             "not_before": (now - timedelta(minutes=1)).isoformat(),
             "expires_at": (now + timedelta(days=30)).isoformat(),
@@ -184,16 +189,18 @@ def mandate_body(user_id):
 
 async def enrol(client, user_id: str) -> SoftAuthenticator:
     authenticator = SoftAuthenticator()
-    begin = await client.post("/passkeys/register/begin",
-                              json={"user_id": user_id})
+    begin = await client.post("/passkeys/register/begin", json={"user_id": user_id})
     assert begin.status_code == 200
     challenge = begin.json()["challenge"]
 
-    complete = await client.post("/passkeys/register/complete", json={
-        "user_id": user_id,
-        "challenge": challenge,
-        "credential": authenticator.register(challenge),
-    })
+    complete = await client.post(
+        "/passkeys/register/complete",
+        json={
+            "user_id": user_id,
+            "challenge": challenge,
+            "credential": authenticator.register(challenge),
+        },
+    )
     assert complete.status_code == 200, complete.text
     return authenticator
 
@@ -207,16 +214,15 @@ async def test_jwks_is_public_and_carries_both_curves(client):
 
     assert response.status_code == 200
     keys = {k["kid"]: k for k in response.json()["keys"]}
-    assert keys["v1"]["alg"] == "EdDSA"   # mandates
-    assert keys["m1"]["alg"] == "ES256"   # AP2 Checkout JWTs
+    assert keys["v1"]["alg"] == "EdDSA"  # mandates
+    assert keys["m1"]["alg"] == "ES256"  # AP2 Checkout JWTs
     assert all("d" not in k for k in keys.values())
 
 
 # ==========================================================================
 # Creation requires a registered human
 # ==========================================================================
-async def test_creating_a_mandate_without_a_passkey_is_refused(
-        client, mandate_body):
+async def test_creating_a_mandate_without_a_passkey_is_refused(client, mandate_body):
     """An agent cannot complete a WebAuthn ceremony, so consent has nowhere
     to come from. Refusing here is the point, not an inconvenience."""
     response = await client.post("/mandates", json=mandate_body)
@@ -225,8 +231,7 @@ async def test_creating_a_mandate_without_a_passkey_is_refused(
     assert "no passkey registered" in response.json()["detail"]
 
 
-async def test_create_returns_a_draft_and_a_mandate_bound_challenge(
-        client, mandate_body, user_id):
+async def test_create_returns_a_draft_and_a_mandate_bound_challenge(client, mandate_body, user_id):
     await enrol(client, user_id)
 
     response = await client.post("/mandates", json=mandate_body)
@@ -245,15 +250,14 @@ async def test_create_returns_a_draft_and_a_mandate_bound_challenge(
 # ==========================================================================
 # The full ceremony
 # ==========================================================================
-async def test_the_gesture_activates_and_signs_the_mandate(
-        client, mandate_body, user_id):
+async def test_the_gesture_activates_and_signs_the_mandate(client, mandate_body, user_id):
     authenticator = await enrol(client, user_id)
     created = (await client.post("/mandates", json=mandate_body)).json()
     challenge = created["passkey_challenge"]["challenge"]
 
     response = await client.post(
-        f"/mandates/{created['mandate_id']}/passkey/assert",
-        json=authenticator.assert_(challenge))
+        f"/mandates/{created['mandate_id']}/passkey/assert", json=authenticator.assert_(challenge)
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -270,32 +274,27 @@ async def test_the_gesture_activates_and_signs_the_mandate(
     assert claims["vct"] == "mandate.payment.open.1"
 
 
-async def test_the_same_assertion_cannot_be_replayed(
-        client, mandate_body, user_id):
+async def test_the_same_assertion_cannot_be_replayed(client, mandate_body, user_id):
     authenticator = await enrol(client, user_id)
     created = (await client.post("/mandates", json=mandate_body)).json()
     challenge = created["passkey_challenge"]["challenge"]
     assertion = authenticator.assert_(challenge)
 
-    first = await client.post(
-        f"/mandates/{created['mandate_id']}/passkey/assert", json=assertion)
-    second = await client.post(
-        f"/mandates/{created['mandate_id']}/passkey/assert", json=assertion)
+    first = await client.post(f"/mandates/{created['mandate_id']}/passkey/assert", json=assertion)
+    second = await client.post(f"/mandates/{created['mandate_id']}/passkey/assert", json=assertion)
 
     assert first.status_code == 200
     assert second.status_code == 401
 
 
-async def test_an_assertion_for_one_mandate_cannot_activate_another(
-        client, mandate_body, user_id):
+async def test_an_assertion_for_one_mandate_cannot_activate_another(client, mandate_body, user_id):
     """Collect a gesture for mandate A, present it against mandate B."""
     authenticator = await enrol(client, user_id)
     first = (await client.post("/mandates", json=mandate_body)).json()
     second = (await client.post("/mandates", json=mandate_body)).json()
 
     stolen = authenticator.assert_(first["passkey_challenge"]["challenge"])
-    response = await client.post(
-        f"/mandates/{second['mandate_id']}/passkey/assert", json=stolen)
+    response = await client.post(f"/mandates/{second['mandate_id']}/passkey/assert", json=stolen)
 
     assert response.status_code == 401
 
@@ -303,15 +302,15 @@ async def test_an_assertion_for_one_mandate_cannot_activate_another(
 # ==========================================================================
 # Revocation
 # ==========================================================================
-async def test_revocation_requires_the_same_gesture_as_creation(
-        client, mandate_body, user_id):
+async def test_revocation_requires_the_same_gesture_as_creation(client, mandate_body, user_id):
     """Taking authority away must not be easier to forge than granting it."""
     authenticator = await enrol(client, user_id)
     created = (await client.post("/mandates", json=mandate_body)).json()
     mandate_id = created["mandate_id"]
-    await client.post(f"/mandates/{mandate_id}/passkey/assert",
-                      json=authenticator.assert_(
-                          created["passkey_challenge"]["challenge"]))
+    await client.post(
+        f"/mandates/{mandate_id}/passkey/assert",
+        json=authenticator.assert_(created["passkey_challenge"]["challenge"]),
+    )
 
     # No fresh challenge was issued for revocation, so a replayed one fails.
     stale = authenticator.assert_(created["passkey_challenge"]["challenge"])
@@ -321,7 +320,8 @@ async def test_revocation_requires_the_same_gesture_as_creation(
 
 
 async def test_revocation_passkey_deletes_the_persisted_rail_token_under_two_seconds(
-        client, mandate_body, user_id, session):
+    client, mandate_body, user_id, session
+):
     """M3's two kill switches, timed from the fresh revoke ceremony.
 
     The spy is important: a green 200 alone does not prove the opaque token
@@ -336,8 +336,9 @@ async def test_revocation_passkey_deletes_the_persisted_rail_token_under_two_sec
             self.deleted: list[str] = []
 
         async def create_setup_token(self, mandate_id):
-            return SetupToken(setup_token_id="yst_test", approve_url="https://sim/approve",
-                              simulated=True)
+            return SetupToken(
+                setup_token_id="yst_test", approve_url="https://sim/approve", simulated=True
+            )
 
         async def delete_payment_token(self, token_id):
             self.deleted.append(token_id)
@@ -368,8 +369,12 @@ async def test_revocation_passkey_deletes_the_persisted_rail_token_under_two_sec
     assert elapsed < 2
     assert spy.deleted == ["ynt_live_token"]
     from sqlalchemy import text
-    instrument_status = (await session.execute(text(
-        "SELECT status FROM payment_instruments WHERE token_ref = 'ynt_live_token'"))).scalar_one()
+
+    instrument_status = (
+        await session.execute(
+            text("SELECT status FROM payment_instruments WHERE token_ref = 'ynt_live_token'")
+        )
+    ).scalar_one()
     assert instrument_status == "deleted"
 
 

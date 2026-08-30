@@ -11,6 +11,7 @@ and without an index that is a sequential scan on every pass of every worker.
 Revision ID: 0003
 Revises: 0002
 """
+
 from alembic import op
 
 revision = "0003"
@@ -21,10 +22,8 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("DROP TABLE IF EXISTS locks")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_outbox_claim "
-               "ON outbox(relayed_at, attempts, seq)")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_watches_claim "
-               "ON watches(status, last_checked_at)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_outbox_claim ON outbox(relayed_at, attempts, seq)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_watches_claim ON watches(status, last_checked_at)")
 
 
 def downgrade() -> None:

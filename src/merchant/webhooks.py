@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
 
 import httpx
 from jwcrypto import jwk
@@ -25,8 +24,9 @@ class WebhookVerificationError(Exception):
 class YunoWebhookVerifier:
     """Fetches the simulator's public JWKS and verifies each event locally."""
 
-    def __init__(self, *, config: Settings | None = None,
-                 keys: dict[str, jwk.JWK] | None = None) -> None:
+    def __init__(
+        self, *, config: Settings | None = None, keys: dict[str, jwk.JWK] | None = None
+    ) -> None:
         self._config = config or settings()
         self._keys = keys
         self._injected_keys = keys is not None
@@ -64,7 +64,8 @@ class YunoWebhookVerifier:
             try:
                 async with httpx.AsyncClient(timeout=self._config.http_timeout_seconds) as client:
                     response = await client.get(
-                        f"{self._config.yuno_sim_url.rstrip('/')}/.well-known/jwks.json")
+                        f"{self._config.yuno_sim_url.rstrip('/')}/.well-known/jwks.json"
+                    )
                     response.raise_for_status()
                 self._keys = {
                     item["kid"]: jwk_from_dict(item)

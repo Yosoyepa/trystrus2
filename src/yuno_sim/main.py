@@ -28,8 +28,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from trustlib.models import ReasonCode
-
 from . import disputes, vault
 from .ap2_verifier import AP2Verifier
 from .config import settings
@@ -67,10 +65,10 @@ _verifier: AP2Verifier | None = None
 def _session_factory() -> async_sessionmaker[AsyncSession]:
     global _engine, _factory
     if _factory is None:
-        _engine = create_async_engine(settings().database_url, pool_size=5,
-                                      max_overflow=2, pool_pre_ping=True)
-        _factory = async_sessionmaker(_engine, expire_on_commit=False,
-                                      autoflush=False)
+        _engine = create_async_engine(
+            settings().database_url, pool_size=5, max_overflow=2, pool_pre_ping=True
+        )
+        _factory = async_sessionmaker(_engine, expire_on_commit=False, autoflush=False)
     return _factory
 
 
@@ -107,15 +105,18 @@ async def refusal_handler(_: Request, exc: PaymentRefused) -> JSONResponse:
     """402 with a reason code — the contract's refusal shape (api.yaml)."""
     return JSONResponse(
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
-        content={"reason_code": exc.reason_code.value, "message": str(exc),
-                 "simulated": True},
+        content={"reason_code": exc.reason_code.value, "message": str(exc), "simulated": True},
     )
 
 
 @app.get("/health", tags=["ops"])
 async def health() -> dict:
-    return {"status": "ok", "service": "yuno_sim", "simulated": True,
-            "provider": settings().provider_name}
+    return {
+        "status": "ok",
+        "service": "yuno_sim",
+        "simulated": True,
+        "provider": settings().provider_name,
+    }
 
 
 @app.get("/.well-known/jwks.json", tags=["webhooks"])
@@ -127,18 +128,15 @@ async def webhook_jwks() -> dict:
 # ==========================================================================
 # Enrollment — the human approves the instrument once
 # ==========================================================================
-@app.post("/v1/payment-methods/enroll", response_model=SetupTokenView,
-          tags=["vault"])
-async def enroll(body: EnrollRequest,
-                 session: AsyncSession = Depends(get_session)):
+@app.post("/v1/payment-methods/enroll", response_model=SetupTokenView, tags=["vault"])
+async def enroll(body: EnrollRequest, session: AsyncSession = Depends(get_session)):
     row = await vault.create_setup_token(session, body.mandate_id)
-    return SetupTokenView(setup_token_id=row.setup_token_id,
-                          approve_url=row.approve_url,
-                          expires_at=row.expires_at)
+    return SetupTokenView(
+        setup_token_id=row.setup_token_id, approve_url=row.approve_url, expires_at=row.expires_at
+    )
 
 
-@app.get("/simulated-approval/{setup_token_id}", response_class=HTMLResponse,
-         tags=["vault"])
+@app.get("/simulated-approval/{setup_token_id}", response_class=HTMLResponse, tags=["vault"])
 async def approval_page(setup_token_id: str) -> str:
     """Stands in for the provider's own approval screen.
 
@@ -160,33 +158,32 @@ screen. No real instrument is involved.</p>
 
 
 @app.post("/v1/payment-methods/{setup_token_id}/approve", tags=["vault"])
-async def approve(setup_token_id: str,
-                  session: AsyncSession = Depends(get_session)) -> dict:
+async def approve(setup_token_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     try:
         await vault.approve_setup_token(session, setup_token_id)
     except vault.VaultError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return {"status": "approved", "setup_token_id": setup_token_id,
-            "simulated": True}
+    return {"status": "approved", "setup_token_id": setup_token_id, "simulated": True}
 
 
-@app.post("/v1/payment-methods/{setup_token_id}/confirm",
-          response_model=PaymentTokenView, tags=["vault"])
-async def confirm(setup_token_id: str,
-                  session: AsyncSession = Depends(get_session)):
+@app.post(
+    "/v1/payment-methods/{setup_token_id}/confirm", response_model=PaymentTokenView, tags=["vault"]
+)
+async def confirm(setup_token_id: str, session: AsyncSession = Depends(get_session)):
     """Approved setup token -> durable payment token."""
     try:
         token = await vault.exchange(session, setup_token_id)
     except vault.VaultError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return PaymentTokenView(token_id=token.token_id,
-                            mandate_id=token.mandate_id,
-                            instrument_label=token.instrument_label)
+    return PaymentTokenView(
+        token_id=token.token_id,
+        mandate_id=token.mandate_id,
+        instrument_label=token.instrument_label,
+    )
 
 
 @app.delete("/v1/payment-methods/{token_id}", tags=["vault"])
-async def delete_token(token_id: str,
-                       session: AsyncSession = Depends(get_session)) -> dict:
+async def delete_token(token_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     """The rail-side kill switch. Idempotent by contract.
 
     Revocation retries, and a second DELETE that errored would make a
@@ -196,8 +193,12 @@ async def delete_token(token_id: str,
     deleted = await vault.delete_token(session, token_id)
     if not deleted and not await vault.token_exists(session, token_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown payment token")
-    return {"token_id": token_id, "status": "deleted",
-            "already_deleted": not deleted, "simulated": True}
+    return {
+        "token_id": token_id,
+        "status": "deleted",
+        "already_deleted": not deleted,
+        "simulated": True,
+    }
 
 
 # ==========================================================================
@@ -219,61 +220,94 @@ async def create_payment(
     try:
         amount = Decimal(body.amount)
     except InvalidOperation as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "amount must be a decimal string") from exc
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "amount must be a decimal string"
+        ) from exc
 
     settlement = await capture(
-        session, verifier(),
-        token_id=body.token_id, amount=amount, currency=body.currency,
-        idempotency_key=idempotency_key, intent_ref=body.intent_ref,
+        session,
+        verifier(),
+        token_id=body.token_id,
+        amount=amount,
+        currency=body.currency,
+        idempotency_key=idempotency_key,
+        intent_ref=body.intent_ref,
         purchase_id=body.purchase_id or body.intent_ref,
-        mandate_sd_jwt=body.mandate_sd_jwt, checkout_jwt=body.checkout_jwt,
+        mandate_sd_jwt=body.mandate_sd_jwt,
+        checkout_jwt=body.checkout_jwt,
     )
     receipt = settlement.to_receipt(purchase_id=body.purchase_id or body.intent_ref)
-    background_tasks.add_task(deliver, signer().event(
-        type="payment.captured", payload=receipt,
-        aggregate_id=settlement.payment_id))
+    background_tasks.add_task(
+        deliver,
+        signer().event(
+            type="payment.captured", payload=receipt, aggregate_id=settlement.payment_id
+        ),
+    )
     return ReceiptView(**receipt)
 
 
 # ==========================================================================
 # Disputes
 # ==========================================================================
-@app.post("/v1/payments/{payment_id}/disputes", response_model=DisputeView,
-          tags=["disputes"])
-async def open_dispute(payment_id: str, body: DisputeRequest,
-                       background_tasks: BackgroundTasks,
-                       session: AsyncSession = Depends(get_session)):
+@app.post("/v1/payments/{payment_id}/disputes", response_model=DisputeView, tags=["disputes"])
+async def open_dispute(
+    payment_id: str,
+    body: DisputeRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
     try:
-        row = await disputes.open_dispute(session, payment_id,
-                                          reason=body.reason)
+        row = await disputes.open_dispute(session, payment_id, reason=body.reason)
     except disputes.DisputeError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if background_tasks is not None:
-        background_tasks.add_task(deliver, signer().event(
-            type="dispute.opened",
-            payload={"capture_id": row.payment_id, "dispute_id": row.dispute_id,
-                     "reason": row.reason}, aggregate_id=row.payment_id))
-    return DisputeView(dispute_id=row.dispute_id, capture_id=row.payment_id,
-                       reason=row.reason, status=row.status)
+        background_tasks.add_task(
+            deliver,
+            signer().event(
+                type="dispute.opened",
+                payload={
+                    "capture_id": row.payment_id,
+                    "dispute_id": row.dispute_id,
+                    "reason": row.reason,
+                },
+                aggregate_id=row.payment_id,
+            ),
+        )
+    return DisputeView(
+        dispute_id=row.dispute_id, capture_id=row.payment_id, reason=row.reason, status=row.status
+    )
 
 
-@app.post("/v1/disputes/{dispute_id}/adjudicate", response_model=DisputeView,
-          tags=["disputes"])
-async def adjudicate(dispute_id: str, evidence: dict,
-                     background_tasks: BackgroundTasks,
-                     session: AsyncSession = Depends(get_session)):
+@app.post("/v1/disputes/{dispute_id}/adjudicate", response_model=DisputeView, tags=["disputes"])
+async def adjudicate(
+    dispute_id: str,
+    evidence: dict,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
     """Decide the dispute from the evidence bundle (T18, with Dev 2)."""
     try:
         row = await disputes.adjudicate(session, dispute_id, evidence)
     except disputes.DisputeError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if background_tasks is not None:
-        background_tasks.add_task(deliver, signer().event(
-            type="dispute.resolved",
-            payload={"capture_id": row.payment_id, "dispute_id": row.dispute_id,
-                     "outcome": row.outcome}, aggregate_id=row.payment_id))
-    return DisputeView(dispute_id=row.dispute_id, capture_id=row.payment_id,
-                       reason=row.reason, status=row.status,
-                       outcome=row.outcome,
-                       findings=(row.evidence or {}).get("findings", []))
+        background_tasks.add_task(
+            deliver,
+            signer().event(
+                type="dispute.resolved",
+                payload={
+                    "capture_id": row.payment_id,
+                    "dispute_id": row.dispute_id,
+                    "outcome": row.outcome,
+                },
+                aggregate_id=row.payment_id,
+            ),
+        )
+    return DisputeView(
+        dispute_id=row.dispute_id,
+        capture_id=row.payment_id,
+        reason=row.reason,
+        status=row.status,
+        outcome=row.outcome,
+        findings=(row.evidence or {}).get("findings", []),
+    )

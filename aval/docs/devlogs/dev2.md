@@ -7,6 +7,353 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — coder-1 run audited (5 agents): approved with observations; lanes merged (D2-I/I-1)
+- **Why:** the decision-core run landed as C1–C5 (`d931ba9`..`9d18ce5`); the
+  plan requires an audit gate before merging the decision lane with the
+  evidence lane.
+- **Done:** 5 parallel read-only audits — brief compliance, decision-core deep
+  review, domain delta vs the fixes card, test-suite audit, merge readiness.
+  Verdict: **approved with observations**. Lane discipline held (zero
+  forbidden files, hypothesis contained to T1, devlog per commit, stash
+  empty). Core wins: replay-verbatim idempotency with claim tokens, the
+  double-escalation-on-replay bug is dead, G-2 closed at service level
+  (catalog offer mandatory), release honors reservation_id, outbox shares the
+  business transaction (rollback-tested), T5 race covered in the PG lane.
+  Still open (fix cards 1/3/7 NOT executed, as expected for this run):
+  `uv_verified` bypass live at domain level, `approved_stepup` is a public
+  kwarg that converts ESCALATED→APPROVED with no trail annotation, offer
+  currency unchecked (G-3: EUR offer approved on USD mandate), `fraud.alert`
+  dead on the flood path (auto_suspend flag lost by the gate — D-01),
+  DUPLICATE_JTI/purchase.requested still unemitted, `pending_capture` off-contract,
+  no depth caps in the JsonLogic evaluator, secret default hardcoded. Then:
+  merged `dev2/audit-evidence` into this branch (devlog resolved keep-both;
+  pyproject auto-merged; uv.lock regenerated) per merge-readiness audit —
+  conflict surface was exactly the predicted one.
+- **Tests:** union suite green; ruff clean; docs-guard OK.
+- **Decision:** none new (fix cards 1–7 remain the next run's contract).
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C1 implementation: velocity store foundation
+- **Why:** R-BURST needs a deterministic counter projection that can be read
+  before evaluation and updated atomically after an observed intent.
+- **Done:** added the decision ports, lock-protected in-memory repositories,
+  PostgreSQL minute-bucket upserts, cooldown expiry records, open-authorization
+  counters, strict money handling, and transaction-aware outbox/reservation
+  seams. The shared repository modules also contain the C2 idempotency adapter
+  because both adapters use the same frozen persistence boundary.
+- **Tests:** unit coverage exercises count and amount buckets, rolling-hour
+  escalations, cooldown expiry, open-authorization compensation, derived-key
+  enforcement, replay, conflict, retention, and purge behavior.
+- **Decision:** no schema or contract files were changed; the frozen DDL
+  remains authoritative.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C2 implementation: idempotency claim ownership
+- **Why:** a matching retry must replay the first response, while a
+  concurrent request that sees an unresolved claim must not execute the
+  purchase side effects a second time.
+- **Done:** added the application claim coordinator. It derives the key from
+  the intent JTI, creates a unique pending claim token, and exposes ownership
+  explicitly to the verify use case. Repositories persist the token inside
+  their namespaced JSONB metadata without changing the frozen DDL.
+- **Tests:** added English unit coverage for first-owner and second-claim
+  behavior while retaining the store tests for conflict, TTL, replay, and
+  first-response preservation.
+- **Decision:** non-owners fail closed until the owner has persisted the
+  response; no payment or purchase side effect is repeated.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C3 implementation: verify path and escalation saga
+- **Why:** the deterministic policy result must become one durable business
+  branch without allowing approval, infrastructure failure, or a stale offer
+  to bypass enforcement.
+- **Done:** wired the verify use case to mandate and offer ports, velocity
+  observations, atomic conditional reservation, purchase state, escalation
+  TTLs, lazy expiry, trusted UV validation, full re-gating, compensation, and
+  transaction-aware outbox events. Repeated pending idempotency claims now
+  fail closed before business side effects.
+- **Tests:** added English fake-based coverage for approval, every principal
+  rejection/escalation branch, burst cooldown, price TOCTOU, budget races,
+  changed mandate state, trusted and missing UV, timeout compensation,
+  outbox failure, catalog reload, and idempotent replay/conflict.
+- **Decision:** the service never trusts a caller-supplied offer or UV flag
+  when a repository/verifier is configured; the current DDL remains unchanged.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C4 implementation: deterministic T1 properties
+- **Why:** example tests protect known branches, but the gate invariants must
+  also hold across generated amounts, scopes, statuses, counters, and rule
+  boundaries.
+- **Done:** added Hypothesis strategies and properties for out-of-mandate
+  rejection, the verdictive/corroborative gold rule, inclusive step-up
+  thresholds, burst cooldown transitions, HMAC key stability/injectivity,
+  and L3/L3+ TTLs. The CI profile is registered with 200 deterministic
+  examples and no deadline.
+- **Tests:** the T1 property module runs in the normal test suite and uses
+  exact Decimal values only.
+- **Decision:** Hypothesis is the only new development dependency; runtime
+  enforcement remains deterministic and model-free.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C5 implementation: DB-marked integration coverage
+- **Why:** the in-memory saga proves decisions locally, while the atomic
+  PostgreSQL paths need executable checks when a development database is
+  available.
+- **Done:** added DB-marked checks for the frozen tables, velocity upserts,
+  derived idempotency round trips, competing reservation connections, and
+  transaction-bound outbox rollback. The module skips cleanly when
+  DATABASE_URL or a PostgreSQL driver is absent.
+- **Tests:** the default environment reports the DB module as skipped; a
+  configured PostgreSQL run exercises the real conditional update and
+  rollback behavior without mutating the schema.
+- **Decision:** no test creates or alters DDL; fixture rows use unique IDs and
+  are cleaned up transactionally.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
+- **Why:** start resolving the gap register without colliding with the
+  coder-1 run in flight — everything here is NEW files; the gate fixes that
+  live in their WIP files are handed over as a precise fix card instead.
+- **Done:**
+  (1) `src/api/canonical.py` — the single strict canonical JSON (floats,
+  sets, naive datetimes and non-str keys rejected; Decimal/datetime/Enum
+  canonical), leaf module so domain/decision/audit/events can all adopt it
+  after the lanes merge;
+  (2) `src/api/tests/test_canonical_golden.py` — 12 tests incl. two golden
+  vectors whose JSON literals are hand-written and whose SHA-256 digests were
+  computed independently of the implementation (TX-10 groundwork);
+  (3) `src/api/evidence/` — R-EVIDENCE pack use case (models/ports/service):
+  assembles mandate + intent + decision + receipt + ledger slice + chain
+  verdict + root checkpoint, fail-closed by construction (`integrity` ok /
+  failed with explicit reasons, failures never hidden), digest over the
+  canonical envelope; ports are lane-local (no imports from decision/ or
+  audit/) so the composition root wires adapters after the merge;
+  (4) `src/api/tests/test_evidence_pack.py` — 9 tests (happy path, digest
+  stability, tampered chain, missing witness/receipt/slice/decision, unknown
+  purchase, model invariants);
+  (5) [`../plans/2026-08-29-dev2-critical-fixes-card.md`](../plans/2026-08-29-dev2-critical-fixes-card.md) —
+  six code-level fix cards (RT-1 UV bypass, RT-2 replay wiring, RT-3/G-2/G-6
+  fail-closed downgrades, G-5 silent-degraded modes, RT-6 step-up ratio in the
+  reservation guard, minor debts) to run AFTER C1–C5, one commit per card.
+- **Tests:** `uv run pytest src/api/tests/test_canonical_golden.py
+  src/api/tests/test_evidence_pack.py` → 21 passed; ruff clean on the new
+  files; coder suite observed in parallel: 62 passed / 1 skipped (their WIP,
+  IndentationError already fixed on their side).
+- **Decision:** none new.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — gate/gap analysis (8 parallel audits) + phase evolution plan
+- **Why:** after the parallel-phase run was verified and merged, the next
+  phase of Dev 2 needed ground truth: where the gate is incomplete, where the
+  lanes have gaps, and what to build next.
+- **Done:** ran 8 read-only audit agents over `dev2/gate-core` (+ coder WIP)
+  and `dev2/audit-evidence` — gate completeness & fail-closed, coder-1 WIP vs
+  brief, contracts↔code delta, threat/rule coverage + red-team, test matrix,
+  integration seams, R-IDEM/disputes, persistence/ops. Synthesized:
+  [`../research/2026-08-29-dev2-gate-gap-analysis.md`](../research/2026-08-29-dev2-gate-gap-analysis.md)
+  (finding register RT/G/W/B/H/I/P/TX, threat & ladder coverage, seam map,
+  open decisions Q-01..Q-10) and
+  [`../plans/2026-08-29-dev2-phase-evolution.md`](../plans/2026-08-29-dev2-phase-evolution.md)
+  (phases D2-C close-kernel → D2-I lanes-merge & seams → D2-S saga/recon →
+  D2-D evidence/disputes → D2-B baselines, each with an exit gate, plus the
+  cross-lane briefs Dev 3/1/4 need to unblock H-01..H-08).
+- **Key findings (action required):** UV bypass via `uv_verified` (RT-1) and
+  unwired replay protection (RT-2) must be closed before any HTTP wiring;
+  silent-degradation fallbacks weaken R-PRICE (RT-3/G-2); offer currency
+  unchecked (G-3); three divergent canonical JSONs (RT-9); decision hot-path
+  state still volatile (no PG adapters for mandate/offer/purchase/escalation);
+  P0 rules post-capture/webhook/evidence are orphaned across lanes with no
+  active brief.
+- **Snapshot caveat:** audits ran while the coder was live-editing
+  (`service.py` grew 821→934 lines); re-verify findings when the run lands.
+- **Decision:** none new (analysis only; Q-01..Q-10 listed for team).
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — C1/C2 decision stores implemented
+- **Why:** the deterministic gate needs atomic velocity observations and a
+  replay-safe persistence boundary before the verify saga can safely write
+  business state.
+- **Done:** added the DEV2 decision ports, thread-safe in-memory fakes,
+  PostgreSQL adapters for velocity_counters and idempotency_keys, strict
+  cent-precision money validation, minute-bucket counters, cooldown and
+  open-authorization tracking, HMAC-derived idempotency keys, request
+  fingerprint conflict checks, 45-day expiry, and first-response
+  preservation. PostgreSQL velocity intent counters use one transaction for
+  the count and amount upserts; the adapter reads its spend snapshot through
+  one connection.
+- **Tests:** added English unit coverage for velocity transitions, cooldown
+  expiry, open authorization compensation, derived-key enforcement, replay,
+  body conflict, TTL expiry, and purge.
+- **Decision:** the frozen DDL has no fingerprint column or reservation
+  ledger. The idempotency adapter keeps its fingerprint in a namespaced
+  JSONB envelope and the reservation adapter uses the stable purchase key
+  plus existing purchases rows; no schema or contract files were changed.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — parallel phase verified; lint mask removed; gate-core merged
+- **Why:** the audit coder's report claimed `ruff check .` green, but
+  verification showed a `tool.ruff exclude` list had been added to
+  `pyproject.toml`, masking pre-existing debt (`domain/` from `f4d9a69`)
+  plus files that pass anyway or do not even exist (`test_webhooks.py`).
+- **Done:** full review of P1–P5 against the brief (hash formula with seq
+  excluded, genesis prev_hash, no floats, tail lock, guarded root annotation,
+  KMS Ed25519, GCS `if_generation_match=0`, fail-closed verify, at-least-once
+  relay, signed webhook) — verdict: approved with notes. Removed the exclude
+  list (`cdedbc0`), fixed the domain debt at its origin on `dev2/gate-core`
+  (`36cedb6`), and merged gate-core into this branch (devlog conflict
+  resolved keep-both, as planned in the brief). Notes for the next
+  iteration: relay transaction scope (SKIP LOCKED locks are released when
+  the fetch transaction commits — single-instance relay plus sink dedupe
+  covers P0), empty-ledger first-insert race under the tail lock, and
+  `sign_root` annotates before witness publication (a crash in between is
+  fail-closed detectable but needs manual recovery).
+- **Tests:** `uv run pytest src/api/tests` → 60 passed, 5 skipped;
+  `uv run ruff check` over tracked files → clean; docs-guard OK.
+- **Decision:** none (review within existing #7/#10/#11/#15).
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — P5: outbox relay with SKIP LOCKED
+- **Why:** implement transactional event distribution via the Postgres outbox drained by `FOR UPDATE SKIP LOCKED` poller dispatching to idempotent sinks and signed merchant webhooks (decisions #10, #15, #19).
+- **Done:** created `src/api/events/ports.py` (`OutboxEvent`, `Sink`, `OutboxStore`, `Clock`), `src/api/events/sinks_memory.py` (`InMemoryOutboxStore` with skip-lock simulation, `InMemorySink` with transient error injection), `src/api/events/webhook_signed.py` (`SignedWebhookPoster` signing canonical bodies with `RootSigner` evidence key headers `X-Aval-Signature`), `src/api/events/relay.py` (`OutboxRelay` poller with per-event error isolation, `PostgresOutboxStore` with `FOR UPDATE SKIP LOCKED`), and test suite `src/api/tests/test_events_relay.py` (6 unit and `@pytest.mark.db` tests verifying in-order delivery, retry on transient failure, signature verification, and concurrent worker deduplication).
+- **Decision:** none new (implements #10, #15, #19).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P4: chain verification use case (T9)
+- **Why:** implement the full `Ledger` application service use cases (`append`, `sign_root`, `verify_chain`) supporting root signing and fail-closed chain verification against the external witness (decisions #7, #15, #19).
+- **Done:** created `src/api/audit/service.py` (`LedgerService` orchestrating repo, signers, and witness) and test suite `src/api/tests/test_audit_verify.py` implementing test T9 (the live demo script: intact 25-event chain with 2 signed checkpoints verifies clean; 1-byte payload mutation at seq 7 breaks verification at seq 7; hash corruption at seq 15 breaks at seq 15; invalid root sig fails; divergent external witness fails; missing witness fails).
+- **Decision:** none new (implements #7, #15, #19).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P3: root signers + external witness
+- **Why:** implement cryptographic root signing via Cloud KMS `EC_SIGN_ED25519` (non-exportable HSM key) and local Ed25519 for dev, accompanied by external root witness storage in versioned GCS buckets (decisions #7, #11, #15).
+- **Done:** created `src/api/audit/signer_kms.py` (KMS `asymmetricSign` adapter with lazy imports), `src/api/audit/signer_local.py` (Ed25519 local keypair/PEM signer), `src/api/audit/witness_gcs.py` (GCS versioned bucket witness adapter with `if_generation_match=0`), `src/api/audit/witness_memory.py` (in-memory witness fake with tamper/deletion hooks), and tests in `src/api/tests/test_audit_signers.py` (unit sign/verify, corruption detection, immutability + `@pytest.mark.gcp` integration tests).
+- **Decision:** none new (implements #7, #11, #15).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P2: postgres ledger repository (append-only, tail lock)
+- **Why:** provide persistent, append-only storage for the audit hash chain with concurrency serialization (tail-lock `SELECT ... FOR UPDATE`) to prevent chain forks, plus a testable in-memory fake with tamper injection (decisions #7, #19).
+- **Done:** created `src/api/audit/ports.py` (`LedgerRepository`, `Clock`), `src/api/audit/repository_memory.py` (thread-safe fake with `tamper` hook), `src/api/audit/repository_postgres.py` (PostgreSQL driver with tail-lock atomic append, range queries, guarded `annotate_root`), and tests in `src/api/tests/test_audit_repository.py` (unit concurrency and chaining tests + `@pytest.mark.db` integration tests).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
+## 2026-08-29 — P1: pure chain algebra (hashing + validation)
+- **Why:** implement deterministic, append-only hash chain computations and pure validation rules without any I/O dependencies (decisions #7, #19).
+- **Done:** created `src/api/audit/models.py` (`AuditEvent`, `ChainResult`, `RootCheckpoint`), `src/api/audit/hashing.py` (canonical JSON serialization with key ordering, no floats, UTC normalization, `compute_event_hash`, `compute_root_hash`), `src/api/audit/chain.py` (`validate_event`, `validate_chain`), and tests in `src/api/tests/test_audit_hashing.py` (12 unit tests covering determinism, sensitivity, payload mutations, hash corruptions, sequence gaps).
+- **Decision:** none new (implements #7).
+- **Contracts touched:** none.
+
+
+---
+
+## 2026-08-29 — domain/ brought up to the repo's ruff config
+- **Why:** verification of the parallel-phase run revealed that the
+  `domain/` extraction (`f4d9a69`) had never passed `ruff check` under the
+  repo's own config (E/F/I/UP/B @ 100) — 26 real violations. The audit coder
+  masked them with a `tool.ruff exclude` list instead of reporting the debt;
+  that exclude is removed on `dev2/audit-evidence` and the debt is fixed here,
+  at its origin.
+- **Done:** import sorting (I001), `collections.abc` imports (UP035),
+  `datetime.UTC` alias (UP017), `StrEnum` for the four string enums (UP042),
+  unused imports (F401), and manual wraps for 12 long lines (E501) across
+  `src/api/domain/{models,policy,idempotency,__init__}.py` and
+  `src/api/tests/test_domain_gate.py`. Pure formatting/import hygiene — no
+  public signature, value, or behavior change.
+- **Tests:** `uv run pytest src/api/tests` → 22 passed (unchanged);
+  `uv run ruff check src/api/domain src/api/tests/test_domain_gate.py` → clean.
+- **Decision:** none.
+- **Contracts touched:** none.
+
+---
+
+## 2026-08-29 — parallel phase brief issued: evidence & distribution (ledger + outbox)
+- **Why:** a second coder can run in parallel with the decision-core brief
+  without sharing a single code file — the ledger and the outbox relay are
+  explicitly Dev 2's lane (decision 0019) and live in separate folders.
+- **Done:** [`../plans/2026-08-29-dev2-parallel-audit-brief.md`](../plans/2026-08-29-dev2-parallel-audit-brief.md)
+  on branch `dev2/audit-evidence` (created from this line): P1 pure chain
+  algebra, P2 append-only Postgres repository with tail lock, P3 KMS
+  EC_SIGN_ED25519 root signers + versioned-bucket GCS witness (lazy imports,
+  fakes for tests), P4 verification use case = T9 (the judge-facing
+  tamper-breaks-verification test), P5 outbox relay with FOR UPDATE SKIP
+  LOCKED + signed webhook sink (#15). Lane discipline via allowlist diff
+  check against `dev2/gate-core`; merge of both branches happens after both
+  reports. Devlog collisions on merge are expected (append-only, keep both).
+- **Decision:** none new (executes #7/#10/#11/#15).
+- **Contracts touched:** none.
+
+## 2026-08-29 — Dev 3 surface archive (stash) dropped
+- **Why:** Dev 3 is rebuilding the API surface on their own line, so the
+  stashed coder-run copy served no one on this branch — and it was flagged
+  as noise/risk in our own coder brief (a coder could apply it by mistake).
+- **Done:** `git stash drop` of the "dev3 surface archive" entry; stash list
+  now empty. Nothing in our lane depended on it (the domain core was already
+  extracted and committed in `f4d9a69`). Brief updated to remove the stash
+  warnings; DoD now asserts an empty stash list instead.
+- **Decision:** none (housekeeping within the 0019/0022 lane boundaries).
+- **Contracts touched:** none.
+
+## 2026-08-29 — Dev 2 coder brief issued (decision core completion)
+- **Why:** handover done; the four pending pieces of our lane need a coder
+  run correctly scoped this time — decision core only, zero API surface.
+- **Done:** [`../plans/2026-08-29-dev2-coder-brief.md`](../plans/2026-08-29-dev2-coder-brief.md)
+  — 5 closed commits: C1 velocity store (Postgres + fake, atomic upserts),
+  C2 idempotency store (T19 store side), C3 verify path with atomic
+  reservation + escalation flow (re-gate, never bypass; lazy expiry
+  fail-closed; outbox same-tx), C4 T1 property-based extension (Hypothesis),
+  C5 db-marked integration. Lane discipline enforced by DoD: forbidden-files
+  diff check against router/main/schemas/config/agent/mocks/contracts;
+  stash must stay unapplied; no push.
+- **Decision:** none new (executes 0019/0021/0022 + #1/#4/#5/#10).
+- **Contracts touched:** none.
+- **Open questions:** coder report pending; `escalations.level` stays in
+  `diff` JSONB (a real column would need a decision record).
+
+## 2026-08-29 — extracted Dev 2 domain core from the coder run (branch `dev2/gate-core`)
+- **Why:** the coder executed the full-P0 brief (all lanes) on the Dev 3
+  branch; Dev 3 is building the API surface themselves, so we took only what
+  is ours per decisions 0019/0022 and deleted that branch.
+- **Done:** extracted `src/api/domain/` — `policy.py` (PolicyGate with
+  R-PRICE gate check, R-BURST escalate/cooldown/auto-suspend, R-STEPUP 0.7/0.8
+  thresholds with L3/L3+ TTLs 120/300 s, gold rule encoded as
+  verdictive-vs-corroborative sets, fail-closed UV stub, re-gate escalation
+  resolution), `models.py`, `idempotency.py` (HMAC(jti) derivation,
+  fingerprinted reuse validation, 45-day retention). Verified self-contained
+  (stdlib only). Added `tests/test_domain_gate.py` — seed cases of T20/T22/T23
+  + gold rule + R-IDEM invariants (21 tests, green). The committed
+  `db/schema.sql` already carries our migration [2] risk tables.
+- **Decision:** none new (executes 0020–0022). Branch
+  `dev3/fraud-transaction-research` deleted at Dev 2's request after
+  extraction; its docs history (research, plan, decisions 0020–0022,
+  contracts v1.1) survives in this branch's history. The Dev 3 surface work
+  (webhooks/rail/yuno-mock/ports) was NOT discarded: it is archived in a
+  labeled git stash for whoever wants it.
+- **Contracts touched:** none (v1.1 untouched).
+- **Tests I own:** T20/T22/T23 seeds green. Still pending in our lane:
+  full property-based T1 extension over the new rules, Postgres wiring of
+  `velocity_counters`, integration of the gate into the verify path, and
+  T19's store/repository side.
+- **Open questions:** none.
+
 ## 2026-08-29 — workstream opened at M0 freeze
 - **Why:** contracts v1.0 are frozen; this log exists so nobody re-solves what Dev 2 already solved.
 - **Decision:** none yet. Starting points:

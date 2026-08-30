@@ -41,9 +41,14 @@ def test_every_pair_matches_the_specification(frm, to):
 # ==========================================================================
 # Terminal states are terminal
 # ==========================================================================
-@pytest.mark.parametrize("terminal", [
-    MandateStatus.REVOKED, MandateStatus.EXPIRED, MandateStatus.EXHAUSTED,
-])
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        MandateStatus.REVOKED,
+        MandateStatus.EXPIRED,
+        MandateStatus.EXHAUSTED,
+    ],
+)
 @pytest.mark.parametrize("target", ALL)
 def test_nothing_leaves_a_terminal_state(terminal, target):
     """A buyer who revoked has revoked -- there is no path back."""
@@ -120,21 +125,26 @@ def test_a_transition_with_no_legal_source_produces_an_empty_guard():
 # ==========================================================================
 # Refusals carry a reason the buyer can read
 # ==========================================================================
-@pytest.mark.parametrize(("current", "expected"), [
-    (MandateStatus.REVOKED, ReasonCode.MANDATE_REVOKED),
-    (MandateStatus.EXPIRED, ReasonCode.MANDATE_EXPIRED),
-    (MandateStatus.EXHAUSTED, ReasonCode.MANDATE_EXHAUSTED),
-    (MandateStatus.SUSPENDED, ReasonCode.MANDATE_SUSPENDED),
-])
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        (MandateStatus.REVOKED, ReasonCode.MANDATE_REVOKED),
+        (MandateStatus.EXPIRED, ReasonCode.MANDATE_EXPIRED),
+        (MandateStatus.EXHAUSTED, ReasonCode.MANDATE_EXHAUSTED),
+        (MandateStatus.SUSPENDED, ReasonCode.MANDATE_SUSPENDED),
+    ],
+)
 def test_refusal_names_the_state_not_the_mechanism(current, expected):
-    """"Your mandate was revoked" beats "invalid transition" in three consoles."""
+    """ "Your mandate was revoked" beats "invalid transition" in three consoles."""
     assert sm.refusal_reason(current, MandateStatus.ACTIVE) is expected
 
 
 def test_an_unrecognised_state_denies():
     """Fail closed: a state we cannot reason about does not get the benefit."""
-    assert sm.refusal_reason(MandateStatus.DRAFT, MandateStatus.REVOKED) \
+    assert (
+        sm.refusal_reason(MandateStatus.DRAFT, MandateStatus.REVOKED)
         is ReasonCode.MANDATE_SUSPENDED
+    )
 
 
 def test_check_passes_silently_on_a_legal_transition():

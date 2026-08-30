@@ -7,8 +7,8 @@ the database in the repository. Every statement in it is `IF NOT EXISTS` or
 Revision ID: 0001
 Revises:
 """
-from alembic import op
 
+from alembic import op
 from src.agent.db import SCHEMA, TABLES
 
 revision = "0001"

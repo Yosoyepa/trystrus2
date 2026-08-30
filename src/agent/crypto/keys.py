@@ -4,9 +4,10 @@ Keys live as PEM under var/keys/.  In production the issuer key is a Secret
 Manager secret and evidence roots are signed by KMS -- the interface is the
 same, only the loader changes.
 """
+
 from __future__ import annotations
+
 import base64
-from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (

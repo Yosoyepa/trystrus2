@@ -109,8 +109,9 @@ def generate_pem_pair(curve: Literal["Ed25519", "P-256"]) -> tuple[bytes, dict[s
 # --------------------------------------------------------------------------
 # compact JWS (Checkout JWT, approval receipts)
 # --------------------------------------------------------------------------
-def sign_compact(payload: dict[str, Any], key: jwk.JWK, *, kid: str | None = None,
-                 typ: str | None = None) -> str:
+def sign_compact(
+    payload: dict[str, Any], key: jwk.JWK, *, kid: str | None = None, typ: str | None = None
+) -> str:
     """Sign `payload` as a compact JWS. Algorithm is derived from the key."""
     from .canonical import canonical_json
 

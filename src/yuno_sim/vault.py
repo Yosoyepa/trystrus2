@@ -35,8 +35,7 @@ class VaultError(Exception):
         super().__init__(message)
 
 
-async def create_setup_token(session: AsyncSession, mandate_id: str
-                             ) -> SetupTokenRow:
+async def create_setup_token(session: AsyncSession, mandate_id: str) -> SetupTokenRow:
     """Begin enrollment. Returns the URL where the human approves."""
     setup_token_id = ids.new_id("yst")
     row = SetupTokenRow(
@@ -61,8 +60,7 @@ async def approve_setup_token(session: AsyncSession, setup_token_id: str) -> Non
     """
     result = await session.execute(
         update(SetupTokenRow)
-        .where(SetupTokenRow.setup_token_id == setup_token_id,
-               SetupTokenRow.status == "pending")
+        .where(SetupTokenRow.setup_token_id == setup_token_id, SetupTokenRow.status == "pending")
         .values(status="approved")
         .returning(SetupTokenRow.setup_token_id)
     )
@@ -80,7 +78,8 @@ async def exchange(session: AsyncSession, setup_token_id: str) -> PaymentTokenRo
     if row.status != "approved":
         raise VaultError(
             "setup token has not been approved by the human yet — "
-            "the whole point of enrollment is that a person agreed once")
+            "the whole point of enrollment is that a person agreed once"
+        )
     if row.expires_at < datetime.now(UTC):
         raise VaultError("setup token expired")
 
@@ -101,11 +100,11 @@ async def exchange(session: AsyncSession, setup_token_id: str) -> PaymentTokenRo
     return token
 
 
-async def get_active_token(session: AsyncSession, token_id: str
-                           ) -> PaymentTokenRow | None:
+async def get_active_token(session: AsyncSession, token_id: str) -> PaymentTokenRow | None:
     result = await session.execute(
-        select(PaymentTokenRow).where(PaymentTokenRow.token_id == token_id,
-                                      PaymentTokenRow.status == "active")
+        select(PaymentTokenRow).where(
+            PaymentTokenRow.token_id == token_id, PaymentTokenRow.status == "active"
+        )
     )
     return result.scalar_one_or_none()
 
@@ -118,8 +117,7 @@ async def delete_token(session: AsyncSession, token_id: str) -> bool:
     """
     result = await session.execute(
         update(PaymentTokenRow)
-        .where(PaymentTokenRow.token_id == token_id,
-               PaymentTokenRow.status == "active")
+        .where(PaymentTokenRow.token_id == token_id, PaymentTokenRow.status == "active")
         .values(status="deleted", deleted_at=datetime.now(UTC))
         .returning(PaymentTokenRow.token_id)
     )

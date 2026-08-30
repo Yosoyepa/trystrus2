@@ -17,7 +17,9 @@ Two rules this file must not break:
 The threshold is JsonLogic, evaluated by the same restricted evaluator the
 mandate uses -- so a human's standing order is as inspectable as their mandate.
 """
+
 from __future__ import annotations
+
 import json
 import time
 from typing import Any
@@ -25,12 +27,19 @@ from typing import Any
 from . import audit, jsonlogic, limits
 from .crypto.money import fmt
 from .ids import new_id, now_iso, now_ts
-from .mocks import merchant
 
 
-def create_watch(conn, *, agent_id: str, mandate_jti: str, query: dict,
-                 threshold: dict, interval_s: int = 300, autobuy: bool = True,
-                 created_by: str | None = None) -> dict[str, Any]:
+def create_watch(
+    conn,
+    *,
+    agent_id: str,
+    mandate_jti: str,
+    query: dict,
+    threshold: dict,
+    interval_s: int = 300,
+    autobuy: bool = True,
+    created_by: str | None = None,
+) -> dict[str, Any]:
     """`query` filters the catalog; `threshold` is the JsonLogic that must pass."""
     jsonlogic.evaluate(threshold, {"offer": {"price": "1.00"}, "now": now_ts()})
     # Guardrails before anything is persisted: a polling interval below the
@@ -42,13 +51,32 @@ def create_watch(conn, *, agent_id: str, mandate_jti: str, query: dict,
     conn.execute(
         "INSERT INTO watches(id,agent_id,mandate_jti,created_by,query,threshold,"
         "interval_s,autobuy,status,created_at) VALUES(?,?,?,?,?,?,?,?,'active',?)",
-        (watch_id, agent_id, mandate_jti, created_by, json.dumps(query),
-         json.dumps(threshold), int(interval_s), 1 if autobuy else 0, now_iso()))
-    audit.append(conn, "watch.created",
-                 {"watch_id": watch_id, "query": query,
-                  "threshold": jsonlogic.describe(threshold),
-                  "interval_s": interval_s, "autobuy": autobuy},
-                 actor=created_by, agent_id=agent_id, mandate_jti=mandate_jti)
+        (
+            watch_id,
+            agent_id,
+            mandate_jti,
+            created_by,
+            json.dumps(query),
+            json.dumps(threshold),
+            int(interval_s),
+            1 if autobuy else 0,
+            now_iso(),
+        ),
+    )
+    audit.append(
+        conn,
+        "watch.created",
+        {
+            "watch_id": watch_id,
+            "query": query,
+            "threshold": jsonlogic.describe(threshold),
+            "interval_s": interval_s,
+            "autobuy": autobuy,
+        },
+        actor=created_by,
+        agent_id=agent_id,
+        mandate_jti=mandate_jti,
+    )
     return {"watch_id": watch_id, "threshold": jsonlogic.describe(threshold)}
 
 
@@ -82,7 +110,9 @@ def _claim_due(conn, limit: int) -> list[Any]:
         "    last_checked_at::timestamptz + (interval_s * interval '1 second') <= now()"
         "  ) ORDER BY last_checked_at NULLS FIRST"
         "  FOR UPDATE SKIP LOCKED LIMIT ?"
-        ") RETURNING *", (limit,)).fetchall()
+        ") RETURNING *",
+        (limit,),
+    ).fetchall()
 
 
 def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
@@ -97,11 +127,18 @@ def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
     query = json.loads(row["query"])
     threshold = json.loads(row["threshold"])
     from .ports.base import search_all
-    offers = search_all(conn, origin=query.get("origin"),
-                        destination=query.get("destination"),
-                        date=query.get("date"), category=query.get("category"))
-    conn.execute("UPDATE watches SET last_checked_at=?, last_seen_price=? WHERE id=?",
-                 (now_iso(), offers[0]["price"] if offers else None, watch_id))
+
+    offers = search_all(
+        conn,
+        origin=query.get("origin"),
+        destination=query.get("destination"),
+        date=query.get("date"),
+        category=query.get("category"),
+    )
+    conn.execute(
+        "UPDATE watches SET last_checked_at=?, last_seen_price=? WHERE id=?",
+        (now_iso(), offers[0]["price"] if offers else None, watch_id),
+    )
 
     now = now_ts()
     matched = None
@@ -114,40 +151,71 @@ def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
         except jsonlogic.RuleError:
             continue
 
-    audit.append(conn, "watch.checked",
-                 {"watch_id": watch_id, "offers_seen": len(offers),
-                  "cheapest": offers[0]["price"] if offers else None,
-                  "matched": matched["offer_id"] if matched else None},
-                 agent_id=row["agent_id"], mandate_jti=row["mandate_jti"])
+    audit.append(
+        conn,
+        "watch.checked",
+        {
+            "watch_id": watch_id,
+            "offers_seen": len(offers),
+            "cheapest": offers[0]["price"] if offers else None,
+            "matched": matched["offer_id"] if matched else None,
+        },
+        agent_id=row["agent_id"],
+        mandate_jti=row["mandate_jti"],
+    )
 
     cheapest = offers[0]["price"] if offers else None
     if not matched:
-        return {"watch_id": watch_id, "checked": True, "matched": False,
-                "cheapest": cheapest}
+        return {"watch_id": watch_id, "checked": True, "matched": False, "cheapest": cheapest}
 
-    audit.append(conn, "watch.fired",
-                 {"watch_id": watch_id, "offer_id": matched["offer_id"],
-                  "price": matched["price"],
-                  "threshold": jsonlogic.describe(threshold)},
-                 agent_id=row["agent_id"], mandate_jti=row["mandate_jti"])
+    audit.append(
+        conn,
+        "watch.fired",
+        {
+            "watch_id": watch_id,
+            "offer_id": matched["offer_id"],
+            "price": matched["price"],
+            "threshold": jsonlogic.describe(threshold),
+        },
+        agent_id=row["agent_id"],
+        mandate_jti=row["mandate_jti"],
+    )
 
     if not row["autobuy"]:
-        conn.execute("UPDATE watches SET status='fired', fired_at=? WHERE id=?",
-                     (now_iso(), watch_id))
-        return {"watch_id": watch_id, "checked": True, "matched": True,
-                "cheapest": cheapest, "offer": matched, "action": "notified"}
+        conn.execute(
+            "UPDATE watches SET status='fired', fired_at=? WHERE id=?", (now_iso(), watch_id)
+        )
+        return {
+            "watch_id": watch_id,
+            "checked": True,
+            "matched": True,
+            "cheapest": cheapest,
+            "offer": matched,
+            "action": "notified",
+        }
 
     # Fires into the same gate as everything else (S2).
     from . import kernel
-    result = kernel.submit_purchase(conn, offer_id=matched["offer_id"],
-                                    mandate_jti=row["mandate_jti"],
-                                    merchant_id=matched.get("merchant_id"))
+
+    result = kernel.submit_purchase(
+        conn,
+        offer_id=matched["offer_id"],
+        mandate_jti=row["mandate_jti"],
+        merchant_id=matched.get("merchant_id"),
+    )
     if result["status"] in ("captured", "escalated"):
-        conn.execute("UPDATE watches SET status='fired', fired_at=? WHERE id=?",
-                     (now_iso(), watch_id))
-    return {"watch_id": watch_id, "checked": True, "matched": True,
-            "cheapest": cheapest, "offer": matched, "action": "purchase",
-            "result": result}
+        conn.execute(
+            "UPDATE watches SET status='fired', fired_at=? WHERE id=?", (now_iso(), watch_id)
+        )
+    return {
+        "watch_id": watch_id,
+        "checked": True,
+        "matched": True,
+        "cheapest": cheapest,
+        "offer": matched,
+        "action": "purchase",
+        "result": result,
+    }
 
 
 def tick(conn) -> dict[str, Any]:
@@ -157,13 +225,19 @@ def tick(conn) -> dict[str, Any]:
     the 120 s timeout real when nobody is looking at a terminal (H2, S3).
     """
     from . import escalation
+
     with limits.single_flight(conn, "watcher.tick") as acquired:
         if not acquired:
             # A previous tick is still running. Overlapping cron jobs are how a
             # one-minute schedule turns into a stampede; we skip, we do not queue.
-            return {"at": now_iso(), "skipped": "another tick holds the lock",
-                    "escalations_expired": 0, "watches_checked": 0, "fired": [],
-                    "events_relayed": 0}
+            return {
+                "at": now_iso(),
+                "skipped": "another tick holds the lock",
+                "escalations_expired": 0,
+                "watches_checked": 0,
+                "fired": [],
+                "events_relayed": 0,
+            }
         expired = escalation.sweep(conn)
         due = _claim_due(conn, limits.QUOTA.max_watches_per_tick)
         results = []
@@ -171,17 +245,24 @@ def tick(conn) -> dict[str, Any]:
             try:
                 results.append(check(conn, row["id"]))
             except limits.LimitExceeded as exc:
-                audit.append(conn, "watch.throttled",
-                             {"watch_id": row["id"], "reason_code": exc.code,
-                              "detail": exc.detail}, agent_id=row["agent_id"])
+                audit.append(
+                    conn,
+                    "watch.throttled",
+                    {"watch_id": row["id"], "reason_code": exc.code, "detail": exc.detail},
+                    agent_id=row["agent_id"],
+                )
                 results.append({"watch_id": row["id"], "throttled": exc.code})
         from . import relay
+
         delivery = relay.drain(conn)
-        return {"at": now_iso(), "escalations_expired": len(expired),
-                "watches_checked": len(results),
-                "throttled": [r for r in results if r.get("throttled")],
-                "fired": [r for r in results if r.get("matched")],
-                "events_relayed": delivery["delivered"]}
+        return {
+            "at": now_iso(),
+            "escalations_expired": len(expired),
+            "watches_checked": len(results),
+            "throttled": [r for r in results if r.get("throttled")],
+            "fired": [r for r in results if r.get("matched")],
+            "events_relayed": delivery["delivered"],
+        }
 
 
 def run_forever(conn, *, every_s: int = 30, max_ticks: int | None = None) -> None:
@@ -190,9 +271,11 @@ def run_forever(conn, *, every_s: int = 30, max_ticks: int | None = None) -> Non
     while max_ticks is None or ticks < max_ticks:
         summary = tick(conn)
         if summary["watches_checked"] or summary["escalations_expired"]:
-            print(f"[{summary['at']}] checked={summary['watches_checked']} "
-                  f"expired={summary['escalations_expired']} "
-                  f"fired={len(summary['fired'])}")
+            print(
+                f"[{summary['at']}] checked={summary['watches_checked']} "
+                f"expired={summary['escalations_expired']} "
+                f"fired={len(summary['fired'])}"
+            )
         ticks += 1
         if max_ticks is not None and ticks >= max_ticks:
             break

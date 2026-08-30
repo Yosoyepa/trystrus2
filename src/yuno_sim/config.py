@@ -16,9 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="YUNO_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="YUNO_", env_file=".env", extra="ignore")
 
     # Identity of this simulation. Not Yuno; a proposal for what a Yuno AP2
     # surface could look like (decision 0024).

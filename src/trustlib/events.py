@@ -24,24 +24,36 @@ from . import ids
 from .models import EventEnvelope
 
 # schemas.md §4. Emitting a type that is not here is a contract change.
-KNOWN_EVENT_TYPES = frozenset({
-    # [3] identity
-    "mandate.created", "mandate.activated", "mandate.revoked",
-    "mandate.suspended", "mandate.exhausted", "mandate.expired",
-    "payment_instrument.linked",
-    # [3] human in the loop
-    "escalation.resolved", "escalation.expired",
-    # [1] agent
-    "offer.seen",
-    # [2] purchase saga
-    "purchase.requested", "purchase.verified", "purchase.escalated",
-    "purchase.captured", "purchase.rejected",
-    # rail (was payment.*/dispute.* from PayPal; now from the orchestrator)
-    "payment.captured", "payment.refused",
-    "dispute.opened", "dispute.resolved",
-    # [2] evidence
-    "root.checkpoint",
-})
+KNOWN_EVENT_TYPES = frozenset(
+    {
+        # [3] identity
+        "mandate.created",
+        "mandate.activated",
+        "mandate.revoked",
+        "mandate.suspended",
+        "mandate.exhausted",
+        "mandate.expired",
+        "payment_instrument.linked",
+        # [3] human in the loop
+        "escalation.resolved",
+        "escalation.expired",
+        # [1] agent
+        "offer.seen",
+        # [2] purchase saga
+        "purchase.requested",
+        "purchase.verified",
+        "purchase.escalated",
+        "purchase.captured",
+        "purchase.rejected",
+        # rail (was payment.*/dispute.* from PayPal; now from the orchestrator)
+        "payment.captured",
+        "payment.refused",
+        "dispute.opened",
+        "dispute.resolved",
+        # [2] evidence
+        "root.checkpoint",
+    }
+)
 
 _INSERT = text("""
     INSERT INTO outbox (event_id, type, aggregate_id, payload, created_at)
@@ -53,8 +65,9 @@ class UnknownEventType(ValueError):
     """A type absent from the §4 catalogue. Fail loudly, not silently."""
 
 
-async def emit_event(session, *, type: str, aggregate_id: str,
-                     payload: dict[str, Any]) -> EventEnvelope:
+async def emit_event(
+    session, *, type: str, aggregate_id: str, payload: dict[str, Any]
+) -> EventEnvelope:
     """Append one event inside the caller's transaction.
 
     No commit here. The caller's transaction boundary decides, which is the
@@ -75,11 +88,14 @@ async def emit_event(session, *, type: str, aggregate_id: str,
         payload=payload,
         created_at=datetime.now(UTC),
     )
-    await session.execute(_INSERT, {
-        "event_id": envelope.event_id,
-        "type": envelope.type,
-        "aggregate_id": envelope.aggregate_id,
-        "payload": json.dumps(envelope.payload, default=str),
-        "created_at": envelope.created_at,
-    })
+    await session.execute(
+        _INSERT,
+        {
+            "event_id": envelope.event_id,
+            "type": envelope.type,
+            "aggregate_id": envelope.aggregate_id,
+            "payload": json.dumps(envelope.payload, default=str),
+            "created_at": envelope.created_at,
+        },
+    )
     return envelope

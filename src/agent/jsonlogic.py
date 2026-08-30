@@ -5,7 +5,9 @@ resolve only against the context the caller passes -- `offer.*` and `now`.  A
 rule engine that can call out is a rule engine that can be surprised, and the
 whole claim of decision #1 is that the same input gives the same answer.
 """
+
 from __future__ import annotations
+
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -107,8 +109,15 @@ def describe(rule: Any) -> str:
     args = raw if isinstance(raw, list) else [raw]
     if op == "var":
         return str(args[0])
-    words = {"<": "below", "<=": "at most", ">": "above", ">=": "at least",
-             "==": "is", "!=": "is not", "in": "one of"}
+    words = {
+        "<": "below",
+        "<=": "at most",
+        ">": "above",
+        ">=": "at least",
+        "==": "is",
+        "!=": "is not",
+        "in": "one of",
+    }
     if op in words and len(args) == 2:
         return f"{describe(args[0])} {words[op]} {describe(args[1])}"
     if op in ("and", "or"):

@@ -37,8 +37,9 @@ from .services.passkey import Challenge, Purpose, StoredCredential
 # ==========================================================================
 # Mandates
 # ==========================================================================
-async def create_mandate(session: AsyncSession, claims: MandateClaims, *,
-                         mandate_id: str) -> Mandate:
+async def create_mandate(
+    session: AsyncSession, claims: MandateClaims, *, mandate_id: str
+) -> Mandate:
     """Persist a mandate in `draft`. It is not signed yet and cannot pay."""
     mandate = Mandate(
         id=mandate_id,
@@ -65,26 +66,29 @@ async def get_mandate_by_jti(session: AsyncSession, jti: str) -> Mandate | None:
 
 async def list_mandates(session: AsyncSession, user_id: str) -> list[Mandate]:
     result = await session.execute(
-        select(Mandate).where(Mandate.user_id == user_id)
-        .order_by(Mandate.created_at.desc())
+        select(Mandate).where(Mandate.user_id == user_id).order_by(Mandate.created_at.desc())
     )
     return list(result.scalars())
 
 
-async def attach_sd_jwt(session: AsyncSession, mandate_id: str,
-                        sd_jwt: str, claims: MandateClaims) -> None:
+async def attach_sd_jwt(
+    session: AsyncSession, mandate_id: str, sd_jwt: str, claims: MandateClaims
+) -> None:
     """Store the signed mandate after the ceremony succeeded."""
     await session.execute(
         update(Mandate)
         .where(Mandate.id == mandate_id)
-        .values(sd_jwt=sd_jwt,
-                claims=claims.model_dump(mode="json", exclude_none=True),
-                updated_at=datetime.now(UTC))
+        .values(
+            sd_jwt=sd_jwt,
+            claims=claims.model_dump(mode="json", exclude_none=True),
+            updated_at=datetime.now(UTC),
+        )
     )
 
 
-async def transition(session: AsyncSession, mandate_id: str,
-                     to: MandateStatus) -> sm.TransitionResult:
+async def transition(
+    session: AsyncSession, mandate_id: str, to: MandateStatus
+) -> sm.TransitionResult:
     """Move a mandate to `to`, or refuse. The whole state machine, in one SQL.
 
     Returns a result rather than raising: a refused transition is a normal
@@ -95,14 +99,16 @@ async def transition(session: AsyncSession, mandate_id: str,
         # No legal source — the guard would match nothing anyway. Say so.
         current = await _current_status(session, mandate_id)
         return sm.TransitionResult(
-            ok=False, frm=current, to=to,
-            reason_code=sm.refusal_reason(current, to) if current else None)
+            ok=False,
+            frm=current,
+            to=to,
+            reason_code=sm.refusal_reason(current, to) if current else None,
+        )
 
     result = await session.execute(
         update(Mandate)
         .where(Mandate.id == mandate_id, Mandate.status.in_(allowed))
-        .values(status=to.value, updated_at=datetime.now(UTC),
-                version=Mandate.version + 1)
+        .values(status=to.value, updated_at=datetime.now(UTC), version=Mandate.version + 1)
         .returning(Mandate.jti)
     )
 
@@ -111,17 +117,17 @@ async def transition(session: AsyncSession, mandate_id: str,
         # the current state only to explain the refusal — never to retry.
         current = await _current_status(session, mandate_id)
         return sm.TransitionResult(
-            ok=False, frm=current, to=to,
-            reason_code=sm.refusal_reason(current, to) if current else None)
+            ok=False,
+            frm=current,
+            to=to,
+            reason_code=sm.refusal_reason(current, to) if current else None,
+        )
 
-    return sm.TransitionResult(ok=True, frm=None, to=to,
-                               event=sm.TRANSITION_EVENTS[to])
+    return sm.TransitionResult(ok=True, frm=None, to=to, event=sm.TRANSITION_EVENTS[to])
 
 
-async def _current_status(session: AsyncSession,
-                          mandate_id: str) -> MandateStatus | None:
-    result = await session.execute(
-        select(Mandate.status).where(Mandate.id == mandate_id))
+async def _current_status(session: AsyncSession, mandate_id: str) -> MandateStatus | None:
+    result = await session.execute(select(Mandate.status).where(Mandate.id == mandate_id))
     raw = result.scalar_one_or_none()
     return MandateStatus(raw) if raw else None
 
@@ -129,24 +135,23 @@ async def _current_status(session: AsyncSession,
 # ==========================================================================
 # Payment instruments
 # ==========================================================================
-async def link_instrument(session: AsyncSession, *, token_ref: str,
-                          mandate_jti: str, rail: str = "yuno_sim") -> None:
+async def link_instrument(
+    session: AsyncSession, *, token_ref: str, mandate_jti: str, rail: str = "yuno_sim"
+) -> None:
     """Persist the opaque rail token once; activation retries stay idempotent."""
     await session.execute(
         insert(PaymentInstrument)
-        .values(token_ref=token_ref, mandate_jti=mandate_jti, rail=rail,
-                status="active")
+        .values(token_ref=token_ref, mandate_jti=mandate_jti, rail=rail, status="active")
         .on_conflict_do_nothing(index_elements=[PaymentInstrument.token_ref])
     )
     await session.flush()
 
 
-async def instruments_for(session: AsyncSession,
-                          mandate_jti: str) -> list[PaymentInstrument]:
+async def instruments_for(session: AsyncSession, mandate_jti: str) -> list[PaymentInstrument]:
     result = await session.execute(
-        select(PaymentInstrument)
-        .where(PaymentInstrument.mandate_jti == mandate_jti,
-               PaymentInstrument.status == "active")
+        select(PaymentInstrument).where(
+            PaymentInstrument.mandate_jti == mandate_jti, PaymentInstrument.status == "active"
+        )
     )
     return list(result.scalars())
 
@@ -164,18 +169,21 @@ async def mark_instrument_deleted(session: AsyncSession, token_ref: str) -> None
 # Passkeys (decision 0021)
 # ==========================================================================
 async def store_challenge(session: AsyncSession, challenge: Challenge) -> None:
-    session.add(WebAuthnChallenge(
-        challenge=challenge.value,
-        user_id=challenge.user_id,
-        mandate_id=challenge.mandate_id,
-        purpose=challenge.purpose.value,
-        expires_at=challenge.expires_at,
-    ))
+    session.add(
+        WebAuthnChallenge(
+            challenge=challenge.value,
+            user_id=challenge.user_id,
+            mandate_id=challenge.mandate_id,
+            purpose=challenge.purpose.value,
+            expires_at=challenge.expires_at,
+        )
+    )
     await session.flush()
 
 
-async def consume_challenge(session: AsyncSession, value: str,
-                            purpose: Purpose | None = None) -> Challenge | None:
+async def consume_challenge(
+    session: AsyncSession, value: str, purpose: Purpose | None = None
+) -> Challenge | None:
     """Claim a challenge exactly once.
 
     The `consumed_at IS NULL` guard is the replay defence, and it is in the
@@ -184,54 +192,71 @@ async def consume_challenge(session: AsyncSession, value: str,
     """
     result = await session.execute(
         update(WebAuthnChallenge)
-        .where(WebAuthnChallenge.challenge == value,
-               WebAuthnChallenge.consumed_at.is_(None),
-               *([WebAuthnChallenge.purpose == purpose.value] if purpose else []))
+        .where(
+            WebAuthnChallenge.challenge == value,
+            WebAuthnChallenge.consumed_at.is_(None),
+            *([WebAuthnChallenge.purpose == purpose.value] if purpose else []),
+        )
         .values(consumed_at=datetime.now(UTC))
-        .returning(WebAuthnChallenge.user_id, WebAuthnChallenge.purpose,
-                   WebAuthnChallenge.mandate_id, WebAuthnChallenge.expires_at)
+        .returning(
+            WebAuthnChallenge.user_id,
+            WebAuthnChallenge.purpose,
+            WebAuthnChallenge.mandate_id,
+            WebAuthnChallenge.expires_at,
+        )
     )
     row = result.one_or_none()
     if row is None:
         return None
-    return Challenge(value=value, user_id=row.user_id,
-                     purpose=Purpose(row.purpose), mandate_id=row.mandate_id,
-                     expires_at=row.expires_at)
+    return Challenge(
+        value=value,
+        user_id=row.user_id,
+        purpose=Purpose(row.purpose),
+        mandate_id=row.mandate_id,
+        expires_at=row.expires_at,
+    )
 
 
-async def store_credential(session: AsyncSession,
-                           credential: StoredCredential) -> None:
-    session.add(WebAuthnCredential(
-        credential_id=credential.credential_id,
-        user_id=credential.user_id,
-        public_key=credential.public_key,
-        sign_count=credential.sign_count,
-    ))
+async def store_credential(session: AsyncSession, credential: StoredCredential) -> None:
+    session.add(
+        WebAuthnCredential(
+            credential_id=credential.credential_id,
+            user_id=credential.user_id,
+            public_key=credential.public_key,
+            sign_count=credential.sign_count,
+        )
+    )
     await session.flush()
 
 
-async def credentials_for(session: AsyncSession,
-                          user_id: str) -> list[StoredCredential]:
+async def credentials_for(session: AsyncSession, user_id: str) -> list[StoredCredential]:
     result = await session.execute(
-        select(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id))
+        select(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id)
+    )
     return [
-        StoredCredential(credential_id=row.credential_id, user_id=row.user_id,
-                         public_key=row.public_key, sign_count=row.sign_count)
+        StoredCredential(
+            credential_id=row.credential_id,
+            user_id=row.user_id,
+            public_key=row.public_key,
+            sign_count=row.sign_count,
+        )
         for row in result.scalars()
     ]
 
 
-async def get_credential(session: AsyncSession,
-                         credential_id: str) -> StoredCredential | None:
+async def get_credential(session: AsyncSession, credential_id: str) -> StoredCredential | None:
     row = await session.get(WebAuthnCredential, credential_id)
     if row is None:
         return None
-    return StoredCredential(credential_id=row.credential_id, user_id=row.user_id,
-                            public_key=row.public_key, sign_count=row.sign_count)
+    return StoredCredential(
+        credential_id=row.credential_id,
+        user_id=row.user_id,
+        public_key=row.public_key,
+        sign_count=row.sign_count,
+    )
 
 
-async def advance_sign_count(session: AsyncSession, credential_id: str,
-                             new_count: int) -> None:
+async def advance_sign_count(session: AsyncSession, credential_id: str, new_count: int) -> None:
     await session.execute(
         update(WebAuthnCredential)
         .where(WebAuthnCredential.credential_id == credential_id)

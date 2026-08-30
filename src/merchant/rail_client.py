@@ -47,10 +47,10 @@ class MerchantRailClient:
             "checkout_jwt": checkout_jwt,
         }
         try:
-            async with httpx.AsyncClient(base_url=self._base_url,
-                                         timeout=self._timeout) as client:
+            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
                 response = await client.post(
-                    "/v1/payments", json=payload,
+                    "/v1/payments",
+                    json=payload,
                     headers={"Idempotency-Key": idempotency_key},
                 )
         except httpx.HTTPError as exc:

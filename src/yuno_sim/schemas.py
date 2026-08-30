@@ -42,11 +42,13 @@ class CaptureRequest(BaseModel):
     # without `mandate_sd_jwt` is refused — this rail does not charge on a
     # merchant's word alone (see ap2_verifier).
     mandate_sd_jwt: str | None = Field(
-        default=None, description="The AP2 Payment Mandate being exercised.")
+        default=None, description="The AP2 Payment Mandate being exercised."
+    )
     checkout_jwt: str | None = Field(
         default=None,
         description="The merchant's ES256 Checkout JWT. When present, the "
-                    "charged amount must match the total it commits to.")
+        "charged amount must match the total it commits to.",
+    )
 
 
 class ReceiptView(BaseModel):

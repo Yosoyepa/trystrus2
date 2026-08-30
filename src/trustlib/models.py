@@ -72,8 +72,7 @@ class MandateStatus(StrEnum):
 
     @property
     def is_terminal(self) -> bool:
-        return self in (MandateStatus.REVOKED, MandateStatus.EXPIRED,
-                        MandateStatus.EXHAUSTED)
+        return self in (MandateStatus.REVOKED, MandateStatus.EXPIRED, MandateStatus.EXHAUSTED)
 
 
 class DecisionOutcome(StrEnum):

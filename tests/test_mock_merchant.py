@@ -26,9 +26,12 @@ class RailSpy:
 async def test_mock_merchant_does_not_capture_when_verify_refuses():
     rail = RailSpy()
     response = await mock_merchant.charge_after_verify(
-        decision=Decision(decision=DecisionOutcome.REJECTED,
-                          reason_code=ReasonCode.MANDATE_REVOKED),
-        rail=rail, capture_kwargs={"amount": "130.00"})
+        decision=Decision(
+            decision=DecisionOutcome.REJECTED, reason_code=ReasonCode.MANDATE_REVOKED
+        ),
+        rail=rail,
+        capture_kwargs={"amount": "130.00"},
+    )
 
     assert response == {"status_code": 402, "reason_code": "MANDATE_REVOKED"}
     assert rail.calls == 0
@@ -38,8 +41,10 @@ async def test_mock_merchant_does_not_capture_when_verify_refuses():
 async def test_mock_merchant_captures_only_approved_decisions():
     rail = RailSpy()
     response = await mock_merchant.charge_after_verify(
-        decision=Decision(decision=DecisionOutcome.APPROVED), rail=rail,
-        capture_kwargs={"amount": "130.00"})
+        decision=Decision(decision=DecisionOutcome.APPROVED),
+        rail=rail,
+        capture_kwargs={"amount": "130.00"},
+    )
 
     assert response["status_code"] == 200
     assert rail.calls == 1

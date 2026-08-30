@@ -37,8 +37,9 @@ class PolicyGate(Protocol):
     two identical requests is not a control (decision #1).
     """
 
-    def evaluate(self, mandate: MandateClaims, intent: PurchaseIntent,
-                 spend: SpendView, now: datetime) -> Decision: ...
+    def evaluate(
+        self, mandate: MandateClaims, intent: PurchaseIntent, spend: SpendView, now: datetime
+    ) -> Decision: ...
 
 
 @runtime_checkable
@@ -62,8 +63,15 @@ class PaymentRail(Protocol):
         """Rail-side kill switch. Idempotent (decision #4)."""
         ...
 
-    def capture(self, *, token_id: str, amount: Decimal, currency: str,
-                idempotency_key: str, intent_ref: str) -> Receipt:
+    def capture(
+        self,
+        *,
+        token_id: str,
+        amount: Decimal,
+        currency: str,
+        idempotency_key: str,
+        intent_ref: str,
+    ) -> Receipt:
         """Charge the vaulted instrument. Same key -> same result, no double charge."""
         ...
 
@@ -96,11 +104,17 @@ class AsyncPaymentRail(Protocol):
 
     async def delete_payment_token(self, token_id: str) -> None: ...
 
-    async def capture(self, *, token_id: str, amount: Decimal, currency: str,
-                      idempotency_key: str, intent_ref: str) -> Receipt: ...
+    async def capture(
+        self,
+        *,
+        token_id: str,
+        amount: Decimal,
+        currency: str,
+        idempotency_key: str,
+        intent_ref: str,
+    ) -> Receipt: ...
 
-    async def open_dispute(self, capture_id: str,
-                           reason: str = "UNAUTHORISED") -> DisputeRef: ...
+    async def open_dispute(self, capture_id: str, reason: str = "UNAUTHORISED") -> DisputeRef: ...
 
     def verify_webhook(self, headers: dict, body: bytes) -> WebhookEvent | None:
         """Signature checking is pure computation — no I/O, stays sync."""

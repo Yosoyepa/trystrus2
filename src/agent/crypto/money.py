@@ -1,6 +1,8 @@
 """Money is a fixed 2-decimal string everywhere it is signed or stored (M7)."""
+
 from __future__ import annotations
-from decimal import Decimal, ROUND_HALF_UP
+
+from decimal import ROUND_HALF_UP, Decimal
 
 
 def fmt(value) -> str:

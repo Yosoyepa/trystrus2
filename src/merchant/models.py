@@ -44,7 +44,5 @@ class MerchantOrder(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="quoted")
     purchase_id: Mapped[str | None] = mapped_column(Text, unique=True)
     receipt: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

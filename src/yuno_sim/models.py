@@ -30,10 +30,8 @@ class SetupTokenRow(Base):
     mandate_id: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     approve_url: Mapped[str] = mapped_column(Text, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PaymentTokenRow(Base):
@@ -46,8 +44,7 @@ class PaymentTokenRow(Base):
     mandate_id: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     instrument_label: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -65,8 +62,7 @@ class PaymentRow(Base):
     # checked, not merely that a payment failed.
     checkout_hash: Mapped[str | None] = mapped_column(Text)
     intent_ref: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class IdempotencyRow(Base):
@@ -77,8 +73,7 @@ class IdempotencyRow(Base):
     idempotency_key: Mapped[str] = mapped_column(Text, primary_key=True)
     payment_id: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class DisputeRow(Base):
@@ -86,11 +81,9 @@ class DisputeRow(Base):
 
     dispute_id: Mapped[str] = mapped_column(Text, primary_key=True)
     payment_id: Mapped[str] = mapped_column(Text, nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False,
-                                        default="UNAUTHORISED")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="UNAUTHORISED")
     status: Mapped[str] = mapped_column(Text, nullable=False, default="open")
     outcome: Mapped[str | None] = mapped_column(Text)
     evidence: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

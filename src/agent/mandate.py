@@ -11,7 +11,9 @@ AP2 alignment: this object is an IntentMandate in AP2 terms -- the
 human-not-present pre-authorisation carrying constraints and an expiry.  See
 `docs/PROTOCOLS.md`.
 """
+
 from __future__ import annotations
+
 import json
 from typing import Any
 
@@ -34,10 +36,21 @@ def jwks() -> dict[str, Any]:
     return {"keys": [public_jwk(load_or_create(ISSUER_KEY_NAME), kid=KID)]}
 
 
-def issue(conn, *, user_id: str, agent_id: str, agent_jwk: dict,
-          payment_method_ref: str, scope: dict, conditions: dict, limits: dict,
-          validity: dict, currency: str = "USD", parent_jti: str | None = None,
-          signed_with: str = "passkey(mock)") -> dict[str, Any]:
+def issue(
+    conn,
+    *,
+    user_id: str,
+    agent_id: str,
+    agent_jwk: dict,
+    payment_method_ref: str,
+    scope: dict,
+    conditions: dict,
+    limits: dict,
+    validity: dict,
+    currency: str = "USD",
+    parent_jti: str | None = None,
+    signed_with: str = "passkey(mock)",
+) -> dict[str, Any]:
     jti = new_id("mdt")
     issued = now_ts()
     claims = {
@@ -64,8 +77,7 @@ def issue(conn, *, user_id: str, agent_id: str, agent_jwk: dict,
     }
     if parent_jti:
         claims["parent_jti"] = parent_jti
-    token = jws.sign_compact(claims, load_or_create(ISSUER_KEY_NAME), kid=KID,
-                             typ="mandate+jwt")
+    token = jws.sign_compact(claims, load_or_create(ISSUER_KEY_NAME), kid=KID, typ="mandate+jwt")
     stamp = now_iso()
     conn.execute(
         "INSERT INTO mandates(jti,user_id,agent_id,status,claims,token,parent_jti,"
@@ -78,11 +90,23 @@ def issue(conn, *, user_id: str, agent_id: str, agent_jwk: dict,
         "ON CONFLICT (token_ref) DO NOTHING",
         (payment_method_ref, jti, stamp),
     )
-    audit.append(conn, "mandate.created",
-                 {"jti": jti, "sub": user_id, "agent": agent_id, "limits": claims["limits"],
-                  "scope": scope, "conditions": conditions, "signed_with": signed_with,
-                  "parent_jti": parent_jti},
-                 actor=user_id, agent_id=agent_id, mandate_jti=jti)
+    audit.append(
+        conn,
+        "mandate.created",
+        {
+            "jti": jti,
+            "sub": user_id,
+            "agent": agent_id,
+            "limits": claims["limits"],
+            "scope": scope,
+            "conditions": conditions,
+            "signed_with": signed_with,
+            "parent_jti": parent_jti,
+        },
+        actor=user_id,
+        agent_id=agent_id,
+        mandate_jti=jti,
+    )
     return {"jti": jti, "token": token, "claims": claims}
 
 
@@ -109,15 +133,19 @@ def revoke(conn, jti: str, *, actor: str, reason: str = "revoked by holder") -> 
     """Revocation kills the mandate AND the rail token, so the next attempt
     fails twice: once in our state, once at the rail (M8)."""
     stamp = now_iso()
-    conn.execute("UPDATE mandates SET status='revoked', updated_at=? WHERE jti=?",
-                 (stamp, jti))
+    conn.execute("UPDATE mandates SET status='revoked', updated_at=? WHERE jti=?", (stamp, jti))
     row = conn.execute("SELECT claims FROM mandates WHERE jti=?", (jti,)).fetchone()
     token_ref = json.loads(row["claims"])["payment_method_ref"] if row else None
     from .mocks.rail import delete_token
+
     rail = delete_token(conn, token_ref) if token_ref else {"deleted": False}
-    audit.append(conn, "mandate.revoked",
-                 {"jti": jti, "by": actor, "reason": reason, "rail": rail},
-                 actor=actor, mandate_jti=jti)
+    audit.append(
+        conn,
+        "mandate.revoked",
+        {"jti": jti, "by": actor, "reason": reason, "rail": rail},
+        actor=actor,
+        mandate_jti=jti,
+    )
     return {"jti": jti, "status": "revoked", "rail_token_deleted": rail.get("deleted")}
 
 

@@ -11,7 +11,9 @@ can still open a socket directly. It is a substitute for *nothing*, which is
 what we had. An injected instruction that talks the agent into calling an
 attacker's URL now fails at the allowlist and leaves an audit event.
 """
+
 from __future__ import annotations
+
 import os
 from urllib.parse import urlparse
 
@@ -30,8 +32,13 @@ def allowed_hosts() -> set[str]:
     extra = os.environ.get("TT_ALLOWED_HOSTS", "")
     hosts = set(DEFAULT_HOSTS)
     hosts.update(h.strip().lower() for h in extra.split(",") if h.strip())
-    for var in ("LLM_BASE_URL", "TT_MCP_URL", "TT_VUELAYA_MCP_URL",
-                "TT_MAMI_MCP_URL", "TT_WEBHOOK_URL"):
+    for var in (
+        "LLM_BASE_URL",
+        "TT_MCP_URL",
+        "TT_VUELAYA_MCP_URL",
+        "TT_MAMI_MCP_URL",
+        "TT_WEBHOOK_URL",
+    ):
         configured = os.environ.get(var, "")
         if configured:
             host = urlparse(configured).hostname
@@ -48,7 +55,7 @@ def check(url: str, *, conn=None, reason: str = "") -> str:
     if host not in allowed_hosts():
         if conn is not None:
             from . import audit
-            audit.append(conn, "egress.denied",
-                         {"host": host, "reason": reason}, relay=False)
+
+            audit.append(conn, "egress.denied", {"host": host, "reason": reason}, relay=False)
         raise EgressDenied(host, url)
     return host

@@ -17,8 +17,8 @@ import pytest
 
 from trustlib import ap2, sdjwt
 from trustlib.jose import (
-    key_from_pem,
     jwk_from_dict,
+    key_from_pem,
     peek_header,
     verify_compact,
     verify_detached,
@@ -81,11 +81,14 @@ def test_mandate_hides_pii_until_disclosed(jwks, mandate):
 # ==========================================================================
 # The intents
 # ==========================================================================
-@pytest.mark.parametrize("name", [
-    "intent_130_approved",
-    "intent_300_escalated",
-    "intent_wrong_category",
-])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "intent_130_approved",
+        "intent_300_escalated",
+        "intent_wrong_category",
+    ],
+)
 def test_honest_intents_verify_against_the_mandates_cnf_key(name, jwks, mandate):
     """These three differ in policy, not in cryptography -- all signatures valid.
 
@@ -106,7 +109,7 @@ def test_impersonation_fixture_fails_against_the_bound_key(jwks, mandate):
     agent_key = jwk_from_dict(claims["cnf"]["jwk"])
     fixture = load("intent_wrong_key.json")
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         verify_detached(fixture["intent_jwt"], fixture["intent"], agent_key)
 
     assert fixture["expect"]["reason_code"] == "INVALID_PROOF_OF_POSSESSION"
@@ -114,8 +117,12 @@ def test_impersonation_fixture_fails_against_the_bound_key(jwks, mandate):
 
 def test_intents_respect_the_120_second_freshness_window():
     """schemas.md §2: exp - iat <= 120s."""
-    for name in ("intent_130_approved", "intent_300_escalated",
-                 "intent_wrong_category", "intent_wrong_key"):
+    for name in (
+        "intent_130_approved",
+        "intent_300_escalated",
+        "intent_wrong_category",
+        "intent_wrong_key",
+    ):
         intent = load(f"{name}.json")["intent"]
         assert intent["exp"] - intent["iat"] <= 120, name
 
@@ -124,8 +131,7 @@ def test_intent_amounts_match_the_offers_they_reference():
     """The anti-price-manipulation invariant, checked at the fixture level."""
     offers = {o["offer_id"]: o for o in load("offers.json")}
 
-    for name in ("intent_130_approved", "intent_300_escalated",
-                 "intent_wrong_category"):
+    for name in ("intent_130_approved", "intent_300_escalated", "intent_wrong_category"):
         intent = load(f"{name}.json")["intent"]
         assert intent["amount"] == offers[intent["offer_id"]]["amount"], name
 

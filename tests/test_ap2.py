@@ -64,7 +64,8 @@ def test_mandate_projects_to_ap2_open_payment_mandate():
 def test_constraints_carry_the_same_numbers_as_limits():
     """The projection must never become a second source of truth."""
     claims = ap2.apply_ap2_projection(
-        fake.mandate(max_per_txn="150", total_budget="400", max_txn_count=3))
+        fake.mandate(max_per_txn="150", total_budget="400", max_txn_count=3)
+    )
     by_type = {c["type"]: c for c in claims.constraints}
 
     assert by_type[ap2.C_AMOUNT_RANGE]["max"] == ap2.to_minor_units("150")
@@ -127,8 +128,7 @@ def test_checkout_hash_binds_the_cart(checkout_payload):
     key = generate_p256()
     token = sign_compact(checkout_payload, key, kid="m1", typ="JWT")
 
-    assert ap2.verify_checkout_binding(
-        checkout_jwt=token, claimed_hash=ap2.checkout_hash(token))
+    assert ap2.verify_checkout_binding(checkout_jwt=token, claimed_hash=ap2.checkout_hash(token))
 
 
 def test_a_swapped_cart_breaks_the_binding(checkout_payload):
@@ -140,7 +140,8 @@ def test_a_swapped_cart_breaks_the_binding(checkout_payload):
     swapped = sign_compact(swapped_payload, key, kid="m1", typ="JWT")
 
     assert not ap2.verify_checkout_binding(
-        checkout_jwt=swapped, claimed_hash=ap2.checkout_hash(honest))
+        checkout_jwt=swapped, claimed_hash=ap2.checkout_hash(honest)
+    )
 
 
 def test_closed_payment_mandate_references_the_checkout(checkout_payload):

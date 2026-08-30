@@ -31,8 +31,7 @@ Split ownership between schema and access.
   hand-written SQL:
 
 ```python
-def emit_event(session, *, type: str, aggregate_id: str,
-               payload: dict) -> EventEnvelope:
+def emit_event(session, *, type: str, aggregate_id: str, payload: dict) -> EventEnvelope:
     """Append to the outbox inside the caller's transaction (decision #10)."""
 ```
 

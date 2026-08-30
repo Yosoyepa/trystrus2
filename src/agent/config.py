@@ -1,9 +1,11 @@
 """Configuration. Reads .env from the repo root; no dependencies."""
+
 from __future__ import annotations
+
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]      # src/agent -> src -> repo
+REPO_ROOT = Path(__file__).resolve().parents[2]  # src/agent -> src -> repo
 PKG_ROOT = Path(__file__).resolve().parent
 VAR_DIR = Path(os.environ.get("TRYTRUST_VAR", REPO_ROOT / "var"))
 ONTOLOGY_DIR = PKG_ROOT / "ontologies"

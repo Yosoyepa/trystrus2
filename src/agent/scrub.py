@@ -3,7 +3,9 @@
 Presidio is the production choice (decision backlog); this is a dependency-free
 stand-in with the same call shape, so swapping it in is one function body.
 """
+
 from __future__ import annotations
+
 import re
 from typing import Any
 

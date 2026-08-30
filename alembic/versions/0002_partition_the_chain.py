@@ -14,8 +14,8 @@ would be the one thing an audit log must never do.
 Revision ID: 0002
 Revises: 0001
 """
-from alembic import op
 
+from alembic import op
 from src.agent.db import SCHEMA
 
 revision = "0002"
@@ -80,7 +80,6 @@ def _rehash() -> None:
     import json
 
     from psycopg.rows import dict_row
-
     from src.agent import audit
 
     raw = op.get_bind().connection.dbapi_connection
@@ -88,22 +87,31 @@ def _rehash() -> None:
         cur.execute("SELECT chain_key FROM chains ORDER BY chain_key")
         keys = [r["chain_key"] for r in cur.fetchall()]
         for key in keys:
-            cur.execute("SELECT * FROM audit_events WHERE chain_key=%s "
-                        "ORDER BY chain_seq", (key,))
+            cur.execute("SELECT * FROM audit_events WHERE chain_key=%s ORDER BY chain_seq", (key,))
             events = cur.fetchall()
             prev = audit.GENESIS
             for ev in events:
-                rebuilt = {"event_id": ev["event_id"], "type": ev["type"],
-                           "actor": ev["actor"], "agent_id": ev["agent_id"],
-                           "run_id": ev["run_id"], "mandate_jti": ev["mandate_jti"],
-                           "payload": json.loads(ev["payload"]),
-                           "created_at": ev["created_at"], "chain_key": key}
+                rebuilt = {
+                    "event_id": ev["event_id"],
+                    "type": ev["type"],
+                    "actor": ev["actor"],
+                    "agent_id": ev["agent_id"],
+                    "run_id": ev["run_id"],
+                    "mandate_jti": ev["mandate_jti"],
+                    "payload": json.loads(ev["payload"]),
+                    "created_at": ev["created_at"],
+                    "chain_key": key,
+                }
                 digest = audit._digest(prev, rebuilt)
-                cur.execute("UPDATE audit_events SET prev_hash=%s, hash=%s WHERE seq=%s",
-                            (prev, digest, ev["seq"]))
+                cur.execute(
+                    "UPDATE audit_events SET prev_hash=%s, hash=%s WHERE seq=%s",
+                    (prev, digest, ev["seq"]),
+                )
                 prev = digest
-            cur.execute("UPDATE chains SET head_hash=%s, length=%s WHERE chain_key=%s",
-                        (prev, len(events), key))
+            cur.execute(
+                "UPDATE chains SET head_hash=%s, length=%s WHERE chain_key=%s",
+                (prev, len(events), key),
+            )
 
 
 def downgrade() -> None:

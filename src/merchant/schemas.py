@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 from trustlib.models import Offer, PurchaseIntent, Receipt
 

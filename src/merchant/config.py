@@ -11,9 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="MERCHANT_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="MERCHANT_", env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg:///aval"
     kernel_url: str = "http://localhost:8001"

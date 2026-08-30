@@ -13,7 +13,6 @@ failed. Every other method raises.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from decimal import Decimal
 
 import httpx
@@ -40,14 +39,12 @@ class YunoSimRail:
     `src/yuno_sim/`, which models what a Yuno-style AP2 surface would do.
     """
 
-    def __init__(self, *, base_url: str,
-                 timeout: httpx.Timeout | None = None) -> None:
+    def __init__(self, *, base_url: str, timeout: httpx.Timeout | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout or DEFAULT_TIMEOUT
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
-        async with httpx.AsyncClient(base_url=self._base_url,
-                                     timeout=self._timeout) as client:
+        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
             response = await client.request(method, path, **kwargs)
         if response.status_code >= 400:
             body = _safe_json(response)
@@ -61,12 +58,12 @@ class YunoSimRail:
     # -- enrollment --------------------------------------------------------
     async def create_setup_token(self, mandate_id: str) -> SetupToken:
         data = await self._request(
-            "POST", "/v1/payment-methods/enroll", json={"mandate_id": mandate_id})
+            "POST", "/v1/payment-methods/enroll", json={"mandate_id": mandate_id}
+        )
         return SetupToken(**data)
 
     async def exchange_payment_token(self, setup_token_id: str) -> str:
-        data = await self._request(
-            "POST", f"/v1/payment-methods/{setup_token_id}/confirm")
+        data = await self._request("POST", f"/v1/payment-methods/{setup_token_id}/confirm")
         return data["token_id"]
 
     # -- the kill switch ---------------------------------------------------
@@ -84,10 +81,17 @@ class YunoSimRail:
             raise
 
     # -- money -------------------------------------------------------------
-    async def capture(self, *, token_id: str, amount: Decimal, currency: str,
-                      idempotency_key: str, intent_ref: str,
-                      mandate_sd_jwt: str | None = None,
-                      checkout_jwt: str | None = None) -> Receipt:
+    async def capture(
+        self,
+        *,
+        token_id: str,
+        amount: Decimal,
+        currency: str,
+        idempotency_key: str,
+        intent_ref: str,
+        mandate_sd_jwt: str | None = None,
+        checkout_jwt: str | None = None,
+    ) -> Receipt:
         """Charge the vaulted instrument.
 
         `mandate_sd_jwt` and `checkout_jwt` are extras beyond the frozen
@@ -108,14 +112,14 @@ class YunoSimRail:
             payload["checkout_jwt"] = checkout_jwt
 
         data = await self._request(
-            "POST", "/v1/payments", json=payload,
-            headers={"Idempotency-Key": idempotency_key})
+            "POST", "/v1/payments", json=payload, headers={"Idempotency-Key": idempotency_key}
+        )
         return Receipt(**data)
 
-    async def open_dispute(self, capture_id: str,
-                           reason: str = "UNAUTHORISED") -> DisputeRef:
+    async def open_dispute(self, capture_id: str, reason: str = "UNAUTHORISED") -> DisputeRef:
         data = await self._request(
-            "POST", f"/v1/payments/{capture_id}/disputes", json={"reason": reason})
+            "POST", f"/v1/payments/{capture_id}/disputes", json={"reason": reason}
+        )
         return DisputeRef(**data)
 
     # -- webhooks ----------------------------------------------------------
@@ -125,8 +129,7 @@ class YunoSimRail:
         Implemented in `merchant/webhooks.py`, which owns the merchant's view
         of the signature; the kernel does not receive rail webhooks.
         """
-        raise NotImplementedError(
-            "webhook verification belongs to the merchant, not the kernel")
+        raise NotImplementedError("webhook verification belongs to the merchant, not the kernel")
 
 
 def _safe_json(response: httpx.Response) -> dict:

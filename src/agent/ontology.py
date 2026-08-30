@@ -6,7 +6,9 @@ later.  Everything in here is UNTRUSTED text as far as the model is concerned:
 an ontology is an injection surface exactly like a merchant description (K5),
 so it is delimited the same way.
 """
+
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any

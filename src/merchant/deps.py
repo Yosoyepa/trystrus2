@@ -40,8 +40,9 @@ def rail() -> MerchantRailClient:
     global _rail
     if _rail is None:
         config = settings()
-        _rail = MerchantRailClient(base_url=config.yuno_sim_url,
-                                   timeout_seconds=config.http_timeout_seconds)
+        _rail = MerchantRailClient(
+            base_url=config.yuno_sim_url, timeout_seconds=config.http_timeout_seconds
+        )
     return _rail
 
 
@@ -49,8 +50,11 @@ def charge_service() -> ChargeService:
     global _charge
     if _charge is None:
         _charge = ChargeService(
-            jwks=jwks(), verify_client=verify_client(), checkout=checkout(),
-            rail=rail(), merchant_id=settings().merchant_id,
+            jwks=jwks(),
+            verify_client=verify_client(),
+            checkout=checkout(),
+            rail=rail(),
+            merchant_id=settings().merchant_id,
         )
     return _charge
 

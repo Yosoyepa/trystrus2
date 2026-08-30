@@ -7,6 +7,7 @@ the trail records an authenticated principal.
 Revision ID: 0004
 Revises: 0003
 """
+
 from alembic import op
 
 revision = "0004"

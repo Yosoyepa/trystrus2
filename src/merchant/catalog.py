@@ -33,8 +33,7 @@ def to_offer(row: OfferRow) -> Offer:
     )
 
 
-async def seed_initial_offers(session: AsyncSession,
-                              config: Settings | None = None) -> int:
+async def seed_initial_offers(session: AsyncSession, config: Settings | None = None) -> int:
     """Load immutable fixture offers exactly once, without overwriting prices.
 
     A watcher demo intentionally mutates a price while the service is alive.
@@ -52,19 +51,23 @@ async def seed_initial_offers(session: AsyncSession,
         for entry in entries:
             offer = Offer.model_validate(entry)
             travel_date = date.fromisoformat(offer.date) if offer.date else None
-            statement = insert(OfferRow).values(
-                id=offer.offer_id,
-                merchant_id=offer.merchant_id,
-                category=offer.category,
-                title=offer.title,
-                amount=offer.amount_decimal,
-                currency=offer.currency,
-                origin=offer.origin.upper() if offer.origin else None,
-                destination=offer.destination.upper() if offer.destination else None,
-                travel_date=travel_date,
-                description=offer.description,
-                active=True,
-            ).on_conflict_do_nothing(index_elements=[OfferRow.id])
+            statement = (
+                insert(OfferRow)
+                .values(
+                    id=offer.offer_id,
+                    merchant_id=offer.merchant_id,
+                    category=offer.category,
+                    title=offer.title,
+                    amount=offer.amount_decimal,
+                    currency=offer.currency,
+                    origin=offer.origin.upper() if offer.origin else None,
+                    destination=offer.destination.upper() if offer.destination else None,
+                    travel_date=travel_date,
+                    description=offer.description,
+                    active=True,
+                )
+                .on_conflict_do_nothing(index_elements=[OfferRow.id])
+            )
             result = await session.execute(statement)
             loaded += result.rowcount or 0
     return loaded
@@ -96,8 +99,7 @@ async def get_offer(session: AsyncSession, offer_id: str) -> Offer | None:
     return to_offer(row)
 
 
-async def update_price(session: AsyncSession, offer_id: str,
-                       amount: Decimal) -> Offer | None:
+async def update_price(session: AsyncSession, offer_id: str, amount: Decimal) -> Offer | None:
     """Mutate only an active offer; inactive inventory cannot reappear by price."""
     result = await session.execute(
         update(OfferRow)

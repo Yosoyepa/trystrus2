@@ -126,9 +126,11 @@ def evaluate(
         return Decision(
             decision=DecisionOutcome.ESCALATED,
             reason_code=ReasonCode.AMOUNT_EXCEEDS_PER_TXN,
-            diff={"limit": "max_per_txn",
-                  "value": str(limits.max_per_txn),
-                  "attempted": str(amount)},
+            diff={
+                "limit": "max_per_txn",
+                "value": str(limits.max_per_txn),
+                "attempted": str(amount),
+            },
         )
 
     # ---- 7. conditions (JsonLogic) ----------------------------------------
@@ -146,9 +148,10 @@ def evaluate(
     # numbers (e.g. spend up to $200 if asked, but only buy unasked under
     # $150). Proposed to Dev 2; not changed unilaterally -- §9 froze it.
     if mandate.conditions and offer is not None:
-        if not _eval_jsonlogic(mandate.conditions,
-                               {"offer": {"price": float(offer.amount_decimal)},
-                                "now": moment.isoformat()}):
+        if not _eval_jsonlogic(
+            mandate.conditions,
+            {"offer": {"price": float(offer.amount_decimal)}, "now": moment.isoformat()},
+        ):
             return _reject(ReasonCode.CONDITION_FAILED)
 
     return Decision(
@@ -172,7 +175,7 @@ def _eval_jsonlogic(rule: dict, context: dict):
     if not isinstance(rule, dict):
         return rule
 
-    (operator, operands), = rule.items()
+    ((operator, operands),) = rule.items()
     if operator == "var":
         path = operands if isinstance(operands, str) else operands[0]
         value = context
@@ -182,16 +185,26 @@ def _eval_jsonlogic(rule: dict, context: dict):
 
     args = [_eval_jsonlogic(a, context) for a in operands]
     match operator:
-        case "<":  return args[0] < args[1]
-        case "<=": return args[0] <= args[1]
-        case ">":  return args[0] > args[1]
-        case ">=": return args[0] >= args[1]
-        case "==": return args[0] == args[1]
-        case "!=": return args[0] != args[1]
-        case "and": return all(args)
-        case "or":  return any(args)
-        case "!":   return not args[0]
-        case "in":  return args[0] in args[1]
+        case "<":
+            return args[0] < args[1]
+        case "<=":
+            return args[0] <= args[1]
+        case ">":
+            return args[0] > args[1]
+        case ">=":
+            return args[0] >= args[1]
+        case "==":
+            return args[0] == args[1]
+        case "!=":
+            return args[0] != args[1]
+        case "and":
+            return all(args)
+        case "or":
+            return any(args)
+        case "!":
+            return not args[0]
+        case "in":
+            return args[0] in args[1]
         case _:
             raise ValueError(
                 f"mock_verify: unsupported JsonLogic operator {operator!r}. "
@@ -199,9 +212,12 @@ def _eval_jsonlogic(rule: dict, context: dict):
             )
 
 
-def spend_from_decimals(spent: str = "0", reserved: str = "0",
-                        count: int = 0,
-                        status: MandateStatus = MandateStatus.ACTIVE) -> SpendView:
+def spend_from_decimals(
+    spent: str = "0",
+    reserved: str = "0",
+    count: int = 0,
+    status: MandateStatus = MandateStatus.ACTIVE,
+) -> SpendView:
     """Convenience for tests that do not have a ledger."""
     return SpendView(
         spent_total=Decimal(spent),

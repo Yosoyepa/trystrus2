@@ -32,13 +32,14 @@ def purchase_client() -> MCPPurchaseClient:
     return _purchase_client
 
 
-async def _offers(*, origin: str | None = None, destination: str | None = None,
-                  travel_date: Date | None = None) -> list[dict[str, Any]]:
+async def _offers(
+    *, origin: str | None = None, destination: str | None = None, travel_date: Date | None = None
+) -> list[dict[str, Any]]:
     async with session_factory()() as session:
         await catalog.seed_initial_offers(session)
-        found = await catalog.list_offers(session, origin=origin,
-                                          destination=destination,
-                                          travel_date=travel_date)
+        found = await catalog.list_offers(
+            session, origin=origin, destination=destination, travel_date=travel_date
+        )
         await session.commit()
     return [_spotlight(item.model_dump(mode="json")) for item in found]
 
@@ -62,11 +63,11 @@ def _spotlight(offer: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool(name="search_offers", description="Read-only VuelaYa offer search.")
-async def search_offers(origin: str | None = None, destination: str | None = None,
-                        date: str | None = None) -> list[dict[str, Any]]:
+async def search_offers(
+    origin: str | None = None, destination: str | None = None, date: str | None = None
+) -> list[dict[str, Any]]:
     travel_date = Date.fromisoformat(date) if date else None
-    return await _offers(origin=origin, destination=destination,
-                         travel_date=travel_date)
+    return await _offers(origin=origin, destination=destination, travel_date=travel_date)
 
 
 @mcp.tool(name="get_offer", description="Read one active VuelaYa offer.")
@@ -90,8 +91,7 @@ async def request_purchase(offer_id: str, mandate_jti: str) -> dict[str, str]:
     if await _offer(offer_id) is None:
         raise ValueError("offer not found or inactive")
     try:
-        response = await purchase_client().submit(
-            offer_id=offer_id, mandate_jti=mandate_jti)
+        response = await purchase_client().submit(offer_id=offer_id, mandate_jti=mandate_jti)
     except KernelClientError as exc:
         raise ValueError(str(exc)) from exc
     purchase_id = response.get("purchase_id")

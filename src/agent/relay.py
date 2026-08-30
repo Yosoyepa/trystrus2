@@ -12,14 +12,17 @@ Delivery is at-least-once, on purpose. A subscriber that cannot tolerate a
 repeat should key on `event_id`, which is stable and unique — the same
 discipline the rest of the system uses for idempotency (M1).
 """
+
 from __future__ import annotations
+
 import hashlib
 import hmac
 import json
 import os
 import time
 from collections import deque
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from .crypto.canonical import canonical_json
 from .ids import now_iso
@@ -91,8 +94,7 @@ class WebhookSubscriber:
 
     name = "webhook"
 
-    def __init__(self, url: str | None = None, secret: str | None = None,
-                 timeout: float = 5.0):
+    def __init__(self, url: str | None = None, secret: str | None = None, timeout: float = 5.0):
         self.url = url or WEBHOOK_URL
         self.secret = (secret or WEBHOOK_SECRET).encode()
         self.timeout = timeout
@@ -107,10 +109,15 @@ class WebhookSubscriber:
 
         body = canonical_json(dict(event)).encode("utf-8")
         response = httpx.post(
-            self.url, content=body, timeout=self.timeout,
-            headers={"Content-Type": "application/json",
-                     "X-TryTrust-Event": event["event_id"],
-                     "X-TryTrust-Signature": f"sha256={self.sign(body)}"})
+            self.url,
+            content=body,
+            timeout=self.timeout,
+            headers={
+                "Content-Type": "application/json",
+                "X-TryTrust-Event": event["event_id"],
+                "X-TryTrust-Signature": f"sha256={self.sign(body)}",
+            },
+        )
         response.raise_for_status()
 
 
@@ -149,12 +156,19 @@ def drain(conn, *, batch: int = 50) -> dict[str, Any]:
         rows = conn.execute(
             "SELECT * FROM outbox WHERE relayed_at IS NULL AND attempts < ? "
             "ORDER BY seq FOR UPDATE SKIP LOCKED LIMIT ?",
-            (MAX_ATTEMPTS, batch)).fetchall()
+            (MAX_ATTEMPTS, batch),
+        ).fetchall()
         for row in rows:
-            event = Event({"event_id": row["event_id"], "type": row["type"],
-                           "aggregate_id": row["aggregate_id"],
-                           "payload": json.loads(row["payload"]),
-                           "created_at": row["created_at"], "seq": row["seq"]})
+            event = Event(
+                {
+                    "event_id": row["event_id"],
+                    "type": row["type"],
+                    "aggregate_id": row["aggregate_id"],
+                    "payload": json.loads(row["payload"]),
+                    "created_at": row["created_at"],
+                    "seq": row["seq"],
+                }
+            )
             errors = []
             for subscriber in list(SUBSCRIBERS.values()):
                 try:
@@ -165,28 +179,31 @@ def drain(conn, *, batch: int = 50) -> dict[str, Any]:
                 attempts = int(row["attempts"]) + 1
                 conn.execute(
                     "UPDATE outbox SET attempts=?, last_error=? WHERE seq=?",
-                    (attempts, "; ".join(errors)[:500], row["seq"]))
+                    (attempts, "; ".join(errors)[:500], row["seq"]),
+                )
                 failed += 1
                 if attempts >= MAX_ATTEMPTS:
                     dead += 1
             else:
-                conn.execute("UPDATE outbox SET relayed_at=?, attempts=? WHERE seq=?",
-                             (now_iso(), int(row["attempts"]) + 1, row["seq"]))
+                conn.execute(
+                    "UPDATE outbox SET relayed_at=?, attempts=? WHERE seq=?",
+                    (now_iso(), int(row["attempts"]) + 1, row["seq"]),
+                )
                 delivered += 1
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
-    return {"claimed": len(rows), "delivered": delivered, "failed": failed,
-            "dead_lettered": dead}
+    return {"claimed": len(rows), "delivered": delivered, "failed": failed, "dead_lettered": dead}
 
 
 def pending(conn) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT COUNT(*) FILTER (WHERE relayed_at IS NULL AND attempts < %s) AS waiting,"
-        " COUNT(*) FILTER (WHERE relayed_at IS NULL AND attempts >= %s) AS dead,"
+        "SELECT COUNT(*) FILTER (WHERE relayed_at IS NULL AND attempts < "
+        f"{MAX_ATTEMPTS}) AS waiting,"
+        f" COUNT(*) FILTER (WHERE relayed_at IS NULL AND attempts >= {MAX_ATTEMPTS}) AS dead,"
         " COUNT(*) FILTER (WHERE relayed_at IS NOT NULL) AS delivered FROM outbox"
-        % (MAX_ATTEMPTS, MAX_ATTEMPTS)).fetchone()
+    ).fetchone()
     return dict(row)
 
 
@@ -196,8 +213,10 @@ def run_forever(conn, *, every_s: float = 1.0, max_passes: int | None = None) ->
     while max_passes is None or passes < max_passes:
         result = drain(conn)
         if result["delivered"] or result["failed"]:
-            print(f"[{now_iso()}] delivered={result['delivered']} "
-                  f"failed={result['failed']} dead={result['dead_lettered']}")
+            print(
+                f"[{now_iso()}] delivered={result['delivered']} "
+                f"failed={result['failed']} dead={result['dead_lettered']}"
+            )
         passes += 1
         if max_passes is not None and passes >= max_passes:
             break

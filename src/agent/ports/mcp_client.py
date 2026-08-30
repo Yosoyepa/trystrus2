@@ -17,7 +17,9 @@ The graph is synchronous, so each call is a short-lived session rather than a
 long-lived connection. That costs a round trip and buys crash-safety: there is
 no session to resume wrongly after a Cloud Run instance disappears.
 """
+
 from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -50,7 +52,8 @@ class McpTransport:
 
     def __init__(self, url: str, timeout: float = 25.0):
         from ..net import check
-        check(url, reason="mcp")     # refuse before a socket is ever opened
+
+        check(url, reason="mcp")  # refuse before a socket is ever opened
         self.url = url
         self.timeout = timeout
 
@@ -66,23 +69,25 @@ class McpTransport:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            return {"_text": raw}        # some tools answer in prose; keep it
+            return {"_text": raw}  # some tools answer in prose; keep it
 
     def list_tools(self) -> list[dict[str, Any]]:
         async def go():
             async with Client(self.url, raise_exceptions=True) as client:
                 listing = await client.list_tools()
-                return [{"name": t.name, "description": (t.description or "")}
-                        for t in listing.tools]
+                return [
+                    {"name": t.name, "description": (t.description or "")} for t in listing.tools
+                ]
+
         return asyncio.run(go())
 
 
 class McpMerchant:
     """One merchant, reachable over MCP, speaking the frozen three-tool contract."""
 
-    def __init__(self, url: str | None = None, merchant_id: str = "vuelaya",
-                 timeout: float = 20.0):
+    def __init__(self, url: str | None = None, merchant_id: str = "vuelaya", timeout: float = 20.0):
         from ..net import check
+
         self.url = url or DEFAULT_URL
         check(self.url, reason="mcp")
         self.merchant_id = merchant_id
@@ -111,34 +116,62 @@ class McpMerchant:
     # ── discovery ────────────────────────────────────────────────────────────
     def inspect(self) -> dict[str, Any]:
         """What does this server offer, and is any of it alarming?"""
+
         async def go():
             async with Client(self.url, raise_exceptions=True) as client:
                 listing = await client.list_tools()
-                return [{"name": t.name, "description": (t.description or "")[:160]}
-                        for t in listing.tools]
+                return [
+                    {"name": t.name, "description": (t.description or "")[:160]}
+                    for t in listing.tools
+                ]
 
         tools = asyncio.run(go())
         names = {t["name"] for t in tools}
-        suspicious = [n for n in names
-                      if any(h in n.lower() for h in FORBIDDEN_HINTS)]
-        return {"url": self.url, "tools": tools,
-                "missing": sorted(ALLOWED_TOOLS - names),
-                "unexpected": sorted(names - ALLOWED_TOOLS),
-                "suspicious": suspicious,
-                "contract_ok": not (ALLOWED_TOOLS - names) and not suspicious}
+        suspicious = [n for n in names if any(h in n.lower() for h in FORBIDDEN_HINTS)]
+        return {
+            "url": self.url,
+            "tools": tools,
+            "missing": sorted(ALLOWED_TOOLS - names),
+            "unexpected": sorted(names - ALLOWED_TOOLS),
+            "suspicious": suspicious,
+            "contract_ok": not (ALLOWED_TOOLS - names) and not suspicious,
+        }
 
     # ── the three tools ──────────────────────────────────────────────────────
-    def search_offers(self, conn=None, *, origin=None, destination=None, date=None,
-                      category=None, limit: int = 12, agent_id: str | None = None,
-                      mandate_jti: str | None = None) -> list[dict]:
+    def search_offers(
+        self,
+        conn=None,
+        *,
+        origin=None,
+        destination=None,
+        date=None,
+        category=None,
+        limit: int = 12,
+        agent_id: str | None = None,
+        mandate_jti: str | None = None,
+    ) -> list[dict]:
         if conn is not None and agent_id:
             limits.guard_merchant_call(conn, agent_id, mandate_jti)
-        offers = self._call("search_offers", origin=origin, destination=destination,
-                            date=date, category=category) or []
+        offers = (
+            self._call(
+                "search_offers",
+                origin=origin,
+                destination=destination,
+                date=date,
+                category=category,
+            )
+            or []
+        )
         return limits.clamp_offers(offers)[:limit]
 
-    def get_offer(self, conn=None, offer_id: str = "", *, agent_id: str | None = None,
-                  mandate_jti: str | None = None) -> dict | None:
+    def get_offer(
+        self,
+        conn=None,
+        offer_id: str = "",
+        *,
+        agent_id: str | None = None,
+        mandate_jti: str | None = None,
+    ) -> dict | None:
         if conn is not None and agent_id:
             limits.guard_merchant_call(conn, agent_id, mandate_jti)
         offer = self._call("get_offer", offer_id=offer_id)
@@ -146,5 +179,4 @@ class McpMerchant:
 
     def request_purchase(self, conn=None, *, offer_id: str, mandate_jti: str) -> dict:
         """No `amount` parameter, deliberately (S6)."""
-        return self._call("request_purchase", offer_id=offer_id,
-                          mandate_jti=mandate_jti)
+        return self._call("request_purchase", offer_id=offer_id, mandate_jti=mandate_jti)

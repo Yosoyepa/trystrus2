@@ -3,7 +3,9 @@
 Detached: the payload travels next to the signature rather than inside it, so
 the verifier re-canonicalises the object it actually received and checks that.
 """
+
 from __future__ import annotations
+
 import json
 from typing import Any
 
@@ -28,8 +30,9 @@ def _header(kid: str | None, typ: str) -> str:
     return b64u(canonical_bytes(head))
 
 
-def sign_compact(payload: dict, key: Ed25519PrivateKey, kid: str | None = None,
-                 typ: str = "JWT") -> str:
+def sign_compact(
+    payload: dict, key: Ed25519PrivateKey, kid: str | None = None, typ: str = "JWT"
+) -> str:
     protected = _header(kid, typ)
     body = b64u(canonical_bytes(payload))
     signing_input = f"{protected}.{body}".encode("ascii")
@@ -53,8 +56,9 @@ def peek(token: str) -> dict:
     return json.loads(b64u_decode(token.split(".")[1]))
 
 
-def sign_detached(payload: dict, key: Ed25519PrivateKey, kid: str | None = None,
-                  typ: str = "JWS") -> str:
+def sign_detached(
+    payload: dict, key: Ed25519PrivateKey, kid: str | None = None, typ: str = "JWS"
+) -> str:
     """Returns `<protected>..<signature>` -- the payload is transported apart."""
     protected = _header(kid, typ)
     body = b64u(canonical_bytes(payload))

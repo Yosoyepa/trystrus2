@@ -31,14 +31,13 @@ The native fields of schemas.md §1 are never rewritten: `constraints` is an
 
 from __future__ import annotations
 
+import hashlib
 from decimal import Decimal
 from typing import Any
 
 from .canonical import canonical_json
 from .jose import b64u_encode
 from .models import MandateClaims
-
-import hashlib
 
 # --- vct values (AP2 credential types) ------------------------------------
 VCT_PAYMENT_OPEN = "mandate.payment.open.1"
@@ -85,47 +84,59 @@ def constraints_for(claims: MandateClaims) -> list[dict[str, Any]]:
     limits, scope, validity = claims.limits, claims.scope, claims.validity
 
     if limits.max_per_txn is not None:
-        out.append({
-            "type": C_AMOUNT_RANGE,
-            "currency": claims.currency,
-            "min": 0,
-            "max": to_minor_units(limits.max_per_txn),
-        })
+        out.append(
+            {
+                "type": C_AMOUNT_RANGE,
+                "currency": claims.currency,
+                "min": 0,
+                "max": to_minor_units(limits.max_per_txn),
+            }
+        )
 
     if limits.total_budget is not None:
-        out.append({
-            "type": C_BUDGET,
-            "currency": claims.currency,
-            "max": to_minor_units(limits.total_budget),
-        })
+        out.append(
+            {
+                "type": C_BUDGET,
+                "currency": claims.currency,
+                "max": to_minor_units(limits.total_budget),
+            }
+        )
 
     if scope.merchants:
-        out.append({
-            "type": C_ALLOWED_PAYEES,
-            "allowed": [{"id": m} for m in scope.merchants],
-        })
+        out.append(
+            {
+                "type": C_ALLOWED_PAYEES,
+                "allowed": [{"id": m} for m in scope.merchants],
+            }
+        )
 
     if limits.max_txn is not None:
-        out.append({
-            "type": C_AGENT_RECURRENCE,
-            "frequency": _AP2_FREQUENCY[limits.max_txn.period.value],
-            "max_occurrences": limits.max_txn.count,
-        })
+        out.append(
+            {
+                "type": C_AGENT_RECURRENCE,
+                "frequency": _AP2_FREQUENCY[limits.max_txn.period.value],
+                "max_occurrences": limits.max_txn.count,
+            }
+        )
 
-    out.append({
-        "type": C_EXECUTION_DATE,
-        "not_before": validity.not_before.isoformat(),
-        "not_after": validity.expires_at.isoformat(),
-    })
+    out.append(
+        {
+            "type": C_EXECUTION_DATE,
+            "not_before": validity.not_before.isoformat(),
+            "not_after": validity.expires_at.isoformat(),
+        }
+    )
     return out
 
 
 def apply_ap2_projection(claims: MandateClaims) -> MandateClaims:
     """Return `claims` with `vct` and `constraints` filled in."""
-    return claims.model_copy(update={
-        "vct": VCT_PAYMENT_OPEN,
-        "constraints": constraints_for(claims),
-    })
+    return claims.model_copy(
+        update={
+            "vct": VCT_PAYMENT_OPEN,
+            "constraints": constraints_for(claims),
+        }
+    )
 
 
 # ==========================================================================
@@ -208,10 +219,12 @@ def closed_payment_mandate(
         "payment_instrument": {"id": payment_instrument_id, "type": "vaulted_token"},
     }
     if bound_checkout_jwt is not None:
-        mandate["constraints"] = [{
-            "type": "payment.reference",
-            "conditional_transaction_id": checkout_hash(bound_checkout_jwt),
-        }]
+        mandate["constraints"] = [
+            {
+                "type": "payment.reference",
+                "conditional_transaction_id": checkout_hash(bound_checkout_jwt),
+            }
+        ]
     return mandate
 
 
@@ -223,11 +236,18 @@ def verify_checkout_binding(*, checkout_jwt: str, claimed_hash: str) -> bool:
 
 
 __all__ = [
-    "VCT_PAYMENT_OPEN", "VCT_PAYMENT_CLOSED",
-    "VCT_CHECKOUT_OPEN", "VCT_CHECKOUT_CLOSED",
-    "to_minor_units", "from_minor_units",
-    "constraints_for", "apply_ap2_projection",
-    "build_checkout_payload", "checkout_hash",
-    "closed_checkout_mandate", "closed_payment_mandate",
-    "verify_checkout_binding", "canonical_json",
+    "VCT_PAYMENT_OPEN",
+    "VCT_PAYMENT_CLOSED",
+    "VCT_CHECKOUT_OPEN",
+    "VCT_CHECKOUT_CLOSED",
+    "to_minor_units",
+    "from_minor_units",
+    "constraints_for",
+    "apply_ap2_projection",
+    "build_checkout_payload",
+    "checkout_hash",
+    "closed_checkout_mandate",
+    "closed_payment_mandate",
+    "verify_checkout_binding",
+    "canonical_json",
 ]

@@ -7,7 +7,9 @@ The agent READS memory; it never owns it.  Memory is derived from the audit
 chain, so an agent cannot rewrite its own past.  And by S4 none of this ever
 reaches the gate: it makes proposals better, never permissions wider.
 """
+
 from __future__ import annotations
+
 import json
 from decimal import Decimal
 from typing import Any
@@ -18,9 +20,13 @@ from .crypto.money import fmt
 def recent_events(conn, mandate_jti: str, limit: int = 50) -> list[dict]:
     rows = conn.execute(
         "SELECT type,payload,created_at FROM audit_events WHERE mandate_jti=? "
-        "ORDER BY seq DESC LIMIT ?", (mandate_jti, limit)).fetchall()
-    return [{"type": r["type"], "at": r["created_at"], "payload": json.loads(r["payload"])}
-            for r in rows]
+        "ORDER BY seq DESC LIMIT ?",
+        (mandate_jti, limit),
+    ).fetchall()
+    return [
+        {"type": r["type"], "at": r["created_at"], "payload": json.loads(r["payload"])}
+        for r in rows
+    ]
 
 
 def purchase_history(conn, mandate_jti: str, limit: int = 20) -> list[dict]:
@@ -38,15 +44,17 @@ def purchase_history(conn, mandate_jti: str, limit: int = 20) -> list[dict]:
         "LEFT JOIN purchase_intents i ON i.jti = p.intent_jti "
         "LEFT JOIN offers o ON o.id = (i.intent::jsonb ->> 'offer_id') "
         "WHERE p.mandate_jti=? ORDER BY p.created_at DESC LIMIT ?",
-        (mandate_jti, limit)).fetchall()
+        (mandate_jti, limit),
+    ).fetchall()
     history = []
     for row in rows:
         item = dict(row)
         receipt = json.loads(item["receipt"]) if item.get("receipt") else {}
         item["title"] = receipt.get("title") or item.pop("local_title", None)
         item["merchant_id"] = receipt.get("merchant_id")
-        item["destination"] = (item.pop("local_destination", None)
-                               or _destination_from(item["title"]))
+        item["destination"] = item.pop("local_destination", None) or _destination_from(
+            item["title"]
+        )
         history.append(item)
     return history
 
@@ -99,6 +107,8 @@ def render(summary: dict[str, Any]) -> str:
     if summary["frequent_destinations"]:
         parts.append("usual destinations: " + ", ".join(summary["frequent_destinations"]))
     if summary["recent_refusals"]:
-        parts.append("recent refusals: " + ", ".join(
-            f"{k}x{v}" for k, v in summary["recent_refusals"].items()))
+        parts.append(
+            "recent refusals: "
+            + ", ".join(f"{k}x{v}" for k, v in summary["recent_refusals"].items())
+        )
     return "\n".join(parts)

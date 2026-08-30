@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from trustlib.models import (
     Escalation,
-    EscalationStatus,
     MandateLimits,
     MandateScope,
     MandateValidity,
@@ -37,19 +36,20 @@ class MandateCreate(BaseModel):
     validity: MandateValidity
     conditions: dict[str, Any] | None = Field(
         default=None,
-        description="JsonLogic over the offer, e.g. "
-                    '{"<": [{"var": "offer.price"}, 150]}',
+        description='JsonLogic over the offer, e.g. {"<": [{"var": "offer.price"}, 150]}',
     )
     agent_jwk: dict[str, Any] | None = Field(
         default=None,
         description="The agent's public key. Bound as cnf.jwk — this is what "
-                    "makes an impersonated agent fail at the signature.",
+        "makes an impersonated agent fail at the signature.",
     )
     payment_method_ref: str | None = None
     email: str | None = Field(
-        default=None, description="Selectively disclosable; withheld by default.")
+        default=None, description="Selectively disclosable; withheld by default."
+    )
     shipping_address: str | None = Field(
-        default=None, description="Selectively disclosable; withheld by default.")
+        default=None, description="Selectively disclosable; withheld by default."
+    )
 
 
 class PaymentEnroll(BaseModel):
@@ -66,7 +66,8 @@ class MandateDraft(BaseModel):
     jti: str
     passkey_challenge: dict[str, Any] = Field(
         description="WebAuthn options. The challenge IS the mandate's "
-                    "canonical hash, so the gesture signs these exact terms.")
+        "canonical hash, so the gesture signs these exact terms."
+    )
     payment_enroll: PaymentEnroll | None = None
 
 

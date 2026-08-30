@@ -16,14 +16,16 @@ away overnight.  The rule it encodes:
 
 Counters live in the database, so a restart does not reset an attacker's budget.
 """
+
 from __future__ import annotations
+
 import datetime as _dt
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator
 
-from .ids import new_id, now_iso
+from .ids import now_iso
 
 
 class LimitExceeded(Exception):
@@ -92,11 +94,12 @@ QUOTA = Quota()
 # ── token bucket, persisted ──────────────────────────────────────────────────
 def take(conn, key: str, *, rate: float, burst: int, cost: float = 1.0) -> None:
     """Consume one token or raise. Refills at `rate`/second up to `burst`."""
-    now = _dt.datetime.now(_dt.timezone.utc)
+    now = _dt.datetime.now(_dt.UTC)
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT tokens, updated_at FROM rate_buckets WHERE key=?",
-                           (key,)).fetchone()
+        row = conn.execute(
+            "SELECT tokens, updated_at FROM rate_buckets WHERE key=?", (key,)
+        ).fetchone()
         if row is None:
             tokens = float(burst)
         else:
@@ -107,12 +110,14 @@ def take(conn, key: str, *, rate: float, burst: int, cost: float = 1.0) -> None:
             wait = (cost - tokens) / rate if rate > 0 else float("inf")
             raise LimitExceeded(
                 "RATE_LIMITED",
-                f"{key} is out of budget; {wait:.1f}s until the next call is allowed")
+                f"{key} is out of budget; {wait:.1f}s until the next call is allowed",
+            )
         conn.execute(
             "INSERT INTO rate_buckets(key,tokens,updated_at) VALUES(?,?,?) "
             "ON CONFLICT(key) DO UPDATE SET tokens=excluded.tokens, "
             "updated_at=excluded.updated_at",
-            (key, tokens - cost, now.isoformat()))
+            (key, tokens - cost, now.isoformat()),
+        )
         conn.execute("COMMIT")
     except LimitExceeded:
         raise
@@ -126,18 +131,19 @@ def bump(conn, key: str, window: str, *, cap: int, amount: float = 1.0) -> None:
     """Increment a windowed counter and raise once it passes `cap`."""
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT value FROM counters WHERE key=? AND window_key=?",
-                           (key, window)).fetchone()
+        row = conn.execute(
+            "SELECT value FROM counters WHERE key=? AND window_key=?", (key, window)
+        ).fetchone()
         value = (row["value"] if row else 0.0) + amount
         if value > cap:
             conn.execute("COMMIT")
-            raise LimitExceeded("QUOTA_EXHAUSTED",
-                                f"{key} used {value:.0f} of {cap} for {window}")
+            raise LimitExceeded("QUOTA_EXHAUSTED", f"{key} used {value:.0f} of {cap} for {window}")
         conn.execute(
             "INSERT INTO counters(key,window_key,value,updated_at) VALUES(?,?,?,?) "
             "ON CONFLICT(key,window_key) DO UPDATE SET value=excluded.value, "
             "updated_at=excluded.updated_at",
-            (key, window, value, now_iso()))
+            (key, window, value, now_iso()),
+        )
         conn.execute("COMMIT")
     except LimitExceeded:
         raise
@@ -147,11 +153,11 @@ def bump(conn, key: str, window: str, *, cap: int, amount: float = 1.0) -> None:
 
 
 def hour_window() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H")
+    return _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H")
 
 
 def day_window() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    return _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
 
 
 # ── single flight ────────────────────────────────────────────────────────────
@@ -178,9 +184,11 @@ def single_flight(conn, name: str, ttl_s: int | None = None) -> Iterator[bool]:
     holder = db.connect()
     acquired = False
     try:
-        acquired = bool(holder.execute(
-            "SELECT pg_try_advisory_lock(hashtext(?)) AS ok", (name,)
-        ).fetchone()["ok"])
+        acquired = bool(
+            holder.execute("SELECT pg_try_advisory_lock(hashtext(?)) AS ok", (name,)).fetchone()[
+                "ok"
+            ]
+        )
         yield acquired
     finally:
         if acquired:
@@ -192,7 +200,8 @@ def held_locks(conn) -> list[dict]:
     """What the control tower shows: advisory locks this database is holding."""
     return conn.execute(
         "SELECT objid AS lock_id, pid, granted FROM pg_locks "
-        "WHERE locktype='advisory' ORDER BY objid").fetchall()
+        "WHERE locktype='advisory' ORDER BY objid"
+    ).fetchall()
 
 
 # ── the specific guards, each named after what it stops ──────────────────────
@@ -200,22 +209,20 @@ def guard_watch_interval(interval_s: int) -> int:
     """A polling interval below the floor is clamped, not accepted."""
     if interval_s < QUOTA.min_watch_interval_s:
         raise LimitExceeded(
-            "INTERVAL_TOO_SMALL",
-            f"{interval_s}s is below the {QUOTA.min_watch_interval_s}s floor")
+            "INTERVAL_TOO_SMALL", f"{interval_s}s is below the {QUOTA.min_watch_interval_s}s floor"
+        )
     return interval_s
 
 
 def guard_watch_count(conn, mandate_jti: str) -> None:
-    per = conn.execute("SELECT COUNT(*) c FROM watches WHERE mandate_jti=? "
-                       "AND status='active'", (mandate_jti,)).fetchone()["c"]
+    per = conn.execute(
+        "SELECT COUNT(*) c FROM watches WHERE mandate_jti=? AND status='active'", (mandate_jti,)
+    ).fetchone()["c"]
     if per >= QUOTA.max_watches_per_mandate:
-        raise LimitExceeded("TOO_MANY_WATCHES",
-                            f"{mandate_jti} already has {per} active watches")
-    total = conn.execute("SELECT COUNT(*) c FROM watches WHERE status='active'"
-                         ).fetchone()["c"]
+        raise LimitExceeded("TOO_MANY_WATCHES", f"{mandate_jti} already has {per} active watches")
+    total = conn.execute("SELECT COUNT(*) c FROM watches WHERE status='active'").fetchone()["c"]
     if total >= QUOTA.max_watches_total:
-        raise LimitExceeded("TOO_MANY_WATCHES",
-                            f"{total} active watches system-wide")
+        raise LimitExceeded("TOO_MANY_WATCHES", f"{total} active watches system-wide")
 
 
 def guard_merchant_call(conn, agent_id: str, mandate_jti: str | None = None) -> None:
@@ -225,18 +232,20 @@ def guard_merchant_call(conn, agent_id: str, mandate_jti: str | None = None) -> 
     fresh budget with each one. The mandate is the thing an attacker cannot
     mint -- it is signed by a human -- so it carries the second ceiling.
     """
-    take(conn, f"merchant:{agent_id}", rate=QUOTA.merchant_calls_per_s,
-         burst=QUOTA.merchant_burst)
+    take(conn, f"merchant:{agent_id}", rate=QUOTA.merchant_calls_per_s, burst=QUOTA.merchant_burst)
     if mandate_jti:
-        take(conn, f"merchant:mandate:{mandate_jti}",
-             rate=QUOTA.merchant_calls_per_s, burst=QUOTA.merchant_burst)
+        take(
+            conn,
+            f"merchant:mandate:{mandate_jti}",
+            rate=QUOTA.merchant_calls_per_s,
+            burst=QUOTA.merchant_burst,
+        )
 
 
 def guard_llm_call(conn, agent_id: str, mandate_jti: str | None = None) -> None:
     take(conn, f"llm:{agent_id}", rate=QUOTA.llm_calls_per_s, burst=QUOTA.llm_burst)
     if mandate_jti:
-        take(conn, f"llm:mandate:{mandate_jti}", rate=QUOTA.llm_calls_per_s,
-             burst=QUOTA.llm_burst)
+        take(conn, f"llm:mandate:{mandate_jti}", rate=QUOTA.llm_calls_per_s, burst=QUOTA.llm_burst)
     bump(conn, "llm:calls", day_window(), cap=QUOTA.llm_calls_per_day)
 
 
@@ -246,8 +255,12 @@ def guard_run_start(conn, agent_id: str) -> None:
 
 def guard_escalation(conn, approver_id: str | None) -> None:
     """Stops an escalation storm from drowning the one human who can say no."""
-    bump(conn, f"escalations:{approver_id or 'unassigned'}", hour_window(),
-         cap=QUOTA.max_escalations_per_hour)
+    bump(
+        conn,
+        f"escalations:{approver_id or 'unassigned'}",
+        hour_window(),
+        cap=QUOTA.max_escalations_per_hour,
+    )
 
 
 def clamp_offers(offers: list[dict]) -> list[dict]:
@@ -271,10 +284,17 @@ def snapshot(conn) -> dict:
     """What the control tower shows: current budgets and locks."""
     return {
         "quota": QUOTA.__dict__,
-        "buckets": [dict(r) for r in conn.execute(
-            "SELECT key, ROUND(tokens,2) tokens, updated_at FROM rate_buckets "
-            "ORDER BY key").fetchall()],
-        "counters": [dict(r) for r in conn.execute(
-            "SELECT key, window_key AS window, value FROM counters ORDER BY key, window_key").fetchall()],
+        "buckets": [
+            dict(r)
+            for r in conn.execute(
+                "SELECT key, ROUND(tokens,2) tokens, updated_at FROM rate_buckets ORDER BY key"
+            ).fetchall()
+        ],
+        "counters": [
+            dict(r)
+            for r in conn.execute(
+                "SELECT key, window_key AS window, value FROM counters ORDER BY key, window_key"
+            ).fetchall()
+        ],
         "locks": [dict(r) for r in held_locks(conn)],
     }

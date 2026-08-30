@@ -44,8 +44,9 @@ class CheckoutJWTService:
     it for a checkout whose low-entropy contents could be rainbow-tabled.
     """
 
-    def __init__(self, *, config: Settings | None = None,
-                 signing_key: jwk.JWK | None = None) -> None:
+    def __init__(
+        self, *, config: Settings | None = None, signing_key: jwk.JWK | None = None
+    ) -> None:
         self._config = config or settings()
         self._signing_key = signing_key
 
@@ -56,10 +57,13 @@ class CheckoutJWTService:
             from google.cloud import secretmanager
 
             client = secretmanager.SecretManagerServiceClient()
-            secret_path = (f"projects/{self._config.gcp_project}/secrets/"
-                           f"{self._config.merchant_key_secret}/versions/latest")
+            secret_path = (
+                f"projects/{self._config.gcp_project}/secrets/"
+                f"{self._config.merchant_key_secret}/versions/latest"
+            )
             self._signing_key = key_from_pem(
-                client.access_secret_version(name=secret_path).payload.data)
+                client.access_secret_version(name=secret_path).payload.data
+            )
             return self._validate_key(self._signing_key)
         directory = Path(self._config.secrets_dir)
         directory.mkdir(parents=True, exist_ok=True)
@@ -84,33 +88,36 @@ class CheckoutJWTService:
             merchant_id=self._config.merchant_id,
             merchant_name=self._config.merchant_name,
             merchant_website=self._config.merchant_website,
-            line_items=[{
-                "id": offer.offer_id,
-                "label": offer.title,
-                "amount": ap2.to_minor_units(offer.amount),
-                "quantity": 1,
-            }],
+            line_items=[
+                {
+                    "id": offer.offer_id,
+                    "label": offer.title,
+                    "amount": ap2.to_minor_units(offer.amount),
+                    "quantity": 1,
+                }
+            ],
             total_price=offer.amount,
             currency=offer.currency,
         )
-        token = sign_compact(payload, self._key(),
-                             kid=self._config.merchant_kid, typ="JWT")
+        token = sign_compact(payload, self._key(), kid=self._config.merchant_kid, typ="JWT")
         digest = ap2.checkout_hash(token)
-        session.add(MerchantOrder(
-            id=order_id,
-            offer_id=offer.offer_id,
-            amount=offer.amount_decimal,
-            currency=offer.currency,
-            checkout_jwt=token,
-            checkout_hash=digest,
-            status="quoted",
-        ))
+        session.add(
+            MerchantOrder(
+                id=order_id,
+                offer_id=offer.offer_id,
+                amount=offer.amount_decimal,
+                currency=offer.currency,
+                checkout_jwt=token,
+                checkout_hash=digest,
+                status="quoted",
+            )
+        )
         await session.flush()
-        return CheckoutQuote(order_id=order_id, offer=offer,
-                             checkout_jwt=token, checkout_hash=digest)
+        return CheckoutQuote(
+            order_id=order_id, offer=offer, checkout_jwt=token, checkout_hash=digest
+        )
 
-    async def verify(self, session: AsyncSession,
-                     checkout_jwt: str) -> VerifiedCheckout:
+    async def verify(self, session: AsyncSession, checkout_jwt: str) -> VerifiedCheckout:
         """Check signature, persistence and all cart facts before charging."""
         try:
             if peek_header(checkout_jwt).get("kid") != self._config.merchant_kid:
@@ -128,9 +135,7 @@ class CheckoutJWTService:
         # use the same signed cart so the second request observes the first
         # receipt rather than starting another capture.
         result = await session.execute(
-            select(MerchantOrder)
-            .where(MerchantOrder.id == order_id)
-            .with_for_update()
+            select(MerchantOrder).where(MerchantOrder.id == order_id).with_for_update()
         )
         order = result.scalar_one_or_none()
         if order is None:
@@ -149,9 +154,14 @@ class CheckoutJWTService:
             raise CheckoutJWTError("Checkout JWT total changed")
         return VerifiedCheckout(order=order, payload=payload, checkout_hash=digest)
 
-    async def mark_captured(self, session: AsyncSession, *,
-                            checkout: VerifiedCheckout, purchase_id: str,
-                            receipt: Receipt) -> None:
+    async def mark_captured(
+        self,
+        session: AsyncSession,
+        *,
+        checkout: VerifiedCheckout,
+        purchase_id: str,
+        receipt: Receipt,
+    ) -> None:
         order = checkout.order
         if order.status == "captured" and order.purchase_id != purchase_id:
             raise CheckoutJWTError("Checkout JWT has already been captured")

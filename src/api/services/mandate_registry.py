@@ -37,15 +37,14 @@ SELECTIVE_CLAIMS = ("email", "shipping_address")
 class MandateRegistry:
     """Issues SD-JWT mandates and verifies them against the published JWKS."""
 
-    def __init__(self, keys: KeyStore | None = None,
-                 config: Settings | None = None) -> None:
+    def __init__(self, keys: KeyStore | None = None, config: Settings | None = None) -> None:
         self._keys = keys or key_store()
         self._config = config or settings()
 
     # -- issuance ----------------------------------------------------------
-    def build_claims(self, request: MandateClaimsInput, *,
-                     jti: str | None = None,
-                     parent_jti: str | None = None) -> MandateClaims:
+    def build_claims(
+        self, request: MandateClaimsInput, *, jti: str | None = None, parent_jti: str | None = None
+    ) -> MandateClaims:
         """Assemble the claims that the buyer's passkey will sign.
 
         Built *before* the ceremony, because the challenge is this object's
@@ -79,8 +78,7 @@ class MandateRegistry:
             )
         )
 
-    def sign(self, claims: MandateClaims, *,
-             disclose: dict | None = None) -> IssuedMandate:
+    def sign(self, claims: MandateClaims, *, disclose: dict | None = None) -> IssuedMandate:
         """Sign assembled claims into an SD-JWT.
 
         Separate from `build_claims` on purpose: the passkey ceremony happens
@@ -91,9 +89,10 @@ class MandateRegistry:
         payload = claims.model_dump(mode="json", exclude_none=True)
 
         sd_jwt = sdjwt.issue(
-            payload, signing.key, kid=signing.kid,
-            selective={k: v for k, v in (disclose or {}).items()
-                       if k in SELECTIVE_CLAIMS} or None,
+            payload,
+            signing.key,
+            kid=signing.kid,
+            selective={k: v for k, v in (disclose or {}).items() if k in SELECTIVE_CLAIMS} or None,
         )
         return IssuedMandate(sd_jwt=sd_jwt, jti=claims.jti, claims=claims)
 
@@ -106,8 +105,13 @@ class MandateRegistry:
         """
         return self.sign(self.build_claims(claims))
 
-    def derive(self, parent: MandateClaims, *, limits, ttl_seconds: int = 3600,
-               ) -> MandateClaims:
+    def derive(
+        self,
+        parent: MandateClaims,
+        *,
+        limits,
+        ttl_seconds: int = 3600,
+    ) -> MandateClaims:
         """A sticky mini-mandate: narrower limits, linked to its parent.
 
         schemas.md §5.3 -- when a human approves an escalation with
@@ -117,20 +121,27 @@ class MandateRegistry:
         """
         now = int(time.time())
         return ap2.apply_ap2_projection(
-            parent.model_copy(update={
-                "jti": ids.new_id(ids.MANDATE),
-                "parent_jti": parent.jti,
-                "limits": limits,
-                "iat": now,
-                "nbf": now,
-                "exp": min(now + ttl_seconds, parent.exp),  # never outlives its parent
-            })
+            parent.model_copy(
+                update={
+                    "jti": ids.new_id(ids.MANDATE),
+                    "parent_jti": parent.jti,
+                    "limits": limits,
+                    "iat": now,
+                    "nbf": now,
+                    "exp": min(now + ttl_seconds, parent.exp),  # never outlives its parent
+                }
+            )
         )
 
     # -- verification ------------------------------------------------------
-    def verify(self, sd_jwt: str, *, nonce: str | None = None,
-               aud: str | None = None,
-               require_key_binding: bool = False) -> MandateClaims:
+    def verify(
+        self,
+        sd_jwt: str,
+        *,
+        nonce: str | None = None,
+        aud: str | None = None,
+        require_key_binding: bool = False,
+    ) -> MandateClaims:
         """`MandateRegistry.verify` from schemas.md §3.
 
         Checks the issuer signature, the temporal window, the disclosures and
@@ -138,8 +149,11 @@ class MandateRegistry:
         holder controls `cnf.jwk`.
         """
         claims = sdjwt.verify(
-            sd_jwt, self._keys.verification_keys(),
-            nonce=nonce, aud=aud, require_key_binding=require_key_binding,
+            sd_jwt,
+            self._keys.verification_keys(),
+            nonce=nonce,
+            aud=aud,
+            require_key_binding=require_key_binding,
         )
         return MandateClaims.model_validate(claims)
 

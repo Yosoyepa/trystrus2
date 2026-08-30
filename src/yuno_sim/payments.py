@@ -37,8 +37,9 @@ log = logging.getLogger(__name__)
 class PaymentRefused(Exception):
     """Settlement refused, with the reason the buyer and merchant will see."""
 
-    def __init__(self, reason_code: ReasonCode, message: str,
-                 *, payment_id: str | None = None) -> None:
+    def __init__(
+        self, reason_code: ReasonCode, message: str, *, payment_id: str | None = None
+    ) -> None:
         self.reason_code = reason_code
         self.payment_id = payment_id
         super().__init__(message)
@@ -97,54 +98,75 @@ async def capture(
     # ---- 2. is the instrument still there? ------------------------------
     token = await get_active_token(session, token_id)
     if token is None:
-        reason = (ReasonCode.RAIL_TOKEN_DELETED
-                  if await token_exists(session, token_id)
-                  else ReasonCode.RAIL_ERROR)
-        await _record_refusal(session, token_id=token_id, amount=amount,
-                              currency=currency, reason=reason,
-                              intent_ref=intent_ref, mandate_jti="unknown")
+        reason = (
+            ReasonCode.RAIL_TOKEN_DELETED
+            if await token_exists(session, token_id)
+            else ReasonCode.RAIL_ERROR
+        )
+        await _record_refusal(
+            session,
+            token_id=token_id,
+            amount=amount,
+            currency=currency,
+            reason=reason,
+            intent_ref=intent_ref,
+            mandate_jti="unknown",
+        )
         raise PaymentRefused(
             reason,
-            "the payment token was deleted — this is the rail-side half of "
-            "revocation" if reason is ReasonCode.RAIL_TOKEN_DELETED
+            "the payment token was deleted — this is the rail-side half of revocation"
+            if reason is ReasonCode.RAIL_TOKEN_DELETED
             else "unknown payment token",
         )
 
     # ---- 3. the AP2 Payment Mandate -------------------------------------
-    verdict = await verifier.verify(mandate_sd_jwt=mandate_sd_jwt,
-                                    checkout_jwt=checkout_jwt,
-                                    amount=amount, currency=currency)
+    verdict = await verifier.verify(
+        mandate_sd_jwt=mandate_sd_jwt, checkout_jwt=checkout_jwt, amount=amount, currency=currency
+    )
     if not verdict.ok:
-        await _record_refusal(session, token_id=token_id, amount=amount,
-                              currency=currency, reason=verdict.reason_code,
-                              intent_ref=intent_ref,
-                              mandate_jti=verdict.mandate_jti or "unknown",
-                              checkout_hash=verdict.checkout_hash)
+        await _record_refusal(
+            session,
+            token_id=token_id,
+            amount=amount,
+            currency=currency,
+            reason=verdict.reason_code,
+            intent_ref=intent_ref,
+            mandate_jti=verdict.mandate_jti or "unknown",
+            checkout_hash=verdict.checkout_hash,
+        )
         raise PaymentRefused(verdict.reason_code, verdict.detail or "refused")
 
     # ---- 4. settle -------------------------------------------------------
     payment_id = ids.new_id(ids.YUNO_PAYMENT)
     captured_at = datetime.now(UTC)
-    session.add(PaymentRow(
+    session.add(
+        PaymentRow(
+            payment_id=payment_id,
+            token_id=token_id,
+            mandate_jti=verdict.mandate_jti,
+            amount=amount,
+            currency=currency,
+            status="captured",
+            checkout_hash=verdict.checkout_hash,
+            intent_ref=intent_ref,
+        )
+    )
+
+    settlement = Settlement(
         payment_id=payment_id,
-        token_id=token_id,
-        mandate_jti=verdict.mandate_jti,
         amount=amount,
         currency=currency,
-        status="captured",
-        checkout_hash=verdict.checkout_hash,
-        intent_ref=intent_ref,
-    ))
+        mandate_jti=verdict.mandate_jti,
+        captured_at=captured_at,
+    )
 
-    settlement = Settlement(payment_id=payment_id, amount=amount,
-                            currency=currency, mandate_jti=verdict.mandate_jti,
-                            captured_at=captured_at)
-
-    session.add(IdempotencyRow(
-        idempotency_key=idempotency_key,
-        payment_id=payment_id,
-        response=settlement.to_receipt(purchase_id=purchase_id),
-    ))
+    session.add(
+        IdempotencyRow(
+            idempotency_key=idempotency_key,
+            payment_id=payment_id,
+            response=settlement.to_receipt(purchase_id=purchase_id),
+        )
+    )
 
     try:
         await session.flush()
@@ -157,8 +179,10 @@ async def capture(
             raise
         stored = winner.response
         return Settlement(
-            payment_id=stored["capture_id"], amount=Decimal(stored["amount"]),
-            currency=stored["currency"], mandate_jti=stored["mandate_jti"],
+            payment_id=stored["capture_id"],
+            amount=Decimal(stored["amount"]),
+            currency=stored["currency"],
+            mandate_jti=stored["mandate_jti"],
             captured_at=datetime.fromisoformat(stored["captured_at"]),
             replayed=True,
         )
@@ -166,21 +190,29 @@ async def capture(
     return settlement
 
 
-async def _record_refusal(session: AsyncSession, *, token_id: str,
-                          amount: Decimal, currency: str,
-                          reason: ReasonCode | None, intent_ref: str,
-                          mandate_jti: str,
-                          checkout_hash: str | None = None) -> None:
+async def _record_refusal(
+    session: AsyncSession,
+    *,
+    token_id: str,
+    amount: Decimal,
+    currency: str,
+    reason: ReasonCode | None,
+    intent_ref: str,
+    mandate_jti: str,
+    checkout_hash: str | None = None,
+) -> None:
     """Write the refusal down. "Why was I not charged?" is a real question."""
-    session.add(PaymentRow(
-        payment_id=ids.new_id(ids.YUNO_PAYMENT),
-        token_id=token_id,
-        mandate_jti=mandate_jti,
-        amount=amount,
-        currency=currency,
-        status="refused",
-        reason_code=reason.value if reason else None,
-        checkout_hash=checkout_hash,
-        intent_ref=intent_ref,
-    ))
+    session.add(
+        PaymentRow(
+            payment_id=ids.new_id(ids.YUNO_PAYMENT),
+            token_id=token_id,
+            mandate_jti=mandate_jti,
+            amount=amount,
+            currency=currency,
+            status="refused",
+            reason_code=reason.value if reason else None,
+            checkout_hash=checkout_hash,
+            intent_ref=intent_ref,
+        )
+    )
     await session.flush()

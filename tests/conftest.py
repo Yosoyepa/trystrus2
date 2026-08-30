@@ -21,10 +21,19 @@ DATABASE_URL = os.environ.get("AVAL_TEST_DATABASE_URL", DEFAULT_DB)
 
 # Every table this suite touches, in dependency order for truncation.
 TABLES = (
-    "webauthn_challenges", "webauthn_credentials",
-    "merchant_orders", "offers", "payment_instruments", "escalations", "outbox", "mandates",
-    "yuno_idempotency", "yuno_disputes", "yuno_payments",
-    "yuno_payment_tokens", "yuno_setup_tokens",
+    "webauthn_challenges",
+    "webauthn_credentials",
+    "merchant_orders",
+    "offers",
+    "payment_instruments",
+    "escalations",
+    "outbox",
+    "mandates",
+    "yuno_idempotency",
+    "yuno_disputes",
+    "yuno_payments",
+    "yuno_payment_tokens",
+    "yuno_setup_tokens",
 )
 
 
@@ -66,8 +75,7 @@ async def session(engine):
     so wrapping it in an outer transaction would test something else.
     """
     async with engine.begin() as connection:
-        await connection.execute(
-            text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
+        await connection.execute(text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
 
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     async with factory() as session:

@@ -15,12 +15,16 @@ Three properties live in this file and nowhere else:
 The graph is a dict of plain functions on purpose: if this ever needs a
 framework, the same functions wrap unchanged.
 """
+
 from __future__ import annotations
+
 import json
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from . import audit, limits, llm, memory, ontology as ontology_mod, registry
+from . import audit, limits, llm, memory, registry
+from . import ontology as ontology_mod
 from .ids import new_id, now_iso
 from .ports.base import search_all
 
@@ -31,12 +35,24 @@ STOP, PAUSE = "__stop__", "__pause__"
 # log with noise and reads as a broken agent; the price moving under us is a
 # genuine reason to look again.
 RETRYABLE = {"AMOUNT_MISMATCH", "RAIL_ERROR"}
-TERMINAL = {"MANDATE_REVOKED", "MANDATE_EXPIRED", "MANDATE_SUSPENDED",
-            "MANDATE_EXHAUSTED", "MANDATE_NOT_YET_VALID", "BUDGET_EXCEEDED",
-            "LIMIT_EXHAUSTED", "CATEGORY_FORBIDDEN", "MERCHANT_NOT_ALLOWED",
-            "INVALID_SIGNATURE", "INVALID_PROOF_OF_POSSESSION", "DUPLICATE_JTI",
-            "NONCE_REUSED", "HUMAN_REJECTED", "ESCALATION_TIMEOUT_DENIED",
-            "RAIL_TOKEN_DELETED"}
+TERMINAL = {
+    "MANDATE_REVOKED",
+    "MANDATE_EXPIRED",
+    "MANDATE_SUSPENDED",
+    "MANDATE_EXHAUSTED",
+    "MANDATE_NOT_YET_VALID",
+    "BUDGET_EXCEEDED",
+    "LIMIT_EXHAUSTED",
+    "CATEGORY_FORBIDDEN",
+    "MERCHANT_NOT_ALLOWED",
+    "INVALID_SIGNATURE",
+    "INVALID_PROOF_OF_POSSESSION",
+    "DUPLICATE_JTI",
+    "NONCE_REUSED",
+    "HUMAN_REJECTED",
+    "ESCALATION_TIMEOUT_DENIED",
+    "RAIL_TOKEN_DELETED",
+}
 
 
 # ── run persistence ──────────────────────────────────────────────────────────
@@ -47,32 +63,55 @@ def _load(conn, run_id: str) -> dict[str, Any]:
     return {**dict(row), "state": json.loads(row["state"])}
 
 
-def _save(conn, run: dict, *, node: str, status: str | None = None,
-          escalation_id: str | None = None, event: dict | None = None) -> dict:
+def _save(
+    conn,
+    run: dict,
+    *,
+    node: str,
+    status: str | None = None,
+    escalation_id: str | None = None,
+    event: dict | None = None,
+) -> dict:
     status = status or run["status"]
     conn.execute(
         "UPDATE agent_runs SET node=?, state=?, status=?, escalation_id=?, updated_at=?"
         " WHERE run_id=?",
-        (node, json.dumps(run["state"]), status,
-         escalation_id if escalation_id is not None else run.get("escalation_id"),
-         now_iso(), run["run_id"]))
-    audit.append(conn, "agent.node.entered",
-                 {"run_id": run["run_id"], "node": node, "status": status,
-                  "agent_version": run["agent_version"], **(event or {})},
-                 agent_id=run["agent_id"], run_id=run["run_id"],
-                 mandate_jti=run["mandate_jti"])
+        (
+            node,
+            json.dumps(run["state"]),
+            status,
+            escalation_id if escalation_id is not None else run.get("escalation_id"),
+            now_iso(),
+            run["run_id"],
+        ),
+    )
+    audit.append(
+        conn,
+        "agent.node.entered",
+        {
+            "run_id": run["run_id"],
+            "node": node,
+            "status": status,
+            "agent_version": run["agent_version"],
+            **(event or {}),
+        },
+        agent_id=run["agent_id"],
+        run_id=run["run_id"],
+        mandate_jti=run["mandate_jti"],
+    )
     run["node"], run["status"] = node, status
     if escalation_id is not None:
         run["escalation_id"] = escalation_id
     return run
 
 
-def start(conn, *, agent_id: str, mandate_jti: str, request: str,
-          session_id: str | None = None) -> dict[str, Any]:
+def start(
+    conn, *, agent_id: str, mandate_jti: str, request: str, session_id: str | None = None
+) -> dict[str, Any]:
     agent = registry.get_agent(conn, agent_id)
     if agent["status"] != "active":
         raise ValueError(f"agent {agent_id} is {agent['status']}")
-    limits.guard_run_start(conn, agent_id)   # bounded runs per agent per hour
+    limits.guard_run_start(conn, agent_id)  # bounded runs per agent per hour
     version = int(agent["current_version"])  # E8/K3: pinned now, never re-read
     run_id = new_id("run")
     stamp = now_iso()
@@ -81,11 +120,16 @@ def start(conn, *, agent_id: str, mandate_jti: str, request: str,
         "INSERT INTO agent_runs(run_id,agent_id,agent_version,mandate_jti,session_id,"
         "node,state,status,created_at,updated_at) VALUES(?,?,?,?,?,'perceive',?, "
         "'running',?,?)",
-        (run_id, agent_id, version, mandate_jti, session_id, json.dumps(state),
-         stamp, stamp))
-    audit.append(conn, "agent.run.started",
-                 {"run_id": run_id, "agent_version": version, "request": request},
-                 agent_id=agent_id, run_id=run_id, mandate_jti=mandate_jti)
+        (run_id, agent_id, version, mandate_jti, session_id, json.dumps(state), stamp, stamp),
+    )
+    audit.append(
+        conn,
+        "agent.run.started",
+        {"run_id": run_id, "agent_version": version, "request": request},
+        agent_id=agent_id,
+        run_id=run_id,
+        mandate_jti=mandate_jti,
+    )
     return _load(conn, run_id)
 
 
@@ -94,8 +138,9 @@ def node_perceive(conn, run: dict) -> str:
     """Assemble the context. Ontology + history + run state. Never the gate (S4)."""
     version = registry.get_version(conn, run["agent_id"], run["agent_version"])
     onto = json.loads(version["ontology"])
-    mandate_row = conn.execute("SELECT claims FROM mandates WHERE jti=?",
-                               (run["mandate_jti"],)).fetchone()
+    mandate_row = conn.execute(
+        "SELECT claims FROM mandates WHERE jti=?", (run["mandate_jti"],)
+    ).fetchone()
     claims = json.loads(mandate_row["claims"]) if mandate_row else {}
     # The scope is a filter here only to save pointless calls; the gate enforces
     # it regardless, so a merchant the buyer never allowed can never be bought from.
@@ -107,12 +152,21 @@ def node_perceive(conn, run: dict) -> str:
     run["state"]["memory_text"] = memory.render(summary)
     limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
     run["state"]["criteria"] = llm.parse_request(
-        run["state"]["request"] + (" " + " ".join(run["state"]["guidance"])
-                                   if run["state"]["guidance"] else ""))
-    _save(conn, run, node="perceive",
-          event={"criteria": run["state"]["criteria"],
-                 "memory": {"purchases_made": summary["purchases_made"],
-                            "total_spent": summary["total_spent"]}})
+        run["state"]["request"]
+        + (" " + " ".join(run["state"]["guidance"]) if run["state"]["guidance"] else "")
+    )
+    _save(
+        conn,
+        run,
+        node="perceive",
+        event={
+            "criteria": run["state"]["criteria"],
+            "memory": {
+                "purchases_made": summary["purchases_made"],
+                "total_spent": summary["total_spent"],
+            },
+        },
+    )
     return "search"
 
 
@@ -121,21 +175,34 @@ def node_search(conn, run: dict) -> str:
     criteria = run["state"].get("criteria") or {}
     limits.guard_merchant_call(conn, run["agent_id"], run["mandate_jti"])
     allowed = run["state"].get("allowed_merchants")
-    offers = search_all(conn, allowed=allowed, origin=criteria.get("origin"),
-                        destination=criteria.get("destination"),
-                        date=criteria.get("date"), category=criteria.get("category"),
-                        query=run["state"]["request"])
+    offers = search_all(
+        conn,
+        allowed=allowed,
+        origin=criteria.get("origin"),
+        destination=criteria.get("destination"),
+        date=criteria.get("date"),
+        category=criteria.get("category"),
+        query=run["state"]["request"],
+    )
     if not offers:  # a filter that matched nothing is worse than a broad list
-        offers = search_all(conn, allowed=allowed, category=criteria.get("category"),
-                            query=run["state"]["request"])
+        offers = search_all(
+            conn, allowed=allowed, category=criteria.get("category"), query=run["state"]["request"]
+        )
     run["state"]["offers"] = limits.clamp_offers(offers)
     offers = run["state"]["offers"]
     _save(conn, run, node="search", event={"offers_found": len(offers)})
-    audit.append(conn, "offer.seen",
-                 {"run_id": run["run_id"], "count": len(offers),
-                  "cheapest": offers[0]["price"] if offers else None},
-                 agent_id=run["agent_id"], run_id=run["run_id"],
-                 mandate_jti=run["mandate_jti"])
+    audit.append(
+        conn,
+        "offer.seen",
+        {
+            "run_id": run["run_id"],
+            "count": len(offers),
+            "cheapest": offers[0]["price"] if offers else None,
+        },
+        agent_id=run["agent_id"],
+        run_id=run["run_id"],
+        mandate_jti=run["mandate_jti"],
+    )
     return "propose" if offers else "denied"
 
 
@@ -144,14 +211,23 @@ def node_propose(conn, run: dict) -> str:
     state = run["state"]
     limits.guard_llm_call(conn, run["agent_id"], run["mandate_jti"])
     proposal = llm.propose(
-        request=state["request"], offers=state["offers"],
+        request=state["request"],
+        offers=state["offers"],
         ontology_text=state.get("ontology_text", ""),
         memory_text=state.get("memory_text", ""),
-        guidance=" ".join(state.get("guidance", [])))
+        guidance=" ".join(state.get("guidance", [])),
+    )
     state["proposal"] = proposal
-    _save(conn, run, node="propose",
-          event={"offer_id": proposal.get("offer_id"), "source": proposal.get("source"),
-                 "concern": proposal.get("concern")})
+    _save(
+        conn,
+        run,
+        node="propose",
+        event={
+            "offer_id": proposal.get("offer_id"),
+            "source": proposal.get("source"),
+            "concern": proposal.get("concern"),
+        },
+    )
     return "gate" if proposal.get("offer_id") else "denied"
 
 
@@ -162,15 +238,19 @@ def node_gate(conn, run: dict) -> str:
     id and the mandate (S4, S6).
     """
     from . import kernel
+
     state = run["state"]
     _save(conn, run, node="gate")
-    chosen = next((o for o in state["offers"]
-                   if o["offer_id"] == state["proposal"]["offer_id"]), None)
+    chosen = next(
+        (o for o in state["offers"] if o["offer_id"] == state["proposal"]["offer_id"]), None
+    )
     result = kernel.submit_purchase(
-        conn, offer_id=state["proposal"]["offer_id"],
+        conn,
+        offer_id=state["proposal"]["offer_id"],
         mandate_jti=run["mandate_jti"],
         merchant_id=(chosen or {}).get("merchant_id"),
-        run_id=run["run_id"])
+        run_id=run["run_id"],
+    )
     state["result"] = result
     if result["status"] == "captured":
         return "receipt"
@@ -180,7 +260,8 @@ def node_gate(conn, run: dict) -> str:
     if reason in RETRYABLE and state.get("replans", 0) < MAX_REPLANS:
         state["replans"] = state.get("replans", 0) + 1
         state.setdefault("guidance", []).append(
-            f"the previous choice failed with {reason}; pick a different offer")
+            f"the previous choice failed with {reason}; pick a different offer"
+        )
         return "search"
     return "denied"
 
@@ -188,17 +269,23 @@ def node_gate(conn, run: dict) -> str:
 def node_await_human(conn, run: dict) -> str:
     """Persist and RETURN. The run survives a restart here (decision #16)."""
     result = run["state"]["result"]
-    _save(conn, run, node="await_human", status="awaiting_human",
-          escalation_id=result["escalation_id"],
-          event={"escalation_id": result["escalation_id"],
-                 "reason_code": result.get("reason_code"),
-                 "diff": result.get("diff", {})})
+    _save(
+        conn,
+        run,
+        node="await_human",
+        status="awaiting_human",
+        escalation_id=result["escalation_id"],
+        event={
+            "escalation_id": result["escalation_id"],
+            "reason_code": result.get("reason_code"),
+            "diff": result.get("diff", {}),
+        },
+    )
     return "__pause__"
 
 
 def node_receipt(conn, run: dict) -> str:
-    _save(conn, run, node="receipt",
-          event={"receipt": run["state"]["result"].get("receipt")})
+    _save(conn, run, node="receipt", event={"receipt": run["state"]["result"].get("receipt")})
     return "done"
 
 
@@ -209,22 +296,32 @@ def node_done(conn, run: dict) -> str:
 
 def node_denied(conn, run: dict) -> str:
     result = run["state"].get("result") or {}
-    _save(conn, run, node="denied", status="denied",
-          event={"reason_code": result.get("reason_code"),
-                 "detail": result.get("detail", "")})
+    _save(
+        conn,
+        run,
+        node="denied",
+        status="denied",
+        event={"reason_code": result.get("reason_code"), "detail": result.get("detail", "")},
+    )
     return "__stop__"
 
 
 NODES: dict[str, Callable] = {
-    "perceive": node_perceive, "search": node_search, "propose": node_propose,
-    "gate": node_gate, "await_human": node_await_human, "receipt": node_receipt,
-    "done": node_done, "denied": node_denied,
+    "perceive": node_perceive,
+    "search": node_search,
+    "propose": node_propose,
+    "gate": node_gate,
+    "await_human": node_await_human,
+    "receipt": node_receipt,
+    "done": node_done,
+    "denied": node_denied,
 }
 
 
 # ── the loop ─────────────────────────────────────────────────────────────────
-def run_until_pause(conn, run_id: str, *, max_steps: int | None = None,
-                    max_seconds: int | None = None) -> dict[str, Any]:
+def run_until_pause(
+    conn, run_id: str, *, max_steps: int | None = None, max_seconds: int | None = None
+) -> dict[str, Any]:
     """Advance until the run finishes or needs a human.
 
     Two independent stops, because a loop can be slow without being long and
@@ -242,22 +339,33 @@ def run_until_pause(conn, run_id: str, *, max_steps: int | None = None,
     node = run["node"] if run["status"] == "running" else "perceive"
     for _ in range(max_steps):
         if time.monotonic() >= deadline:
-            _save(conn, run, node=node, status="failed",
-                  event={"error": "run exceeded its wall clock", "guardrail": True})
+            _save(
+                conn,
+                run,
+                node=node,
+                status="failed",
+                event={"error": "run exceeded its wall clock", "guardrail": True},
+            )
             return _load(conn, run_id)
         handler = NODES.get(node)
         if handler is None:
-            _save(conn, run, node=node, status="failed",
-                  event={"error": f"unknown node {node}"})
+            _save(conn, run, node=node, status="failed", event={"error": f"unknown node {node}"})
             return _load(conn, run_id)
         try:
             node = handler(conn, run)
-        except limits.LimitExceeded as exc:   # throttled is denied, never paid
-            _save(conn, run, node=node, status="denied",
-                  event={"reason_code": exc.code, "detail": exc.detail,
-                         "guardrail": True})
-            run["state"]["result"] = {"status": "rejected", "reason_code": exc.code,
-                                      "detail": exc.detail}
+        except limits.LimitExceeded as exc:  # throttled is denied, never paid
+            _save(
+                conn,
+                run,
+                node=node,
+                status="denied",
+                event={"reason_code": exc.code, "detail": exc.detail, "guardrail": True},
+            )
+            run["state"]["result"] = {
+                "status": "rejected",
+                "reason_code": exc.code,
+                "detail": exc.detail,
+            }
             return _load(conn, run_id)
         except Exception as exc:  # a crashed run is a denied run, never a paid one
             _save(conn, run, node=node, status="failed", event={"error": str(exc)})
@@ -277,21 +385,21 @@ def resume(conn, run_id: str) -> dict[str, Any]:
     run = _load(conn, run_id)
     if run["status"] != "awaiting_human":
         return run
-    esc = conn.execute("SELECT * FROM escalations WHERE id=?",
-                       (run["escalation_id"],)).fetchone()
+    esc = conn.execute("SELECT * FROM escalations WHERE id=?", (run["escalation_id"],)).fetchone()
     if esc is None or esc["status"] == "pending":
         return run
-    purchase = conn.execute("SELECT * FROM purchases WHERE id=?",
-                            (esc["purchase_id"],)).fetchone()
-    outcome = {"status": purchase["status"], "reason_code": purchase["reason_code"],
-               "purchase_id": purchase["id"],
-               "receipt": json.loads(purchase["receipt"]) if purchase["receipt"] else None}
+    purchase = conn.execute("SELECT * FROM purchases WHERE id=?", (esc["purchase_id"],)).fetchone()
+    outcome = {
+        "status": purchase["status"],
+        "reason_code": purchase["reason_code"],
+        "purchase_id": purchase["id"],
+        "receipt": json.loads(purchase["receipt"]) if purchase["receipt"] else None,
+    }
     run["state"]["result"] = outcome
     run["status"] = "running"
     conn.execute("UPDATE agent_runs SET status='running' WHERE run_id=?", (run_id,))
     node = "receipt" if purchase["status"] == "captured" else "denied"
-    _save(conn, run, node="gate", event={"resumed_after": esc["id"],
-                                         "decision": esc["decision"]})
+    _save(conn, run, node="gate", event={"resumed_after": esc["id"], "decision": esc["decision"]})
     NODES[node](conn, run)
     return _load(conn, run_id)
 
@@ -301,9 +409,16 @@ def add_guidance(conn, run_id: str, text: str) -> dict[str, Any]:
     run = _load(conn, run_id)
     run["state"].setdefault("guidance", []).append(text)
     run["state"]["replans"] = 0
-    conn.execute("UPDATE agent_runs SET state=?, status='running', updated_at=? "
-                 "WHERE run_id=?", (json.dumps(run["state"]), now_iso(), run_id))
-    audit.append(conn, "agent.guidance.received",
-                 {"run_id": run_id, "guidance": text},
-                 agent_id=run["agent_id"], run_id=run_id, mandate_jti=run["mandate_jti"])
+    conn.execute(
+        "UPDATE agent_runs SET state=?, status='running', updated_at=? WHERE run_id=?",
+        (json.dumps(run["state"]), now_iso(), run_id),
+    )
+    audit.append(
+        conn,
+        "agent.guidance.received",
+        {"run_id": run_id, "guidance": text},
+        agent_id=run["agent_id"],
+        run_id=run_id,
+        mandate_jti=run["mandate_jti"],
+    )
     return _load(conn, run_id)

@@ -45,31 +45,31 @@ async def create(
         mandate_id=mandate_id,
         status=EscalationStatus.PENDING.value,
         diff=diff,
-        timeout_at=timeout_at or datetime.now(UTC) + timedelta(
-            seconds=settings().escalation_timeout_seconds),
+        timeout_at=timeout_at
+        or datetime.now(UTC) + timedelta(seconds=settings().escalation_timeout_seconds),
     )
     session.add(row)
     await session.flush()
     return _view(row)
 
 
-async def expire_pending(session: AsyncSession, *,
-                         now: datetime | None = None) -> list[str]:
+async def expire_pending(session: AsyncSession, *, now: datetime | None = None) -> list[str]:
     """The lazy fail-closed half: one guarded update plus durable events."""
     moment = now or datetime.now(UTC)
     result = await session.execute(
         update(Escalation)
-        .where(Escalation.status == EscalationStatus.PENDING.value,
-               Escalation.timeout_at < moment)
-        .values(status=EscalationStatus.EXPIRED.value,
-                decision="REJECT", resolved_at=moment)
+        .where(Escalation.status == EscalationStatus.PENDING.value, Escalation.timeout_at < moment)
+        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT", resolved_at=moment)
         .returning(Escalation.id, Escalation.purchase_id)
     )
     expired = list(result.all())
     for row in expired:
-        await emit_event(session, type="escalation.expired",
-                         aggregate_id=row.purchase_id,
-                         payload={"escalation_id": row.id})
+        await emit_event(
+            session,
+            type="escalation.expired",
+            aggregate_id=row.purchase_id,
+            payload={"escalation_id": row.id},
+        )
     return [row.id for row in expired]
 
 
@@ -110,7 +110,8 @@ async def resolve(
     if sticky is not None:
         raise EscalationConflict(
             "sticky approvals need a returned derived mandate and are not "
-            "enabled by this response contract")
+            "enabled by this response contract"
+        )
 
     moment = now or datetime.now(UTC)
     await expire_pending(session, now=moment)
@@ -119,8 +120,9 @@ async def resolve(
     if row is None:
         raise EscalationNotFound(escalation_id)
     if row.status == EscalationStatus.EXPIRED.value:
-        raise EscalationConflict("escalation timed out", 
-                                 reason_code=ReasonCode.ESCALATION_TIMEOUT_DENIED)
+        raise EscalationConflict(
+            "escalation timed out", reason_code=ReasonCode.ESCALATION_TIMEOUT_DENIED
+        )
     if row.status != EscalationStatus.PENDING.value:
         raise EscalationConflict("escalation was already resolved")
 
@@ -132,22 +134,27 @@ async def resolve(
         "resolved_at": moment.isoformat(),
     }
     signing = key_store().issuer_key()
-    receipt_sig = sign_compact(receipt_payload, signing.key, kid=signing.kid,
-                               typ="escalation-receipt+jwt")
+    receipt_sig = sign_compact(
+        receipt_payload, signing.key, kid=signing.kid, typ="escalation-receipt+jwt"
+    )
 
     # The deadline and pending state belong in the UPDATE; a read-then-write
     # lets a late Approve race an expiry, violating the 120s fail-closed rule.
     result = await session.execute(
         update(Escalation)
-        .where(Escalation.id == escalation_id,
-               Escalation.status == EscalationStatus.PENDING.value,
-               Escalation.timeout_at >= moment)
-        .values(status=EscalationStatus.RESOLVED.value,
-                decision=decision,
-                approver=approver,
-                channel=channel,
-                receipt_sig=receipt_sig,
-                resolved_at=moment)
+        .where(
+            Escalation.id == escalation_id,
+            Escalation.status == EscalationStatus.PENDING.value,
+            Escalation.timeout_at >= moment,
+        )
+        .values(
+            status=EscalationStatus.RESOLVED.value,
+            decision=decision,
+            approver=approver,
+            channel=channel,
+            receipt_sig=receipt_sig,
+            resolved_at=moment,
+        )
         .returning(Escalation)
     )
     resolved = result.scalar_one_or_none()
@@ -156,22 +163,31 @@ async def resolve(
         # never retry and accidentally turn a timeout into an approval.
         current = await session.get(Escalation, escalation_id)
         if current is not None and current.status == EscalationStatus.EXPIRED.value:
-            raise EscalationConflict("escalation timed out",
-                                     reason_code=ReasonCode.ESCALATION_TIMEOUT_DENIED)
+            raise EscalationConflict(
+                "escalation timed out", reason_code=ReasonCode.ESCALATION_TIMEOUT_DENIED
+            )
         raise EscalationConflict("escalation was already resolved")
 
     if decision == "APPROVE":
-        await emit_event(session, type="escalation.resolved",
-                         aggregate_id=resolved.purchase_id,
-                         payload={"escalation_id": resolved.id,
-                                  "decision": decision,
-                                  "receipt_sig": receipt_sig})
+        await emit_event(
+            session,
+            type="escalation.resolved",
+            aggregate_id=resolved.purchase_id,
+            payload={
+                "escalation_id": resolved.id,
+                "decision": decision,
+                "receipt_sig": receipt_sig,
+            },
+        )
     else:
         # schemas.md §5: a human REJECT and a timeout both compensate the
         # saga. The row preserves that this was an explicit answer.
-        await emit_event(session, type="escalation.expired",
-                         aggregate_id=resolved.purchase_id,
-                         payload={"escalation_id": resolved.id})
+        await emit_event(
+            session,
+            type="escalation.expired",
+            aggregate_id=resolved.purchase_id,
+            payload={"escalation_id": resolved.id},
+        )
     return _view(resolved)
 
 
@@ -187,6 +203,7 @@ async def sweep_forever(stop: asyncio.Event) -> None:
             # The lazy check in list/resolve still denies late actions. A
             # failed sweeper must never make silence look like approval.
             import logging
+
             logging.getLogger(__name__).exception("escalation expiry sweep failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)

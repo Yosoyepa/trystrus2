@@ -26,7 +26,6 @@ from trustlib.models import (
 )
 
 from .. import repository as repo
-from ..config import settings
 from ..db import get_session
 from ..deps import mandate_registry, passkey_service, rail
 from ..schemas import (
@@ -64,44 +63,42 @@ async def jwks() -> dict:
 # Passkey registration — before any mandate can be agreed to
 # ==========================================================================
 @router.post("/passkeys/register/begin", response_model=RegistrationOptions)
-async def begin_registration(body: RegistrationBegin,
-                             session: AsyncSession = Depends(get_session)):
+async def begin_registration(body: RegistrationBegin, session: AsyncSession = Depends(get_session)):
     options, challenge = passkey_service().registration_options(
-        user_id=body.user_id, user_name=body.user_name)
+        user_id=body.user_id, user_name=body.user_name
+    )
     await repo.store_challenge(session, challenge)
 
     import json
-    return RegistrationOptions(options=json.loads(options),
-                               challenge=challenge.value)
+
+    return RegistrationOptions(options=json.loads(options), challenge=challenge.value)
 
 
 @router.post("/passkeys/register/complete", response_model=CredentialView)
-async def complete_registration(body: RegistrationComplete,
-                                session: AsyncSession = Depends(get_session)):
-    challenge = await repo.consume_challenge(session, body.challenge,
-                                             purpose=Purpose.REGISTER)
+async def complete_registration(
+    body: RegistrationComplete, session: AsyncSession = Depends(get_session)
+):
+    challenge = await repo.consume_challenge(session, body.challenge, purpose=Purpose.REGISTER)
     if challenge is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            "challenge unknown or already used")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "challenge unknown or already used")
     try:
-        credential = passkey_service().verify_registration(
-            body.credential, challenge)
+        credential = passkey_service().verify_registration(body.credential, challenge)
     except PasskeyError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
 
     await repo.store_credential(session, credential)
-    return CredentialView(credential_id=credential.credential_id,
-                          user_id=credential.user_id,
-                          sign_count=credential.sign_count)
+    return CredentialView(
+        credential_id=credential.credential_id,
+        user_id=credential.user_id,
+        sign_count=credential.sign_count,
+    )
 
 
 # ==========================================================================
 # Create — draft, plus the challenge that will bind Marta's gesture
 # ==========================================================================
-@router.post("/mandates", status_code=status.HTTP_201_CREATED,
-             response_model=MandateDraft)
-async def create_mandate(body: MandateCreate,
-                         session: AsyncSession = Depends(get_session)):
+@router.post("/mandates", status_code=status.HTTP_201_CREATED, response_model=MandateDraft)
+async def create_mandate(body: MandateCreate, session: AsyncSession = Depends(get_session)):
     """Create a mandate in `draft` and open the passkey ceremony.
 
     Nothing is signed here and nothing can pay. The claims are assembled in
@@ -110,17 +107,19 @@ async def create_mandate(body: MandateCreate,
     authorized, so `sign` happens in the assert endpoint.
     """
     registry = mandate_registry()
-    claims = registry.build_claims(MandateClaimsInput(
-        user_id=body.user_id,
-        agent_id=body.agent_id,
-        currency=body.currency,
-        scope=body.scope,
-        limits=body.limits,
-        validity=body.validity,
-        conditions=body.conditions,
-        agent_jwk=body.agent_jwk,
-        payment_method_ref=body.payment_method_ref,
-    ))
+    claims = registry.build_claims(
+        MandateClaimsInput(
+            user_id=body.user_id,
+            agent_id=body.agent_id,
+            currency=body.currency,
+            scope=body.scope,
+            limits=body.limits,
+            validity=body.validity,
+            conditions=body.conditions,
+            agent_jwk=body.agent_jwk,
+            payment_method_ref=body.payment_method_ref,
+        )
+    )
 
     mandate_id = ids.new_id(ids.MANDATE)
     await repo.create_mandate(session, claims, mandate_id=mandate_id)
@@ -134,7 +133,8 @@ async def create_mandate(body: MandateCreate,
         )
 
     options, challenge = passkey_service().mandate_options(
-        claims=claims, purpose=Purpose.ACTIVATE, credentials=credentials)
+        claims=claims, purpose=Purpose.ACTIVATE, credentials=credentials
+    )
     await repo.store_challenge(session, challenge)
 
     # Enrollment at the rail runs in parallel with the ceremony: the human
@@ -142,31 +142,40 @@ async def create_mandate(body: MandateCreate,
     enroll = None
     try:
         setup = await rail().create_setup_token(mandate_id)
-        enroll = PaymentEnroll(approve_url=setup.approve_url,
-                               setup_token_id=setup.setup_token_id,
-                               simulated=setup.simulated)
+        enroll = PaymentEnroll(
+            approve_url=setup.approve_url,
+            setup_token_id=setup.setup_token_id,
+            simulated=setup.simulated,
+        )
     except Exception:
         # A rail hiccup must not block the mandate: the crypto half is what
         # G1 is graded on, and enrollment can be retried.
         log.warning("rail enrollment unavailable at create time", exc_info=True)
 
-    await emit_event(session, type="mandate.created", aggregate_id=claims.jti,
-                     payload={"jti": claims.jti,
-                              "limits": claims.limits.model_dump(mode="json")})
+    await emit_event(
+        session,
+        type="mandate.created",
+        aggregate_id=claims.jti,
+        payload={"jti": claims.jti, "limits": claims.limits.model_dump(mode="json")},
+    )
 
     import json
-    return MandateDraft(mandate_id=mandate_id, jti=claims.jti,
-                        passkey_challenge=json.loads(options),
-                        payment_enroll=enroll)
+
+    return MandateDraft(
+        mandate_id=mandate_id,
+        jti=claims.jti,
+        passkey_challenge=json.loads(options),
+        payment_enroll=enroll,
+    )
 
 
 # ==========================================================================
 # Activate — the gesture that turns a draft into authority
 # ==========================================================================
-@router.post("/mandates/{mandate_id}/passkey/assert",
-             response_model=MandateActive)
-async def assert_passkey(mandate_id: str, body: PasskeyAssertion,
-                         session: AsyncSession = Depends(get_session)):
+@router.post("/mandates/{mandate_id}/passkey/assert", response_model=MandateActive)
+async def assert_passkey(
+    mandate_id: str, body: PasskeyAssertion, session: AsyncSession = Depends(get_session)
+):
     """Complete the ceremony: verify the assertion, then sign and activate."""
     registry = mandate_registry()
     record = await repo.get_mandate(session, mandate_id)
@@ -178,8 +187,9 @@ async def assert_passkey(mandate_id: str, body: PasskeyAssertion,
     result = await repo.transition(session, mandate_id, MandateStatus.ACTIVE)
     if not result.ok:
         # Someone revoked or activated between the ceremony and here.
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            (result.reason_code or ReasonCode.MANDATE_SUSPENDED).value)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, (result.reason_code or ReasonCode.MANDATE_SUSPENDED).value
+        )
 
     issued = registry.sign(claims, disclose=_disclosable(record))
     await repo.attach_sd_jwt(session, mandate_id, issued.sd_jwt, claims)
@@ -188,28 +198,31 @@ async def assert_passkey(mandate_id: str, body: PasskeyAssertion,
     # locally so revocation can delete the *real* rail-side token after its
     # state transition commits. Never interpret it as card data.
     if claims.payment_method_ref:
-        await repo.link_instrument(session, token_ref=claims.payment_method_ref,
-                                   mandate_jti=claims.jti)
-        await emit_event(session, type="payment_instrument.linked",
-                         aggregate_id=claims.jti,
-                         payload={"mandate_jti": claims.jti,
-                                  "token_ref": claims.payment_method_ref})
+        await repo.link_instrument(
+            session, token_ref=claims.payment_method_ref, mandate_jti=claims.jti
+        )
+        await emit_event(
+            session,
+            type="payment_instrument.linked",
+            aggregate_id=claims.jti,
+            payload={"mandate_jti": claims.jti, "token_ref": claims.payment_method_ref},
+        )
 
-    await emit_event(session, type="mandate.activated", aggregate_id=claims.jti,
-                     payload={"jti": claims.jti,
-                              "limits": claims.limits.model_dump(mode="json")})
+    await emit_event(
+        session,
+        type="mandate.activated",
+        aggregate_id=claims.jti,
+        payload={"jti": claims.jti, "limits": claims.limits.model_dump(mode="json")},
+    )
 
-    return MandateActive(mandate_id=mandate_id, sd_jwt=issued.sd_jwt,
-                         jti=claims.jti)
+    return MandateActive(mandate_id=mandate_id, sd_jwt=issued.sd_jwt, jti=claims.jti)
 
 
 # ==========================================================================
 # Revoke — the scene the judges run
 # ==========================================================================
-@router.post("/mandates/{mandate_id}/revoke/options",
-             response_model=RegistrationOptions)
-async def begin_revoke(mandate_id: str,
-                       session: AsyncSession = Depends(get_session)):
+@router.post("/mandates/{mandate_id}/revoke/options", response_model=RegistrationOptions)
+async def begin_revoke(mandate_id: str, session: AsyncSession = Depends(get_session)):
     """Issue a fresh, purpose-bound passkey challenge for revocation."""
     record = await repo.get_mandate(session, mandate_id)
     if record is None:
@@ -217,19 +230,23 @@ async def begin_revoke(mandate_id: str,
     claims = MandateClaims.model_validate(record.claims)
     credentials = await repo.credentials_for(session, record.user_id)
     if not credentials:
-        raise HTTPException(status.HTTP_412_PRECONDITION_FAILED,
-                            "no passkey registered for this user")
+        raise HTTPException(
+            status.HTTP_412_PRECONDITION_FAILED, "no passkey registered for this user"
+        )
     options, challenge = passkey_service().mandate_options(
-        claims=claims, purpose=Purpose.REVOKE, credentials=credentials)
+        claims=claims, purpose=Purpose.REVOKE, credentials=credentials
+    )
     await repo.store_challenge(session, challenge)
 
     import json
+
     return RegistrationOptions(options=json.loads(options), challenge=challenge.value)
 
 
 @router.post("/mandates/{mandate_id}/revoke", response_model=MandateView)
-async def revoke_mandate(mandate_id: str, body: PasskeyAssertion,
-                         session: AsyncSession = Depends(get_session)):
+async def revoke_mandate(
+    mandate_id: str, body: PasskeyAssertion, session: AsyncSession = Depends(get_session)
+):
     """Revoke a mandate and delete its rail token. Target: under two seconds.
 
     The order below is the design, not a preference:
@@ -254,15 +271,18 @@ async def revoke_mandate(mandate_id: str, body: PasskeyAssertion,
     result = await repo.transition(session, mandate_id, MandateStatus.REVOKED)
     if not result.ok:
         raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            (result.reason_code or ReasonCode.MANDATE_REVOKED).value)
+            status.HTTP_409_CONFLICT, (result.reason_code or ReasonCode.MANDATE_REVOKED).value
+        )
 
-    await emit_event(session, type="mandate.revoked", aggregate_id=record.jti,
-                     payload={"jti": record.jti, "by": record.user_id,
-                              "at": datetime.now(UTC).isoformat()})
+    await emit_event(
+        session,
+        type="mandate.revoked",
+        aggregate_id=record.jti,
+        payload={"jti": record.jti, "by": record.user_id, "at": datetime.now(UTC).isoformat()},
+    )
 
     instruments = await repo.instruments_for(session, record.jti)
-    await session.commit()   # the kill switch that matters is now live
+    await session.commit()  # the kill switch that matters is now live
 
     for instrument in instruments:
         try:
@@ -272,9 +292,12 @@ async def revoke_mandate(mandate_id: str, body: PasskeyAssertion,
             # Deliberately swallowed. The mandate is revoked; a rail that did
             # not hear us is a reconciliation problem, not a reason to hand
             # authority back.
-            log.error("rail token %s not deleted — mandate %s is revoked "
-                      "regardless", instrument.token_ref, mandate_id,
-                      exc_info=True)
+            log.error(
+                "rail token %s not deleted — mandate %s is revoked regardless",
+                instrument.token_ref,
+                mandate_id,
+                exc_info=True,
+            )
 
     return await _view(session, mandate_id)
 
@@ -283,15 +306,13 @@ async def revoke_mandate(mandate_id: str, body: PasskeyAssertion,
 # Read
 # ==========================================================================
 @router.get("/mandates", response_model=list[MandateView])
-async def list_mandates(user_id: str,
-                        session: AsyncSession = Depends(get_session)):
+async def list_mandates(user_id: str, session: AsyncSession = Depends(get_session)):
     records = await repo.list_mandates(session, user_id)
     return [_to_view(r) for r in records]
 
 
 @router.get("/mandates/by-jti/{jti}", response_model=MandateView)
-async def get_mandate_by_jti(jti: str,
-                             session: AsyncSession = Depends(get_session)):
+async def get_mandate_by_jti(jti: str, session: AsyncSession = Depends(get_session)):
     """Look a mandate up by the `jti` inside its SD-JWT.
 
     Exists for the payment rail. A verifier holding a presented mandate knows
@@ -308,31 +329,28 @@ async def get_mandate_by_jti(jti: str,
 
 
 @router.get("/mandates/{mandate_id}", response_model=MandateView)
-async def get_mandate(mandate_id: str,
-                      session: AsyncSession = Depends(get_session)):
+async def get_mandate(mandate_id: str, session: AsyncSession = Depends(get_session)):
     return await _view(session, mandate_id)
 
 
 # ==========================================================================
 # helpers
 # ==========================================================================
-async def _verify_gesture(session, record, body: PasskeyAssertion,
-                          purpose: Purpose):
+async def _verify_gesture(session, record, body: PasskeyAssertion, purpose: Purpose):
     """Shared by activate and revoke — both demand the same proof."""
     from trustlib.models import MandateClaims
 
     claims = MandateClaims.model_validate(record.claims)
-    presented = body.response.get("clientDataJSON_challenge") or \
-        _challenge_from(body)
+    presented = body.response.get("clientDataJSON_challenge") or _challenge_from(body)
 
     challenge = await repo.consume_challenge(session, presented, purpose=purpose)
     if challenge is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            "challenge unknown or already used")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "challenge unknown or already used")
     if challenge.purpose is not purpose:
         # A gesture collected to activate must not be replayed to revoke.
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            "challenge was issued for a different purpose")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "challenge was issued for a different purpose"
+        )
 
     credential = await repo.get_credential(session, body.id)
     if credential is None or credential.user_id != record.user_id:
@@ -340,8 +358,8 @@ async def _verify_gesture(session, record, body: PasskeyAssertion,
 
     try:
         new_count = passkey_service().verify_assertion(
-            body.model_dump(), challenge=challenge, credential=credential,
-            claims=claims)
+            body.model_dump(), challenge=challenge, credential=credential, claims=claims
+        )
     except PasskeyError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
 

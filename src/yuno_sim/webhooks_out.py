@@ -28,8 +28,7 @@ SIGNATURE_HEADER = "X-Yuno-Signature"
 
 
 class WebhookSigner:
-    def __init__(self, *, config: Settings | None = None,
-                 key: jwk.JWK | None = None) -> None:
+    def __init__(self, *, config: Settings | None = None, key: jwk.JWK | None = None) -> None:
         self._config = config or settings()
         self._key = key
 
@@ -40,10 +39,11 @@ class WebhookSigner:
             from google.cloud import secretmanager
 
             client = secretmanager.SecretManagerServiceClient()
-            secret_path = (f"projects/{self._config.gcp_project}/secrets/"
-                           f"{self._config.webhook_key_secret}/versions/latest")
-            self._key = key_from_pem(
-                client.access_secret_version(name=secret_path).payload.data)
+            secret_path = (
+                f"projects/{self._config.gcp_project}/secrets/"
+                f"{self._config.webhook_key_secret}/versions/latest"
+            )
+            self._key = key_from_pem(client.access_secret_version(name=secret_path).payload.data)
             return self._validate_key(self._key)
         directory = Path(self._config.secrets_dir)
         directory.mkdir(parents=True, exist_ok=True)
@@ -66,8 +66,9 @@ class WebhookSigner:
         key.update({"use": "sig", "alg": "EdDSA"})
         return {"keys": [key]}
 
-    def event(self, *, type: str, payload: dict[str, Any],
-              aggregate_id: str | None = None) -> EventEnvelope:
+    def event(
+        self, *, type: str, payload: dict[str, Any], aggregate_id: str | None = None
+    ) -> EventEnvelope:
         return EventEnvelope(
             event_id=ids.new_id(ids.EVENT),
             type=type,
@@ -79,8 +80,7 @@ class WebhookSigner:
     def serialize(self, event: EventEnvelope) -> tuple[bytes, dict[str, str]]:
         payload = event.model_dump(mode="json")
         body = canonical_json(payload)
-        signature = sign_detached(payload, self._signing_key(),
-                                  kid=self._config.webhook_kid)
+        signature = sign_detached(payload, self._signing_key(), kid=self._config.webhook_kid)
         return body, {
             "Content-Type": "application/json",
             SIGNATURE_HEADER: signature,
@@ -97,8 +97,7 @@ def signer() -> WebhookSigner:
     return _signer
 
 
-async def deliver(event: EventEnvelope, *,
-                  signer_instance: WebhookSigner | None = None) -> bool:
+async def deliver(event: EventEnvelope, *, signer_instance: WebhookSigner | None = None) -> bool:
     """Deliver after the business transaction commits; unavailable is visible.
 
     Delivery is deliberately not a prerequisite for settlement.  The rail's
@@ -113,11 +112,9 @@ async def deliver(event: EventEnvelope, *,
     body, headers = active_signer.serialize(event)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(config.merchant_webhook_url,
-                                         content=body, headers=headers)
+            response = await client.post(config.merchant_webhook_url, content=body, headers=headers)
         response.raise_for_status()
     except Exception:
-        log.warning("Yuno webhook delivery failed for %s", event.event_id,
-                    exc_info=True)
+        log.warning("Yuno webhook delivery failed for %s", event.event_id, exc_info=True)
         return False
     return True

@@ -22,7 +22,9 @@ def engine():
     global _engine
     if _engine is None:
         _engine = create_async_engine(
-            settings().database_url, pool_size=5, max_overflow=2,
+            settings().database_url,
+            pool_size=5,
+            max_overflow=2,
             pool_pre_ping=True,
         )
     return _engine
@@ -31,8 +33,7 @@ def engine():
 def session_factory() -> async_sessionmaker[AsyncSession]:
     global _factory
     if _factory is None:
-        _factory = async_sessionmaker(engine(), expire_on_commit=False,
-                                      autoflush=False)
+        _factory = async_sessionmaker(engine(), expire_on_commit=False, autoflush=False)
     return _factory
 
 

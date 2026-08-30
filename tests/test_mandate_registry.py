@@ -48,8 +48,9 @@ def request_body():
             total_budget=Decimal("400"),
             max_txn=MaxTxn(count=3, period=Period.MONTH),
         ),
-        validity=MandateValidity(not_before=now - timedelta(minutes=1),
-                                 expires_at=now + timedelta(days=30)),
+        validity=MandateValidity(
+            not_before=now - timedelta(minutes=1), expires_at=now + timedelta(days=30)
+        ),
         conditions={"<": [{"var": "offer.price"}, 150]},
         payment_method_ref="ynt_test",
     )
@@ -79,6 +80,7 @@ def test_a_stranger_can_verify_with_the_jwks_alone(registry, request_body):
     published = registry.jwks()
 
     from trustlib.jose import jwk_from_dict
+
     keys = {k["kid"]: jwk_from_dict(k) for k in published["keys"]}
 
     assert sdjwt.verify(issued.sd_jwt, keys)["jti"] == issued.jti
@@ -96,8 +98,7 @@ def test_issued_mandates_carry_ap2_shape(registry, request_body):
 def test_the_agents_key_is_bound_into_the_mandate(registry, request_body):
     """`cnf.jwk` is what makes impersonation fail at the signature."""
     agent = generate_ed25519()
-    issued = registry.issue(
-        request_body.model_copy(update={"agent_jwk": public_jwk(agent)}))
+    issued = registry.issue(request_body.model_copy(update={"agent_jwk": public_jwk(agent)}))
 
     assert issued.claims.cnf.jwk["x"] == public_jwk(agent)["x"]
 
@@ -145,7 +146,7 @@ def test_selective_claims_are_withheld_until_disclosed(registry, request_body):
     revealed = registry.verify(issued.sd_jwt)
 
     assert not hasattr(withheld, "email") or "email" not in withheld.model_dump()
-    assert registry.verify(issued.sd_jwt) is not None
+    assert revealed is not None
     assert "marta@example.com" not in issuer_jwt
 
 
@@ -163,8 +164,9 @@ def test_unknown_selective_claims_are_ignored(registry, request_body):
 def test_derived_mandate_links_to_its_parent(registry, request_body):
     parent = registry.build_claims(request_body)
 
-    child = registry.derive(parent, limits=MandateLimits(
-        max_per_txn=Decimal("300"), total_budget=Decimal("300")))
+    child = registry.derive(
+        parent, limits=MandateLimits(max_per_txn=Decimal("300"), total_budget=Decimal("300"))
+    )
 
     assert child.parent_jti == parent.jti
     assert child.jti != parent.jti
@@ -176,16 +178,16 @@ def test_a_derived_mandate_never_outlives_its_parent(registry, request_body):
     parent = registry.build_claims(request_body)
     near_expiry = parent.model_copy(update={"exp": int(time.time()) + 60})
 
-    child = registry.derive(near_expiry,
-                            limits=near_expiry.limits, ttl_seconds=86400)
+    child = registry.derive(near_expiry, limits=near_expiry.limits, ttl_seconds=86400)
 
     assert child.exp <= near_expiry.exp
 
 
 def test_derived_mandate_is_independently_verifiable(registry, request_body):
     parent = registry.build_claims(request_body)
-    child = registry.derive(parent, limits=MandateLimits(
-        max_per_txn=Decimal("300"), total_budget=Decimal("300")))
+    child = registry.derive(
+        parent, limits=MandateLimits(max_per_txn=Decimal("300"), total_budget=Decimal("300"))
+    )
 
     issued = registry.sign(child)
     verified = registry.verify(issued.sd_jwt)

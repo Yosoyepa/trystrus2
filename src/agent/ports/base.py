@@ -14,7 +14,9 @@ one assertion you can run:
 A merchant that offers a settling tool (both of ours currently do) gets it
 recorded and never called.
 """
+
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -37,7 +39,7 @@ def normalise_offer(raw: dict, *, merchant_id: str) -> dict:
         "destination": raw.get("destination"),
         "depart_date": raw.get("depart_date"),
         "description": raw.get("description") or "",
-        "native": raw.get("native", {}),   # merchant-specific handles, opaque to us
+        "native": raw.get("native", {}),  # merchant-specific handles, opaque to us
     }
 
 
@@ -53,8 +55,17 @@ class MerchantPort(Protocol):
     def get(self, conn, offer_id: str) -> dict | None:
         """Read-only."""
 
-    def settle(self, conn, *, offer: dict, mandate_claims: dict, mandate_token: str,
-               intent: dict, signature: str, verify_fn) -> dict:
+    def settle(
+        self,
+        conn,
+        *,
+        offer: dict,
+        mandate_claims: dict,
+        mandate_token: str,
+        intent: dict,
+        signature: str,
+        verify_fn,
+    ) -> dict:
         """Called ONLY by the kernel, ONLY after the gate approved.
 
         No agent code path reaches this. It lives on the merchant port rather
@@ -86,6 +97,7 @@ def _bootstrap_local() -> None:
     if MERCHANTS:
         return
     from .local import LocalMerchant
+
     merchant = LocalMerchant()
     merchant.discover()
     register_merchant(merchant)
@@ -115,11 +127,15 @@ def search_all(conn, *, allowed: list[str] | None = None, **criteria: Any) -> li
             continue
         try:
             offers.extend(merchant.search(conn, **criteria))
-        except Exception as exc:      # one broken merchant must not blind the agent
+        except Exception as exc:  # one broken merchant must not blind the agent
             from .. import audit
-            audit.append(conn, "merchant.unreachable",
-                         {"merchant_id": merchant_id, "error": str(exc)[:300]},
-                         relay=False)
+
+            audit.append(
+                conn,
+                "merchant.unreachable",
+                {"merchant_id": merchant_id, "error": str(exc)[:300]},
+                relay=False,
+            )
     return offers
 
 
@@ -129,8 +145,9 @@ class RailPort(Protocol):
     rail_id: str
 
     def vault(self, conn, mandate_jti: str, label: str) -> str: ...
-    def capture(self, conn, *, token_ref: str, amount: str, currency: str,
-                request_id: str) -> dict: ...
+    def capture(
+        self, conn, *, token_ref: str, amount: str, currency: str, request_id: str
+    ) -> dict: ...
     def delete_token(self, conn, token_ref: str) -> dict: ...
 
 
@@ -147,8 +164,15 @@ def register_rail(rail: RailPort) -> RailPort:
 class LLMPort(Protocol):
     provider_id: str
 
-    def propose(self, *, request: str, offers: list[dict], ontology_text: str,
-                memory_text: str, guidance: str = "") -> dict: ...
+    def propose(
+        self,
+        *,
+        request: str,
+        offers: list[dict],
+        ontology_text: str,
+        memory_text: str,
+        guidance: str = "",
+    ) -> dict: ...
 
 
 LLMS: dict[str, LLMPort] = {}
@@ -164,8 +188,9 @@ def register_llm(llm: LLMPort) -> LLMPort:
 class ChannelPort(Protocol):
     channel_id: str
 
-    def ask(self, conn, *, escalation_id: str, approver: str | None,
-            summary: str, diff: dict) -> None: ...
+    def ask(
+        self, conn, *, escalation_id: str, approver: str | None, summary: str, diff: dict
+    ) -> None: ...
 
 
 CHANNELS: dict[str, ChannelPort] = {}
@@ -180,7 +205,7 @@ def register_channel(channel: ChannelPort) -> ChannelPort:
 @dataclass(frozen=True)
 class Tool:
     name: str
-    effect: str                 # READ or SUBMIT. Nothing else is representable.
+    effect: str  # READ or SUBMIT. Nothing else is representable.
     merchant_id: str
     description: str = ""
 
@@ -188,7 +213,8 @@ class Tool:
         if self.effect not in EFFECTS:
             raise ValueError(
                 f"tool {self.name!r} declares effect {self.effect!r}; only "
-                f"{EFFECTS} exist. A tool that moves money has no place here.")
+                f"{EFFECTS} exist. A tool that moves money has no place here."
+            )
 
 
 @dataclass
@@ -205,8 +231,11 @@ class ToolRegistry:
         self.refused.append({"name": name, "merchant_id": merchant_id, "why": why})
 
     def callable_names(self, merchant_id: str | None = None) -> list[str]:
-        return sorted(t.name for t in self.tools.values()
-                      if merchant_id is None or t.merchant_id == merchant_id)
+        return sorted(
+            t.name
+            for t in self.tools.values()
+            if merchant_id is None or t.merchant_id == merchant_id
+        )
 
     def assert_no_money_tools(self) -> None:
         """S2, as one assertion."""

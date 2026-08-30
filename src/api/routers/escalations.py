@@ -20,8 +20,7 @@ async def list_escalations(
     status: EscalationStatus | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    return await escalations.list_escalations(session, mandate_id=mandate_id,
-                                              status=status)
+    return await escalations.list_escalations(session, mandate_id=mandate_id, status=status)
 
 
 @router.post("/{escalation_id}/resolve", response_model=Escalation)

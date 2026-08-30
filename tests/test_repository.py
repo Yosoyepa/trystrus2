@@ -78,8 +78,7 @@ async def test_a_draft_cannot_be_revoked(session):
 
 
 async def test_transition_on_a_missing_mandate_refuses_quietly(session):
-    result = await repo.transition(session, "mdt_does_not_exist",
-                                   MandateStatus.REVOKED)
+    result = await repo.transition(session, "mdt_does_not_exist", MandateStatus.REVOKED)
 
     assert not result.ok
     assert result.frm is None
@@ -143,8 +142,7 @@ async def test_activation_loses_to_a_concurrent_revocation(session, engine):
             await s.commit()
             return to, result.ok
 
-    results = dict(await asyncio.gather(
-        move(MandateStatus.REVOKED), move(MandateStatus.ACTIVE)))
+    results = dict(await asyncio.gather(move(MandateStatus.REVOKED), move(MandateStatus.ACTIVE)))
 
     if results[MandateStatus.REVOKED]:
         record = await repo.get_mandate(session, mandate_id)
@@ -161,9 +159,12 @@ async def test_a_challenge_can_only_be_consumed_once(session):
 
     from api.services.passkey import Challenge, Purpose
 
-    challenge = Challenge(value="chal-abc", user_id="usr_marta",
-                          purpose=Purpose.ACTIVATE,
-                          expires_at=datetime.now(UTC) + timedelta(minutes=5))
+    challenge = Challenge(
+        value="chal-abc",
+        user_id="usr_marta",
+        purpose=Purpose.ACTIVATE,
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
     await repo.store_challenge(session, challenge)
     await session.commit()
 
@@ -171,15 +172,20 @@ async def test_a_challenge_can_only_be_consumed_once(session):
     assert await repo.consume_challenge(session, "chal-abc") is None
 
 
-async def test_concurrent_replay_of_one_challenge_yields_one_winner(
-        session, engine):
+async def test_concurrent_replay_of_one_challenge_yields_one_winner(session, engine):
     from datetime import UTC, datetime, timedelta
 
     from api.services.passkey import Challenge, Purpose
 
-    await repo.store_challenge(session, Challenge(
-        value="chal-race", user_id="usr_marta", purpose=Purpose.REVOKE,
-        expires_at=datetime.now(UTC) + timedelta(minutes=5)))
+    await repo.store_challenge(
+        session,
+        Challenge(
+            value="chal-race",
+            user_id="usr_marta",
+            purpose=Purpose.REVOKE,
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        ),
+    )
     await session.commit()
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -196,8 +202,9 @@ async def test_concurrent_replay_of_one_challenge_yields_one_winner(
 async def test_credentials_round_trip(session, user_id):
     from api.services.passkey import StoredCredential
 
-    credential = StoredCredential(credential_id="cred-1", user_id=user_id,
-                                  public_key=b"\x01\x02\x03", sign_count=7)
+    credential = StoredCredential(
+        credential_id="cred-1", user_id=user_id, public_key=b"\x01\x02\x03", sign_count=7
+    )
     await repo.store_credential(session, credential)
     await session.commit()
 
@@ -218,14 +225,13 @@ async def test_events_commit_with_the_business_change(session):
     record = await repo.get_mandate(session, mandate_id)
 
     await repo.transition(session, mandate_id, MandateStatus.ACTIVE)
-    await emit_event(session, type="mandate.activated",
-                     aggregate_id=record.jti, payload={"jti": record.jti})
+    await emit_event(
+        session, type="mandate.activated", aggregate_id=record.jti, payload={"jti": record.jti}
+    )
     await session.commit()
 
-    rows = (await session.execute(
-        text("SELECT type, aggregate_id FROM outbox"))).all()
-    assert [(r.type, r.aggregate_id) for r in rows] == \
-        [("mandate.activated", record.jti)]
+    rows = (await session.execute(text("SELECT type, aggregate_id FROM outbox"))).all()
+    assert [(r.type, r.aggregate_id) for r in rows] == [("mandate.activated", record.jti)]
 
 
 async def test_a_rolled_back_change_takes_its_event_with_it(session):
@@ -234,20 +240,19 @@ async def test_a_rolled_back_change_takes_its_event_with_it(session):
     record = await repo.get_mandate(session, mandate_id)
 
     await repo.transition(session, mandate_id, MandateStatus.ACTIVE)
-    await emit_event(session, type="mandate.activated",
-                     aggregate_id=record.jti, payload={})
+    await emit_event(session, type="mandate.activated", aggregate_id=record.jti, payload={})
     await session.rollback()
 
-    count = (await session.execute(
-        text("SELECT count(*) FROM outbox"))).scalar_one()
+    count = (await session.execute(text("SELECT count(*) FROM outbox"))).scalar_one()
     assert count == 0
 
 
 async def test_an_event_type_outside_the_catalogue_is_refused(session):
     """schemas.md §4 is a closed list; adding to it is a contract change."""
     with pytest.raises(UnknownEventType):
-        await emit_event(session, type="mandate.definitely_not_a_real_event",
-                         aggregate_id="mdt_1", payload={})
+        await emit_event(
+            session, type="mandate.definitely_not_a_real_event", aggregate_id="mdt_1", payload={}
+        )
 
 
 # ==========================================================================
@@ -257,8 +262,7 @@ async def test_instrument_link_and_delete(session):
     mandate_id = await make_mandate(session)
     record = await repo.get_mandate(session, mandate_id)
 
-    await repo.link_instrument(session, token_ref="ynt_1",
-                               mandate_jti=record.jti)
+    await repo.link_instrument(session, token_ref="ynt_1", mandate_jti=record.jti)
     await session.commit()
     assert len(await repo.instruments_for(session, record.jti)) == 1
 

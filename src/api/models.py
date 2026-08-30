@@ -45,21 +45,15 @@ class Mandate(Base):
     sd_jwt: Mapped[str | None] = mapped_column(Text)
 
     # --- written ONLY by verify [Dev 2] (schemas.md §6 convention) --------
-    reserved_amount: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), nullable=False, default=0)
-    spent_total: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), nullable=False, default=0)
-    txn_count_period: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0)
+    reserved_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    spent_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    txn_count_period: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # ---------------------------------------------------------------------
 
-    parent_jti: Mapped[str | None] = mapped_column(
-        Text, ForeignKey("mandates.jti"))
+    parent_jti: Mapped[str | None] = mapped_column(Text, ForeignKey("mandates.jti"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Escalation(Base):
@@ -70,15 +64,13 @@ class Escalation(Base):
     mandate_id: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     diff: Mapped[dict | None] = mapped_column(JSONB)
-    timeout_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False)
+    timeout_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     decision: Mapped[str | None] = mapped_column(Text)
     approver: Mapped[str | None] = mapped_column(Text)
     channel: Mapped[str | None] = mapped_column(Text)
     receipt_sig: Mapped[str | None] = mapped_column(Text)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PaymentInstrument(Base):
@@ -88,8 +80,7 @@ class PaymentInstrument(Base):
     mandate_jti: Mapped[str] = mapped_column(Text, nullable=False)
     rail: Mapped[str] = mapped_column(Text, nullable=False, default="yuno_sim")
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -115,12 +106,10 @@ class WebAuthnCredential(Base):
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
     public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     # Monotonic. A value that does not advance means a cloned authenticator.
-    sign_count: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0)
+    sign_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     transports: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     aaguid: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -133,8 +122,6 @@ class WebAuthnChallenge(Base):
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
     mandate_id: Mapped[str | None] = mapped_column(Text)
     purpose: Mapped[str] = mapped_column(Text, primary_key=True)
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

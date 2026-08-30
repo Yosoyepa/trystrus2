@@ -17,17 +17,19 @@ swap on the exact previous value (M2).  Exact string equality is precisely the
 semantics that needs; NUMERIC would make `WHERE reserved_amount = '0.00'`
 depend on how the server normalises `0.00` against `0`.
 """
+
 from __future__ import annotations
+
 import os
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import psycopg
 from psycopg import sql as _sql  # noqa: F401  (kept for callers that compose SQL)
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-DSN = os.environ.get(
-    "DATABASE_URL", "postgresql://trytrust:trytrust@localhost:5432/trytrust")
+DSN = os.environ.get("DATABASE_URL", "postgresql://trytrust:trytrust@localhost:5432/trytrust")
 
 SCHEMA = """
 -- ── configuration: editable, with an immutable record of every edit ──────────
@@ -210,11 +212,28 @@ CREATE INDEX IF NOT EXISTS ix_watches_due ON watches(status, last_checked_at);
 CREATE INDEX IF NOT EXISTS ix_purchases_mandate ON purchases(mandate_jti, status);
 """
 
-TABLES = ["chat_messages", "outbox", "counters", "rate_buckets", "locks",  # locks kept in the drop list for old databases
-          "checkpoints", "chains",
-          "agent_runs", "escalations", "purchases", "purchase_intents",
-          "idempotency_keys", "watches", "offers", "payment_instruments",
-          "mandates", "agent_versions", "agents", "people", "audit_events"]
+TABLES = [
+    "chat_messages",
+    "outbox",
+    "counters",
+    "rate_buckets",
+    "locks",  # locks kept in the drop list for old databases
+    "checkpoints",
+    "chains",
+    "agent_runs",
+    "escalations",
+    "purchases",
+    "purchase_intents",
+    "idempotency_keys",
+    "watches",
+    "offers",
+    "payment_instruments",
+    "mandates",
+    "agent_versions",
+    "agents",
+    "people",
+    "audit_events",
+]
 
 
 def _translate(sql: str) -> str:
@@ -244,8 +263,7 @@ class Conn:
     """A psycopg connection that speaks the call sites' existing dialect."""
 
     def __init__(self, dsn: str | None = None, *, raw: psycopg.Connection | None = None):
-        self._conn = raw or psycopg.connect(dsn or DSN, autocommit=True,
-                                            row_factory=dict_row)
+        self._conn = raw or psycopg.connect(dsn or DSN, autocommit=True, row_factory=dict_row)
         self._owned = raw is None
 
     def execute(self, sql: str, args: Sequence[Any] | None = None):
@@ -283,9 +301,13 @@ def pool(min_size: int = 1, max_size: int = 10) -> ConnectionPool:
     """Shared pool for workers that run many short transactions (relay, watcher)."""
     global _POOL
     if _POOL is None:
-        _POOL = ConnectionPool(DSN, min_size=min_size, max_size=max_size,
-                               kwargs={"autocommit": True, "row_factory": dict_row},
-                               open=True)
+        _POOL = ConnectionPool(
+            DSN,
+            min_size=min_size,
+            max_size=max_size,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            open=True,
+        )
     return _POOL
 
 

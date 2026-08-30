@@ -52,10 +52,12 @@ class KeyStore:
     def issuer_key(self) -> SigningKey:
         """Ed25519 key that signs mandate SD-JWTs."""
         if self._issuer is None:
-            pem = self._read_pem(self._config.issuer_key_secret,
-                                 "issuer_ed25519.pem", curve="Ed25519")
+            pem = self._read_pem(
+                self._config.issuer_key_secret, "issuer_ed25519.pem", curve="Ed25519"
+            )
             self._issuer = SigningKey(
-                kid=self._config.issuer_kid, key=key_from_pem(pem), alg="EdDSA")
+                kid=self._config.issuer_kid, key=key_from_pem(pem), alg="EdDSA"
+            )
         return self._issuer
 
     def merchant_key(self) -> SigningKey:
@@ -66,10 +68,10 @@ class KeyStore:
         (decision 0023), and Ed25519 is deterministic.
         """
         if self._merchant is None:
-            pem = self._read_pem(self._config.merchant_key_secret,
-                                 "merchant_es256.pem", curve="P-256")
-            self._merchant = SigningKey(kid="m1", key=key_from_pem(pem),
-                                        alg="ES256")
+            pem = self._read_pem(
+                self._config.merchant_key_secret, "merchant_es256.pem", curve="P-256"
+            )
+            self._merchant = SigningKey(kid="m1", key=key_from_pem(pem), alg="ES256")
         return self._merchant
 
     def _read_pem(self, secret_name: str, filename: str, *, curve: str) -> bytes:
@@ -81,8 +83,7 @@ class KeyStore:
         from google.cloud import secretmanager
 
         client = secretmanager.SecretManagerServiceClient()
-        path = (f"projects/{self._config.gcp_project}"
-                f"/secrets/{secret_name}/versions/latest")
+        path = f"projects/{self._config.gcp_project}/secrets/{secret_name}/versions/latest"
         log.info("loading signing key from Secret Manager: %s", secret_name)
         return client.access_secret_version(name=path).payload.data
 
@@ -101,8 +102,11 @@ class KeyStore:
             pem, _ = generate_pem_pair(curve)
             path.write_bytes(pem)
             path.chmod(0o600)
-            log.warning("generated a DEVELOPMENT %s key at %s — "
-                        "production keys come from Secret Manager", curve, path)
+            log.warning(
+                "generated a DEVELOPMENT %s key at %s — production keys come from Secret Manager",
+                curve,
+                path,
+            )
         return path.read_bytes()
 
     # -- publishing --------------------------------------------------------

@@ -28,8 +28,9 @@ def get_offer(offer_id: str) -> dict[str, Any] | None:
     return next((offer for offer in offers() if offer["offer_id"] == offer_id), None)
 
 
-async def charge_after_verify(*, decision: Decision, rail: CaptureClient,
-                              capture_kwargs: dict[str, Any]) -> dict[str, Any]:
+async def charge_after_verify(
+    *, decision: Decision, rail: CaptureClient, capture_kwargs: dict[str, Any]
+) -> dict[str, Any]:
     """Mirror `/checkout/charge`: only APPROVED may call the rail spy/client."""
     if decision.decision is not DecisionOutcome.APPROVED:
         return {

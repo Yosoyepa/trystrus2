@@ -31,7 +31,8 @@ class IssuerJWKSClient:
             try:
                 async with httpx.AsyncClient(timeout=self._config.http_timeout_seconds) as client:
                     response = await client.get(
-                        f"{self._config.kernel_url.rstrip('/')}/.well-known/jwks.json")
+                        f"{self._config.kernel_url.rstrip('/')}/.well-known/jwks.json"
+                    )
                     response.raise_for_status()
                 self._keys = {
                     item["kid"]: jwk_from_dict(item)
@@ -54,8 +55,9 @@ class KernelVerifyClient:
     def __init__(self, *, config: Settings | None = None) -> None:
         self._config = config or settings()
 
-    async def verify(self, *, mandate_id: str, intent_jwt: str,
-                     idempotency_key: str, agent_id: str) -> Decision:
+    async def verify(
+        self, *, mandate_id: str, intent_jwt: str, idempotency_key: str, agent_id: str
+    ) -> Decision:
         try:
             async with httpx.AsyncClient(timeout=self._config.http_timeout_seconds) as client:
                 response = await client.post(
@@ -105,7 +107,8 @@ class MCPPurchaseClient:
         if response.status_code >= 400:
             raise KernelClientError(
                 "kernel rejected the purchase submission; an agent-signed "
-                "intent is required before any checkout can occur")
+                "intent is required before any checkout can occur"
+            )
         try:
             return response.json()
         except Exception as exc:

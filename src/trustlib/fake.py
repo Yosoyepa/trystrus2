@@ -85,8 +85,7 @@ def mandate(
             categories=categories if categories is not None else ["flights"],
             merchants=merchants if merchants is not None else [MERCHANT],
         ),
-        conditions=conditions if conditions is not None
-        else {"<": [{"var": "offer.price"}, 150]},
+        conditions=conditions if conditions is not None else {"<": [{"var": "offer.price"}, 150]},
         limits=MandateLimits(
             max_per_txn=Decimal(str(max_per_txn)),
             total_budget=Decimal(str(total_budget)),

@@ -55,7 +55,9 @@ def test_valid_mandate_verifies(issuer, claims):
 def test_selective_disclosure_hides_then_reveals(issuer, claims):
     key, jwks = issuer
     token = sdjwt.issue(
-        claims, key, kid=KID,
+        claims,
+        key,
+        kid=KID,
         selective={"email": "marta@example.com", "shipping_address": "Bogota"},
     )
 
@@ -156,8 +158,7 @@ def test_key_binding_proves_possession(issuer, holder, claims):
     token = sdjwt.issue(claims, key, kid=KID)
     presented = sdjwt.attach_key_binding(token, holder, nonce=NONCE, aud=AUD)
 
-    verified = sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD,
-                            require_key_binding=True)
+    verified = sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD, require_key_binding=True)
     assert verified["jti"] == claims["jti"]
 
 
@@ -170,8 +171,7 @@ def test_cloned_agent_without_the_key_is_rejected(issuer, claims):
     presented = sdjwt.attach_key_binding(token, clone, nonce=NONCE, aud=AUD)
 
     with pytest.raises(sdjwt.InvalidKeyBinding):
-        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD,
-                     require_key_binding=True)
+        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD, require_key_binding=True)
 
 
 def test_missing_key_binding_is_rejected_when_required(issuer, claims):
@@ -188,26 +188,24 @@ def test_replayed_key_binding_with_wrong_nonce_is_rejected(issuer, holder, claim
     presented = sdjwt.attach_key_binding(token, holder, nonce="an-old-nonce", aud=AUD)
 
     with pytest.raises(sdjwt.InvalidKeyBinding):
-        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD,
-                     require_key_binding=True)
+        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD, require_key_binding=True)
 
 
 def test_key_binding_for_another_audience_is_rejected(issuer, holder, claims):
     key, jwks = issuer
     token = sdjwt.issue(claims, key, kid=KID)
     presented = sdjwt.attach_key_binding(
-        token, holder, nonce=NONCE, aud="https://another-merchant.example")
+        token, holder, nonce=NONCE, aud="https://another-merchant.example"
+    )
 
     with pytest.raises(sdjwt.InvalidKeyBinding):
-        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD,
-                     require_key_binding=True)
+        sdjwt.verify(presented, jwks, nonce=NONCE, aud=AUD, require_key_binding=True)
 
 
 def test_key_binding_cannot_be_lifted_onto_other_disclosures(issuer, holder, claims):
     """sd_hash covers the presentation, so a KB-JWT is not transplantable."""
     key, jwks = issuer
-    token = sdjwt.issue(claims, key, kid=KID,
-                        selective={"email": "marta@example.com"})
+    token = sdjwt.issue(claims, key, kid=KID, selective={"email": "marta@example.com"})
     presented = sdjwt.attach_key_binding(token, holder, nonce=NONCE, aud=AUD)
 
     issuer_jwt = presented.split("~")[0]
@@ -215,5 +213,4 @@ def test_key_binding_cannot_be_lifted_onto_other_disclosures(issuer, holder, cla
     stripped = f"{issuer_jwt}~{kb_jwt}"  # same KB, disclosures removed
 
     with pytest.raises(sdjwt.InvalidKeyBinding):
-        sdjwt.verify(stripped, jwks, nonce=NONCE, aud=AUD,
-                     require_key_binding=True)
+        sdjwt.verify(stripped, jwks, nonce=NONCE, aud=AUD, require_key_binding=True)

@@ -10,18 +10,19 @@ Run: `uv run uvicorn api.main:app --app-dir src --reload --port 8001`
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .config import Settings, settings
 from .routers import escalations, mandates
 from .services.escalations import sweep_forever
 
 logging.basicConfig(level=logging.INFO)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -34,30 +35,44 @@ async def lifespan(_: FastAPI):
         await sweeper
 
 
-app = FastAPI(
-    title="Aval — kernel",
-    version="1.1.0",
-    description=(
-        "Mandates, passkeys and escalations. Contracts: aval/contracts/api.yaml."
-    ),
-    lifespan=lifespan,
-)
+def create_app(custom_settings: Settings | None = None, service: object | None = None) -> FastAPI:
+    """Create an app with injectable settings and service."""
+    cfg = custom_settings or settings()
 
-# The web console runs on its own origin (ADR-022), and passkeys are bound to
-# a registrable domain (ADR-018) — so CORS is load-bearing, not boilerplate.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings().rp_origin, "http://localhost:5173",
-                   "http://app.localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    application = FastAPI(
+        title="Aval — kernel",
+        version="1.1.0",
+        description=(
+            "Mandates, passkeys, escalations, policy gate and audit. "
+            "Contracts: aval/contracts/api.yaml."
+        ),
+        lifespan=lifespan,
+    )
 
-app.include_router(mandates.router)
-app.include_router(escalations.router)
+    application.state.settings = cfg
+    if service is not None:
+        application.state.service = service
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[cfg.rp_origin, "http://localhost:5173", "http://app.localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    application.include_router(mandates.router)
+    application.include_router(escalations.router)
+
+    @application.get("/health", tags=["ops"])
+    async def health() -> dict:
+        return {"status": "ok", "service": "kernel"}
+
+    @application.get("/healthz", tags=["ops"])
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return application
 
 
-@app.get("/health", tags=["ops"])
-async def health() -> dict:
-    return {"status": "ok", "service": "kernel"}
+app = create_app()

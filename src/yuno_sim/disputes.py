@@ -31,8 +31,9 @@ class DisputeError(Exception):
     pass
 
 
-async def open_dispute(session: AsyncSession, payment_id: str, *,
-                       reason: str = "UNAUTHORISED") -> DisputeRow:
+async def open_dispute(
+    session: AsyncSession, payment_id: str, *, reason: str = "UNAUTHORISED"
+) -> DisputeRow:
     payment = await session.get(PaymentRow, payment_id)
     if payment is None:
         raise DisputeError(f"unknown payment {payment_id}")
@@ -50,8 +51,9 @@ async def open_dispute(session: AsyncSession, payment_id: str, *,
     return row
 
 
-async def adjudicate(session: AsyncSession, dispute_id: str,
-                     evidence: dict[str, Any]) -> DisputeRow:
+async def adjudicate(
+    session: AsyncSession, dispute_id: str, evidence: dict[str, Any]
+) -> DisputeRow:
     """Decide a dispute from the evidence bundle.
 
     The rule the trail supports: a charge is defensible when the seller can
@@ -84,8 +86,7 @@ async def adjudicate(session: AsyncSession, dispute_id: str,
     checkout_hash = evidence.get("checkout_hash")
     if payment is not None and payment.checkout_hash:
         if checkout_hash != payment.checkout_hash:
-            findings.append(
-                "the cart in evidence is not the cart that was charged")
+            findings.append("the cart in evidence is not the cart that was charged")
             defensible = False
     elif not checkout_hash:
         findings.append("the merchant never committed to a cart")
@@ -111,8 +112,6 @@ async def adjudicate(session: AsyncSession, dispute_id: str,
     return dispute
 
 
-async def list_for_payment(session: AsyncSession,
-                           payment_id: str) -> list[DisputeRow]:
-    result = await session.execute(
-        select(DisputeRow).where(DisputeRow.payment_id == payment_id))
+async def list_for_payment(session: AsyncSession, payment_id: str) -> list[DisputeRow]:
+    result = await session.execute(select(DisputeRow).where(DisputeRow.payment_id == payment_id))
     return list(result.scalars())
