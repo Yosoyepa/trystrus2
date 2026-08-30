@@ -19,15 +19,23 @@ from src.api.canonical import canonical_json, sha256_hex
 
 from .config import BridgeConfig
 from .errors import (
+    CardRequires3ds,
+    CashPaymentRefused,
     Disabled,
     ExecutionConflict,
     MinAmountRejected,
+    PaymentUnresolved,
     PriceDrift,
     RappiError,
     UncertainState,
 )
 from .guard import check_address, check_cap, check_cart_clean, check_drift, parse_money
-from .rappi import RappiClient
+from .rappi import (
+    RappiClient,
+    build_payment_payload,
+    method_is_cash,
+    method_needs_3ds,
+)
 from .state import (
     APPROVAL_VERIFIED,
     ARMED,
@@ -116,6 +124,7 @@ class BridgeService:
         self._client = client
         self._state = state
         self._keys = keys
+        self._payment_label = ""
 
     def order_status(self, idem_key: str) -> dict[str, Any] | None:
         return self._state.get(idem_key)
@@ -125,6 +134,23 @@ class BridgeService:
         if not self._config.enabled:
             raise Disabled("bridge is disabled (kill switch)")
         return self._client.search(query)
+
+    def payment_methods(self) -> list[dict[str, Any]]:
+        """Saved methods with the currently-preferred one flagged SELECTED."""
+        if not self._config.enabled:
+            raise Disabled("bridge is disabled (kill switch)")
+        methods = self._client.get_payment_methods("restaurant")
+        for method in methods:
+            method["selected"] = (
+                self._config.payment_method_id is not None
+                and method.get("id") == self._config.payment_method_id
+            ) or (
+                self._config.payment_method_id is None
+                and bool(method.get("default"))
+            )
+            method["cash"] = method_is_cash(method)
+            method["three_ds"] = method_needs_3ds(method)
+        return methods
 
     # -- helpers -----------------------------------------------------------
 
@@ -150,6 +176,7 @@ class BridgeService:
             "total_captured": total,
             "cart_hash": cart_hash,
             "purchase_id": purchase_id,
+            "payment_method": self._payment_label,
         }
 
     # -- read-side ---------------------------------------------------------
@@ -278,7 +305,55 @@ class BridgeService:
         )
         self._state.transition(request.idem_key, APPROVAL_VERIFIED)
 
-        # 4. guards — independent of the kernel, enforced on this machine
+        # 4. payment: the mandate funds a CARD — cash is refused by default,
+        # and the chosen method is pushed to the cart BEFORE any drift check
+        # (applying it can move the total).
+        methods = self._client.get_payment_methods(resolved)
+        usable = [m for m in methods if m.get("available") is not False]
+        method = None
+        if self._config.payment_method_id:
+            method = next(
+                (
+                    m
+                    for m in usable
+                    if m.get("id") == self._config.payment_method_id
+                ),
+                None,
+            )
+            if method is None:
+                raise PaymentUnresolved(
+                    "preferred payment method is not available; refusing to "
+                    "charge a different instrument than the mandate's",
+                    detail={"preferred": self._config.payment_method_id},
+                )
+        elif usable:
+            method = next((m for m in usable if m.get("default")), usable[0])
+        if method is None:
+            raise PaymentUnresolved("no usable payment method on the account")
+        if method_is_cash(method) and not self._config.allow_cash:
+            raise CashPaymentRefused(
+                "resolved payment method is cash; a mandate funds a card, "
+                "and cash orders get cancelled by Rappi"
+            )
+        if method_needs_3ds(method):
+            raise CardRequires3ds(
+                "card is fraud-flagged (require_3ds_by_fraud): the 3D Secure "
+                "challenge only exists in the Rappi app — finish this order "
+                "there or wait for the flag to clear",
+                detail={"method_id": method.get("id")},
+            )
+        self._payment_label = str(method.get("main_description") or method.get("id"))
+        self._client.set_payment_method(resolved, build_payment_payload(method))
+
+        cart = self._client.recalculate(resolved)
+        store = (cart.get("stores") or [store])[0]
+        if compute_cart_hash(resolved, store) != request.cart_hash:
+            raise PriceDrift(
+                "cart changed after applying the payment method — re-quote",
+                detail={"approved_cart_hash": request.cart_hash},
+            )
+
+        # 5. guards — independent of the kernel, enforced on this machine
         check_cap(checkout_total, self._config.cap)
         detail = self._client.checkout_detail(resolved)
         check_drift(approved, checkout_total)

@@ -64,11 +64,11 @@ solo para el login (OTP al teléfono del dueño) y los visuales del demo.
   `{return_key}`, órdenes `/api/user-order-home/orders`, direcciones
   `/api/ms/users-address/addresses`, propina `…/v1/{storeType}/tip`, método
   de pago `…/v1/{storeType}/payment-method`.
-- **Pago:** `placeOrder` nunca toca tarjeta — confirma el checkout con el
-  `return_key` y Rappi cobra con **el método ya seleccionado en la cuenta**
-  (la tarjeta guardada). `setPaymentMethod` existe en el cliente pero está
-  sin usar. **Sin CVV en el flujo** (a validar empíricamente: si la cuenta
-  exigiera confirmación CVC, el POST fallaría — falla detectable = fail-closed
+- **Pago (CORREGIDO por el fork 6a20e1e):** sin método en el carrito Rappi
+  cobra en **EFECTIVO** — no "el método de la cuenta" como decía esta
+  sección. El fork documentó el resolver (`/payment-method/resolver/v6`) y
+  el payload del PUT; el bridge ahora resuelve y aplica el método antes del
+  click y rechaza efectivo (0030). **Sin CVV en el flujo** (confirmado).
   natural).
 - **Detalle a favor nuestro:** el `return_key` es un binding **servidor-emito**
   entre el carrito cotizado y la confirmación — structuralmente el primo del

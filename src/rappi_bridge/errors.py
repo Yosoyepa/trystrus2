@@ -74,6 +74,28 @@ class UncertainState(BridgeError):
     http_status = 502
 
 
+class CardRequires3ds(BridgeError):
+    """Fraud-flagged cards need a bank 3DS challenge only the app/browser
+    can complete — placing the order would create-then-cancel it."""
+
+    reason = "BRIDGE_CARD_3DS_REQUIRED"
+    http_status = 409
+
+
+class CashPaymentRefused(BridgeError):
+    """Cash orders sit outside the mandate story and get cancelled by Rappi."""
+
+    reason = "BRIDGE_CASH_NOT_ALLOWED"
+    http_status = 409
+
+
+class PaymentUnresolved(BridgeError):
+    """No usable payment method matching the mandate's instrument."""
+
+    reason = "BRIDGE_PAYMENT_UNRESOLVED"
+    http_status = 409
+
+
 class ExecutionConflict(BridgeError):
     """Two workers raced to the click; the optimistic guard let one win."""
 

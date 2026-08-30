@@ -98,6 +98,11 @@ def create_app(
         _guard_token(authorization)
         return login_flow.disconnect()
 
+    @app.get("/v1/rappi/payment/methods")
+    def payment_methods(authorization: str | None = Header(default=None)) -> Any:
+        _guard_token(authorization)
+        return {"methods": service.payment_methods()}
+
     @app.get("/v1/rappi/session/preflight")
     def preflight(authorization: str | None = Header(default=None)) -> Any:
         _guard_token(authorization)

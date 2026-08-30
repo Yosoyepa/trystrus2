@@ -7,6 +7,38 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Payments integrated from the fork (6a20e1e): CASH fallback exposed and killed, 3DS reality mapped
+- **What the fork taught us (DaniDiazTech/rappi-cli @ 6a20e1e, fetched into
+  the vendor clone and audited):** without a payment method on the cart,
+  Rappi charges the order **IN CASH, silently** — the CLI never called
+  `setPaymentMethod`, so the live Claude order was a CASH order (corrects
+  our earlier doc). Payment methods live in a separate resolver
+  (`GET /api/ms/payment-method/resolver/v6`), the cart PUT
+  (`.../payment-method`) needs the web payload with empty values dropped,
+  and cards tagged `require_3ds_by_fraud` cannot be charged from automation
+  (3DS challenge is app/browser-only).
+- **Bridge integration:** `get_payment_methods` + `set_payment_method` +
+  `build_payment_payload`/`method_is_cash`/`method_needs_3ds` ported; the
+  guarded flow now resolves → applies → RE-QUOTES (applying a method can
+  move totals → PriceDrift) → guards → armed. Policy, fail-closed: preferred
+  resolver id from config must exist (never silently charge another
+  instrument); cash refused unless `AVAL_BRIDGE_ALLOW_CASH=1`; a
+  3DS-flagged card raises `BRIDGE_CARD_3DS_REQUIRED` instead of creating an
+  order the antifraud will cancel. `GET /v1/rappi/payment/methods` exposes
+  the list (+selected/cash/three_ds flags) for the front.
+- **Live account reality:** the connected session's resolver shows both
+  cards fraud-flagged (`require_3ds_by_fraud`) — card purchases through the
+  bridge will fail-closed until Rappi clears the flag (repeated test orders
+  appear to trigger it; the fork saw the same). Demo implication: use the
+  wait-and-clear path, another account, or finish 3DS orders in the app.
+- **Tests:** +9 payment tests (payload mirror, cash detection, apply-before-
+  click, cash refused, missing preferred fail-closed, explicit cash opt-in,
+  receipt carries method, 3DS refused, 3DS helper) — bridge suite 50 green,
+  repo 319 passed. LazyRappiClient passthrough fixed (private-name guard
+  was hiding `_request` → 500 on /payment/methods without session).
+
+---
+
 ## 2026-08-30 — Agent dispatcher LIVE: request → right agent → right MCP; Rappi registered as a merchant
 - **What shipped:** `src/agent/router.py` — request-to-agent routing.
   Category from `llm.parse_request` (propose-side, 0016-safe) + a

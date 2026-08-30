@@ -23,6 +23,8 @@ CART_PUT_PATH = "/api/ms/shopping-cart/v2/{store_type}/store"
 RECALC_PATH = "/api/ms/shopping-cart/v1/{store_type}/recalculate"
 CHECKOUT_DETAIL_PATH = "/api/ms/shopping-cart/v1/{store_type}/checkout/detail"
 PLACE_ORDER_PATH = "/api/ms/shopping-cart-proxy/{store_type}/checkout"
+PAYMENT_RESOLVER_PATH = "/api/ms/payment-method/resolver/v6"
+PAYMENT_PUT_PATH = "/api/ms/shopping-cart/v1/{store_type}/payment-method"
 ORDERS_PATH = "/api/user-order-home/orders"
 
 # The web build hash rotates with Rappi's frontend deploys; if requests start
@@ -205,8 +207,8 @@ class LazyRappiClient:
         return self._inner
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
+        if name.startswith("__"):
+            raise AttributeError(name)  # pickling/copy protocols stay local
         return getattr(self._ensure(), name)
 
     def search(self, query: str) -> list[dict[str, Any]]:
@@ -232,3 +234,90 @@ class LazyRappiClient:
                     }
                 )
         return results
+
+
+    def get_payment_methods(self, store_type: str) -> list[dict[str, Any]]:
+        """Saved payment methods. NOT in checkout/detail — separate resolver."""
+        return self._request(
+            "GET",
+            PAYMENT_RESOLVER_PATH,
+            params={
+                "origin": "CHECKOUT",
+                "store_type": store_type,
+                "only-added-pm": "true",
+            },
+        )
+
+    def set_payment_method(self, store_type: str, payload: dict[str, Any]) -> Any:
+        """Bind a payment method to the cart. Without this, Rappi charges
+        the order in CASH — silently (discovered by the CLI fork)."""
+        return self._request(
+            "PUT", PAYMENT_PUT_PATH.format(store_type=store_type), body=payload
+        )
+
+
+def build_payment_payload(method: dict[str, Any]) -> dict[str, Any]:
+    """Mirror the Rappi web payload: card reference plus the resolver's
+    charge_data, with empty values dropped (they 400 the PUT)."""
+    metadata = method.get("metadata") or {}
+    charge: dict[str, Any] = dict(metadata.get("charge_data") or {})
+
+    def keep(entries: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in entries.items() if v not in (None, "", [])}
+
+    card_reference = charge.get("account_payment_id")
+    return keep(
+        {
+            **({"card": {"card_reference": card_reference}} if card_reference else {}),
+            "payment_method_type": method.get("id"),
+            "rappi_credit": {"use_rappi_credit": False},
+            "rappi_pay": {"use_rappi_pay": False, "rappi_pay_method_active": False},
+            "charge_data": keep(
+                {
+                    "account_payment_id": charge.get("account_payment_id"),
+                    "card_class": charge.get("card_class"),
+                    "card_type": charge.get("card_type"),
+                    "first_six_digits": charge.get("first_six_digits"),
+                    "last_four_digits": charge.get("last_four_digits"),
+                    "payment_method_token": charge.get("payment_method_token"),
+                    "store_ids": charge.get("store_ids"),
+                    "store_type": charge.get("store_type"),
+                    "threeds_reference_id": charge.get("threeds_reference_id"),
+                    "selected_installments": charge.get("selected_installments", "1"),
+                    "user_id": charge.get("account_payment_id"),
+                    "language": charge.get("language"),
+                    "tags": charge.get("tags"),
+                    "online_payment": charge.get("online_payment"),
+                    "payment_method": charge.get("payment_method"),
+                    "payment_method_description": charge.get(
+                        "payment_method_description"
+                    ),
+                    "payment_method_icon": charge.get("payment_method_icon"),
+                    "user_default_refund_payment_method": charge.get(
+                        "user_default_refund_payment_method"
+                    ),
+                    "origin_platform": "web",
+                }
+            ),
+        }
+    )
+
+
+def method_is_cash(method: dict[str, Any]) -> bool:
+    charge = (method.get("metadata") or {}).get("charge_data") or {}
+    return method.get("id") == "cash" or charge.get("payment_method") == "cash"
+
+
+def method_needs_3ds(method: dict[str, Any]) -> bool:
+    """Fraud-flagged cards cannot be charged from automation: Rappi requires
+    a 3D Secure challenge from the app/browser. Detected via resolver tags."""
+    tags = " ".join(
+        str(tag)
+        for tag in [
+            method.get("tags"),
+            *(method.get("payment_method_tags") or []),
+            (method.get("metadata") or {}).get("charge_data", {}).get("tags"),
+        ]
+        if tag
+    ).lower()
+    return "require_3ds" in tags or "3ds_by_fraud" in tags

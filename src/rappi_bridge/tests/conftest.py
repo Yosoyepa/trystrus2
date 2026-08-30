@@ -25,16 +25,42 @@ TOTAL = "18300.00"
 class FakeRappiClient(RappiClient):
     """Duck-typed stand-in: never touches the network."""
 
+    CARD_METHOD = {
+        "id": "cc|10101063546022",
+        "main_description": "Visa ••4321",
+        "secondary_description": "Fabian Espitia",
+        "available": True,
+        "default": True,
+        "metadata": {
+            "charge_data": {
+                "account_payment_id": "10101063546022",
+                "payment_method": "cc",
+                "card_type": "visa",
+                "last_four_digits": "4321",
+                "online_payment": "true",
+            }
+        },
+    }
+    CASH_METHOD = {"id": "cash", "main_description": "Efectivo", "available": True,
+                   "metadata": {"charge_data": {"payment_method": "cash"}}}
+
     def __init__(
         self,
         *,
         products: list[dict[str, Any]] | None = None,
         total: str = TOTAL,
         place_mode: str = "ok",
+        payment_methods: list[dict[str, Any]] | None = None,
     ) -> None:
         self.products = products if products is not None else PRODUCTS
         self.total = total
         self.place_mode = place_mode
+        self.payment_methods = (
+            payment_methods
+            if payment_methods is not None
+            else [dict(self.CARD_METHOD), dict(self.CASH_METHOD)]
+        )
+        self.payment_payloads: list[dict[str, Any]] = []
         self.place_calls = 0
         self.whoami_calls = 0
 
@@ -73,6 +99,13 @@ class FakeRappiClient(RappiClient):
         return {"orders": []}
 
     def add_to_cart(self, store_type: str, stores_payload: list) -> dict[str, Any]:
+        return {"ok": True}
+
+    def get_payment_methods(self, store_type: str) -> list[dict[str, Any]]:
+        return [dict(m) for m in self.payment_methods]
+
+    def set_payment_method(self, store_type: str, payload: dict[str, Any]) -> Any:
+        self.payment_payloads.append(payload)
         return {"ok": True}
 
     def place_order(self, store_type: str, *, return_key: str) -> dict[str, Any]:

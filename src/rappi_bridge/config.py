@@ -28,6 +28,11 @@ class BridgeConfig(BaseSettings):
     # Kill switch: AVAL_BRIDGE_ENABLED=0 makes every tool answer with an
     # audited BRIDGE_DISABLED error.
     enabled: bool = True
+    # Preferred resolver id ("cc|<accountPaymentId>"). The mandate funds a
+    # CARD: cash orders are refused unless explicitly allowed, and a missing
+    # preferred method fails closed instead of silently charging another.
+    payment_method_id: str | None = None
+    allow_cash: bool = False
     state_db_path: Path = Path("var/rappi-bridge/state.sqlite3")
     bind: str = "127.0.0.1"
     port: int = 8010
