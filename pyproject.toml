@@ -1,6 +1,6 @@
 [project]
 name = "aval"
-version = "0.1.0"
+version = "0.0.1a0"
 description = "Aval — a trust layer for purchases made by AI agents (NextWave 2026, Yuno x Nauta)"
 readme = "README.md"
 requires-python = ">=3.13"
