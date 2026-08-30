@@ -1,6 +1,6 @@
 """Router package exports."""
 
-from . import agent_bridge, audit, bot, decision, escalations, evidence, mandates
+from . import agent_bridge, audit, bot, decision, escalations, evidence, mandates, rappi
 
 __all__ = [
     "agent_bridge",
@@ -10,4 +10,5 @@ __all__ = [
     "escalations",
     "evidence",
     "mandates",
+    "rappi",
 ]

@@ -60,6 +60,7 @@ class DispatchRequest(BaseModel):
 
 
 @router.post("/dispatch")
+@router.post("/chat")
 async def dispatch_agent(body: DispatchRequest) -> dict[str, Any]:
     """Route the request to the active agent whose mandate scope matches.
 
@@ -82,8 +83,6 @@ async def dispatch_agent(body: DispatchRequest) -> dict[str, Any]:
         person=body.person,
         channel="web",
     )
-    if result.get("dispatch") is None and not result.get("continued"):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no active agent matches this request")
     return result
 
 

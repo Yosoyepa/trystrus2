@@ -26,6 +26,7 @@ from .routers import (
     escalations,
     evidence,
     mandates,
+    rappi,
 )
 from .services.escalations import sweep_forever
 
@@ -107,6 +108,7 @@ def create_app(custom_settings: Settings | None = None, service: object | None =
     application.include_router(evidence.router)
     application.include_router(agent_bridge.router)
     application.include_router(bot.router)
+    application.include_router(rappi.router)
 
     @application.get("/health", tags=["ops"])
     async def health() -> dict:
