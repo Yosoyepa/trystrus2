@@ -60,6 +60,23 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — C4 implementation: deterministic T1 properties
+- **Why:** example tests protect known branches, but the gate invariants must
+  also hold across generated amounts, scopes, statuses, counters, and rule
+  boundaries.
+- **Done:** added Hypothesis strategies and properties for out-of-mandate
+  rejection, the verdictive/corroborative gold rule, inclusive step-up
+  thresholds, burst cooldown transitions, HMAC key stability/injectivity,
+  and L3/L3+ TTLs. The CI profile is registered with 200 deterministic
+  examples and no deadline.
+- **Tests:** the T1 property module runs in the normal test suite and uses
+  exact Decimal values only.
+- **Decision:** Hypothesis is the only new development dependency; runtime
+  enforcement remains deterministic and model-free.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
 - **Why:** start resolving the gap register without colliding with the
   coder-1 run in flight — everything here is NEW files; the gate fixes that
