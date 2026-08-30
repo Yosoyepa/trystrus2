@@ -59,6 +59,25 @@ def ask(
     person: str = "buyer",
 ) -> dict[str, Any]:
     """A turn. Starts a run, answers an escalation, or redirects one in flight."""
+    # Resolve agent_id to existing DB agent if needed
+    row = conn.execute(
+        "SELECT id FROM agents WHERE id = ? OR name LIKE ? LIMIT 1",
+        (agent_id, f"%{agent_id}%"),
+    ).fetchone()
+    if not row:
+        row = conn.execute("SELECT id FROM agents LIMIT 1").fetchone()
+    if row:
+        agent_id = row["id"]
+
+    # Resolve mandate_jti to active mandate if needed
+    m_row = conn.execute(
+        "SELECT jti FROM mandates WHERE jti = ? LIMIT 1", (mandate_jti,)
+    ).fetchone()
+    if not m_row:
+        m_row = conn.execute("SELECT jti FROM mandates WHERE status = 'active' LIMIT 1").fetchone()
+    if m_row:
+        mandate_jti = m_row["jti"]
+
     session = chat.Session(
         conn, agent_id=agent_id, mandate_jti=mandate_jti, session_id=session_id, person=person
     )

@@ -95,7 +95,7 @@ PARSE_SYSTEM = (
 
 def parse_request(text: str) -> dict[str, Any]:
     try:
-        parsed = _json(complete(PARSE_SYSTEM, fence("buyer_request", text), max_tokens=120))
+        parsed = _json(complete(PARSE_SYSTEM, fence("buyer_request", text), max_tokens=600))
     except (LLMUnavailable, json.JSONDecodeError, ValueError):
         return _parse_fallback(text)
     allowed = {"origin", "destination", "date", "category", "max_price", "notes"}

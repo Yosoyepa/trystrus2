@@ -29,6 +29,16 @@ from .ids import new_id, nonce, now_iso, now_ts
 APPROVED, ESCALATED, REJECTED = "APPROVED", "ESCALATED", "REJECTED"
 
 
+def _parse_json(val: Any) -> Any:
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    if isinstance(val, (str, bytes, bytearray)):
+        return json.loads(val)
+    return val
+
+
 @dataclass
 class Decision:
     decision: str
@@ -312,7 +322,7 @@ def reserve_chain(conn, mandate_jti: str, amount: str) -> bool:
         if row is None or row["status"] != "active":
             _unreserve(conn, done, amount)
             return False
-        claims = json.loads(row["claims"])
+        claims = _parse_json(row["claims"])
         committed = dec(row["spent_total"]) + dec(row["reserved_amount"]) + dec(amount)
         if committed > dec(claims["limits"]["total_budget"]):
             _unreserve(conn, done, amount)
@@ -359,7 +369,7 @@ def settle(conn, mandate_jti: str, amount: str) -> None:
         freed = max(Decimal("0"), dec(row["reserved_amount"]) - dec(amount))
         spent = dec(row["spent_total"]) + dec(amount)
         count = int(row["txn_count"]) + 1
-        claims = json.loads(row["claims"])
+        claims = _parse_json(row["claims"])
         exhausted = spent >= dec(claims["limits"]["total_budget"])
         conn.execute(
             "UPDATE mandates SET reserved_amount=?, spent_total=?, txn_count=?, status=?,"
@@ -416,7 +426,7 @@ def submit_purchase(
     from .registry import agent_private_key
 
     mandate_row = mandate_mod.get(conn, mandate_jti)
-    claims = json.loads(mandate_row["claims"])
+    claims = _parse_json(mandate_row["claims"])
     try:
         port = merchant_for(merchant_id)
     except (KeyError, StopIteration):

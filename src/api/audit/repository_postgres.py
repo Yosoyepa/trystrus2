@@ -56,7 +56,8 @@ class PostgresLedgerRepository:
 
         with self._connect() as conn:
             with conn.cursor() as cur:
-                # 1. Lock latest event row (tail lock) or lock table to serialize inserts
+                # 1. Acquire transaction advisory lock to serialize appends
+                cur.execute("SELECT pg_advisory_xact_lock(424242)")
                 cur.execute(
                     "SELECT seq, hash FROM audit_events ORDER BY seq DESC LIMIT 1 FOR UPDATE"
                 )

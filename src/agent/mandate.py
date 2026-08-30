@@ -135,7 +135,10 @@ def revoke(conn, jti: str, *, actor: str, reason: str = "revoked by holder") -> 
     stamp = now_iso()
     conn.execute("UPDATE mandates SET status='revoked', updated_at=? WHERE jti=?", (stamp, jti))
     row = conn.execute("SELECT claims FROM mandates WHERE jti=?", (jti,)).fetchone()
-    token_ref = json.loads(row["claims"])["payment_method_ref"] if row else None
+    claims_obj = row["claims"] if row else None
+    if isinstance(claims_obj, str):
+        claims_obj = json.loads(claims_obj)
+    token_ref = claims_obj.get("payment_method_ref") if isinstance(claims_obj, dict) else None
     from .mocks.rail import delete_token
 
     rail = delete_token(conn, token_ref) if token_ref else {"deleted": False}

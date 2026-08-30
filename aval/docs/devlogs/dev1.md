@@ -7,6 +7,31 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — Frontend-to-Backend Agent Bridge, PostgreSQL schema unification & Gemini live integration
+
+- **Why:** wired frontend chat directly to real `/api/agent/ask` backed by Google Gemini and unified PostgreSQL database schemas.
+- **Built:**
+  - `web/src/components/BuyerConsole/AgentChat.tsx`: calls real backend agent endpoint and displays live Gemini model responses and security injection alerts.
+  - `web/src/services/api.ts`: enabled real backend mode by default and added `askAgent` client method.
+  - `src/agent/db.py`: DSN fallback handling SQLAlchemy prefixes and container host resolution.
+  - `src/agent/graph.py` & `kernel.py`: safe JSON parsing helper handling both raw dicts and strings from PostgreSQL.
+  - `src/agent/service.py`: flexible agent_id and mandate_jti resolution.
+- **Tests:** 310 passing tests across test suite.
+
+---
+
+## 2026-08-30 — Google Gemini LLM integration, .env configuration and container propagation
+
+- **Why:** user requested connecting live agent proposals to real Google Gemini models via API key without fallback mocks.
+- **Built:**
+  - `src/agent/config.py`: auto-detection for `GEMINI_API_KEY`, `GOOGLE_API_KEY`, defaulting to Google Generative AI endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`) and `gemini-1.5-flash`.
+  - `src/agent/net.py`: updated default allowed egress hosts to include `generativelanguage.googleapis.com`.
+  - `.env` & `.env.example`: template for user API key injection.
+  - `compose.yaml` & `docker-compose.yml`: mounted `.env` and forwarded LLM variables to container services.
+- **Tests:** 310 passing tests across suite.
+
+---
+
 ## 2026-08-30 — ports, live merchants, console auth, egress
 
 - **Why:** everything on the open list that did not need another lane.

@@ -1,27 +1,180 @@
-# One Postgres for development, the same schema Cloud SQL runs in production.
-# Dev and prod diverging on the database is how "works on my machine" becomes
-# a demo failure, so there is no SQLite fallback to drift against.
+# Aval (TryTrust) — Multi-Service Orchestration Compose File
+# NextWave Hackathon 2026 Challenge: "The buyer who isn't human" (Yuno x Nauta)
+#
+# Services:
+#   - db: PostgreSQL 16 Alpine + full schema & seed fixtures
+#   - kernel: FastAPI trust layer, SD-JWT mandates, policy gate & ledger (:8001)
+#   - yuno_sim: FastAPI Yuno-style AP2 simulated settlement rail (:8002)
+#   - merchant: FastAPI VuelaYa catalog & AP2 checkout (:8003)
+#   - web: React SPA + Nginx reverse proxy (:3000)
+
+name: aval
+
 services:
   db:
     image: postgres:16-alpine
-    container_name: trytrust-db
+    container_name: aval-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: trytrust
-      POSTGRES_PASSWORD: trytrust
-      POSTGRES_DB: trytrust
-    ports: ["5432:5432"]
-    volumes: ["trytrust-pgdata:/var/lib/postgresql/data"]
+      POSTGRES_USER: ${POSTGRES_USER:-aval}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aval}
+      POSTGRES_DB: ${POSTGRES_DB:-aval}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - aval-pgdata:/var/lib/postgresql/data
+      - ./aval/contracts/fixtures/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro,z
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trytrust -d trytrust"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aval} -d ${POSTGRES_DB:-aval}"]
       interval: 3s
       timeout: 3s
       retries: 20
-    command:
-      # A hackathon laptop, not a production box. Enough connections for
-      # several relay and watcher workers plus the CLI.
-      - postgres
-      - -c
-      - max_connections=100
+      start_period: 3s
+    networks:
+      - aval-net
+
+  kernel:
+    image: aval-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aval-kernel
+    restart: unless-stopped
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "8001"
+      APP_MODULE: src.api.main:app
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
+      AVAL_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
+      AVAL_YUNO_SIM_URL: http://yuno_sim:8002
+      AVAL_RP_ORIGIN: http://localhost:3000
+      AVAL_RP_ID: localhost
+      AVAL_ISSUER: http://localhost:8001
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "8001:8001"
+    volumes:
+      - aval-secrets:/app/secrets
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    networks:
+      - aval-net
+
+  yuno_sim:
+    image: aval-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aval-yuno-sim
+    restart: unless-stopped
+    command: ["uvicorn", "src.yuno_sim.main:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      PORT: "8002"
+      APP_MODULE: src.yuno_sim.main:app
+      YUNO_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
+      YUNO_ISSUER_URL: http://kernel:8001
+      YUNO_APPROVAL_BASE_URL: http://localhost:8002/simulated-approval
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "8002:8002"
+    volumes:
+      - aval-secrets:/app/secrets
+    depends_on:
+      db:
+        condition: service_healthy
+      kernel:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    networks:
+      - aval-net
+
+  merchant:
+    image: aval-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aval-merchant
+    restart: unless-stopped
+    command: ["uvicorn", "src.merchant.main:app", "--host", "0.0.0.0", "--port", "8003"]
+    environment:
+      PORT: "8003"
+      APP_MODULE: src.merchant.main:app
+      MERCHANT_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
+      MERCHANT_KERNEL_URL: http://kernel:8001
+      MERCHANT_YUNO_SIM_URL: http://yuno_sim:8002
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "8003:8003"
+    volumes:
+      - aval-secrets:/app/secrets
+    depends_on:
+      db:
+        condition: service_healthy
+      kernel:
+        condition: service_healthy
+      yuno_sim:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    networks:
+      - aval-net
+
+  web:
+    image: aval-web:latest
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: aval-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      kernel:
+        condition: service_healthy
+      yuno_sim:
+        condition: service_healthy
+      merchant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+    networks:
+      - aval-net
 
 volumes:
-  trytrust-pgdata:
+  aval-pgdata:
+    name: aval-pgdata
+  aval-secrets:
+    name: aval-secrets
+
+networks:
+  aval-net:
+    name: aval-network
+    driver: bridge
