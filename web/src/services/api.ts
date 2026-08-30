@@ -16,7 +16,7 @@ import {
 } from '../types';
 
 class ApiClient {
-  private useRealBackend = false;
+  private useRealBackend = true;
 
   public setUseRealBackend(val: boolean) {
     this.useRealBackend = val;
@@ -33,6 +33,34 @@ class ApiClient {
     } catch {
       return false;
     }
+  }
+
+  // --- AGENT BRIDGE (Real LLM / Gemini) ---
+  public async askAgent(
+    text: string,
+    mandateJti: string,
+    agentId = 'agt_flights',
+    sessionId?: string
+  ): Promise<any> {
+    if (this.useRealBackend) {
+      try {
+        const res = await fetch('/api/agent/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            agent_id: agentId,
+            mandate_jti: mandateJti,
+            session_id: sessionId,
+            person: 'Marta',
+          }),
+        });
+        if (res.ok) return await res.json();
+      } catch (err) {
+        console.warn('Real agent /api/agent/ask call failed, falling back to local simulation', err);
+      }
+    }
+    return null;
   }
 
   // --- MANDATES ---

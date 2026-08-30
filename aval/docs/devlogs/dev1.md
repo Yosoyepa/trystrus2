@@ -7,6 +7,19 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — Frontend-to-Backend Agent Bridge, PostgreSQL schema unification & Gemini live integration
+
+- **Why:** wired frontend chat directly to real `/api/agent/ask` backed by Google Gemini and unified PostgreSQL database schemas.
+- **Built:**
+  - `web/src/components/BuyerConsole/AgentChat.tsx`: calls real backend agent endpoint and displays live Gemini model responses and security injection alerts.
+  - `web/src/services/api.ts`: enabled real backend mode by default and added `askAgent` client method.
+  - `src/agent/db.py`: DSN fallback handling SQLAlchemy prefixes and container host resolution.
+  - `src/agent/graph.py` & `kernel.py`: safe JSON parsing helper handling both raw dicts and strings from PostgreSQL.
+  - `src/agent/service.py`: flexible agent_id and mandate_jti resolution.
+- **Tests:** 310 passing tests across test suite.
+
+---
+
 ## 2026-08-30 — Google Gemini LLM integration, .env configuration and container propagation
 
 - **Why:** user requested connecting live agent proposals to real Google Gemini models via API key without fallback mocks.

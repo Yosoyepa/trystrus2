@@ -29,7 +29,19 @@ from psycopg import sql as _sql  # noqa: F401  (kept for callers that compose SQ
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://trytrust:trytrust@localhost:5432/trytrust")
+
+def get_dsn() -> str:
+    raw = (
+        os.environ.get("AVAL_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "postgresql://aval:aval@localhost:5432/aval"
+    )
+    if "+asyncpg" in raw:
+        raw = raw.replace("+asyncpg", "")
+    return raw
+
+
+DSN = get_dsn()
 
 SCHEMA = """
 -- ── configuration: editable, with an immutable record of every edit ──────────

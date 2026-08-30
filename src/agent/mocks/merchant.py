@@ -129,9 +129,9 @@ def seed(conn) -> int:
         conn.execute(
             "INSERT INTO offers(id,merchant_id,category,title,amount,currency,"
             "origin,destination,depart_date,description,active) "
-            "VALUES(?,?,?,?,?,'USD',?,?,?,?,1) "
+            "VALUES(?,?,?,?,?,'USD',?,?,?,?,TRUE) "
             "ON CONFLICT (id) DO UPDATE SET amount=excluded.amount, "
-            "title=excluded.title, description=excluded.description, active=1",
+            "title=excluded.title, description=excluded.description, active=TRUE",
             (
                 offer["id"],
                 MERCHANT_ID,
@@ -172,7 +172,7 @@ def search_offers(
     category: str | None = None,
     limit: int = 12,
 ) -> list[dict[str, Any]]:
-    sql = "SELECT * FROM offers WHERE active=1"
+    sql = "SELECT * FROM offers WHERE active IS TRUE"
     args: list[Any] = []
     for column, value in (
         ("origin", origin),
@@ -190,7 +190,7 @@ def search_offers(
 
 # ── MCP tool 2 ───────────────────────────────────────────────────────────────
 def get_offer(conn, offer_id: str) -> dict[str, Any] | None:
-    row = conn.execute("SELECT * FROM offers WHERE id=? AND active=1", (offer_id,)).fetchone()
+    row = conn.execute("SELECT * FROM offers WHERE id=? AND active IS TRUE", (offer_id,)).fetchone()
     return _row_to_offer(row) if row else None
 
 

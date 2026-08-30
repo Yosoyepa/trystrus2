@@ -47,6 +47,7 @@ services:
     environment:
       PORT: "8001"
       APP_MODULE: src.api.main:app
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
       AVAL_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aval}:${POSTGRES_PASSWORD:-aval}@db:5432/${POSTGRES_DB:-aval}
       AVAL_YUNO_SIM_URL: http://yuno_sim:8002
       AVAL_RP_ORIGIN: http://localhost:3000

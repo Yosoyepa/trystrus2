@@ -55,12 +55,22 @@ TERMINAL = {
 }
 
 
+def _parse_json(val: Any) -> Any:
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    if isinstance(val, (str, bytes, bytearray)):
+        return json.loads(val)
+    return val
+
+
 # ── run persistence ──────────────────────────────────────────────────────────
 def _load(conn, run_id: str) -> dict[str, Any]:
     row = conn.execute("SELECT * FROM agent_runs WHERE run_id=?", (run_id,)).fetchone()
     if row is None:
         raise KeyError(f"no such run: {run_id}")
-    return {**dict(row), "state": json.loads(row["state"])}
+    return {**dict(row), "state": _parse_json(row["state"])}
 
 
 def _save(
@@ -137,11 +147,11 @@ def start(
 def node_perceive(conn, run: dict) -> str:
     """Assemble the context. Ontology + history + run state. Never the gate (S4)."""
     version = registry.get_version(conn, run["agent_id"], run["agent_version"])
-    onto = json.loads(version["ontology"])
+    onto = _parse_json(version["ontology"])
     mandate_row = conn.execute(
         "SELECT claims FROM mandates WHERE jti=?", (run["mandate_jti"],)
     ).fetchone()
-    claims = json.loads(mandate_row["claims"]) if mandate_row else {}
+    claims = _parse_json(mandate_row["claims"]) if mandate_row else {}
     # The scope is a filter here only to save pointless calls; the gate enforces
     # it regardless, so a merchant the buyer never allowed can never be bought from.
     run["state"]["allowed_merchants"] = (claims.get("scope") or {}).get("merchants")
@@ -393,7 +403,7 @@ def resume(conn, run_id: str) -> dict[str, Any]:
         "status": purchase["status"],
         "reason_code": purchase["reason_code"],
         "purchase_id": purchase["id"],
-        "receipt": json.loads(purchase["receipt"]) if purchase["receipt"] else None,
+        "receipt": _parse_json(purchase["receipt"]) if purchase["receipt"] else None,
     }
     run["state"]["result"] = outcome
     run["status"] = "running"

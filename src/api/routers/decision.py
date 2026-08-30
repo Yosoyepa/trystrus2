@@ -69,9 +69,7 @@ def _format_verification_result(result: Any) -> dict[str, Any]:
         "reservation_id": result.reservation_id,
         "expires_in": getattr(result.decision, "ttl_seconds", None) or 120,
         "diff": (
-            dict(result.decision.diff or {})
-            if getattr(result.decision, "diff", None)
-            else None
+            dict(result.decision.diff or {}) if getattr(result.decision, "diff", None) else None
         ),
         "purchase_id": result.purchase_id,
         "status": result.status,

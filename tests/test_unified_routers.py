@@ -141,6 +141,7 @@ class FakeAgentConn:
     def execute(self, sql: str, args: tuple = ()):
         clean_sql = sql.replace("FOR UPDATE", "")
         if "pg_locks" in sql:
+
             class DummyCursor:
                 def fetchall(self):
                     return []

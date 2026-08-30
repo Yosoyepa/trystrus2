@@ -161,10 +161,16 @@ def agent_conn() -> Any:
     if _agent_conn is not None:
         return _agent_conn
     try:
-        from src.agent import db
+        from src.agent import db, seed
 
-        return db.connect()
-    except Exception:
+        conn = db.init()
+        # Seed if empty
+        if not conn.execute("SELECT 1 FROM agents LIMIT 1").fetchone():
+            seed.seed_all(conn)
+        _agent_conn = conn
+        return _agent_conn
+    except Exception as exc:
+        print(f"agent_conn init error: {exc}")
         return None
 
 
