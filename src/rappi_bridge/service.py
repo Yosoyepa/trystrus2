@@ -144,10 +144,7 @@ class BridgeService:
             method["selected"] = (
                 self._config.payment_method_id is not None
                 and method.get("id") == self._config.payment_method_id
-            ) or (
-                self._config.payment_method_id is None
-                and bool(method.get("default"))
-            )
+            ) or (self._config.payment_method_id is None and bool(method.get("default")))
             method["cash"] = method_is_cash(method)
             method["three_ds"] = method_needs_3ds(method)
         return methods
@@ -189,14 +186,11 @@ class BridgeService:
             "account_label": str(user.get("name", "unknown"))[:32],
             "address_active": {
                 "id": str(address.get("id")) if address else None,
-                "label": (address or {}).get("tag")
-                or (address or {}).get("address", ""),
+                "label": (address or {}).get("tag") or (address or {}).get("address", ""),
             },
         }
 
-    def quote(
-        self, store_type: str = "restaurant", *, require_clean_cart: bool = True
-    ) -> Quote:
+    def quote(self, store_type: str = "restaurant", *, require_clean_cart: bool = True) -> Quote:
         """Canonical quote from the CURRENT cart, post store/address
         resolution. Search results are never a price source."""
         if not self._config.enabled:
@@ -313,11 +307,7 @@ class BridgeService:
         method = None
         if self._config.payment_method_id:
             method = next(
-                (
-                    m
-                    for m in usable
-                    if m.get("id") == self._config.payment_method_id
-                ),
+                (m for m in usable if m.get("id") == self._config.payment_method_id),
                 None,
             )
             if method is None:
@@ -377,9 +367,7 @@ class BridgeService:
                 order_id=order_id,
                 dry_run=self._config.dry_run,
             )
-            self._state.transition(
-                request.idem_key, state, order_id=order_id, receipt=receipt
-            )
+            self._state.transition(request.idem_key, state, order_id=order_id, receipt=receipt)
             return receipt
 
         if self._config.dry_run:

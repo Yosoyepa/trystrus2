@@ -34,9 +34,7 @@ def test_dry_run_flow_never_clicks(tmp_path, kernel_key, keys) -> None:
     service = make_service(tmp_path, BridgeConfig(), fake, keys)
     cart_hash = compute_cart_hash("restaurant", fake.recalculate("restaurant")["stores"][0])
     token = mint(key, kid, cart_hash=cart_hash, dry_run=True)
-    receipt = service.place_order(
-        make_request(cart_hash=cart_hash, token=token)
-    )
+    receipt = service.place_order(make_request(cart_hash=cart_hash, token=token))
     assert receipt["state"] == "dry_run_confirmed"
     assert receipt["dry_run"] is True
     assert receipt["order_id"] is None
@@ -49,9 +47,7 @@ def test_live_flow_clicks_once_and_confirms(tmp_path, kernel_key, keys) -> None:
     service = make_service(tmp_path, live_config(), fake, keys)
     cart_hash = compute_cart_hash("restaurant", fake.recalculate("restaurant")["stores"][0])
     token = mint(key, kid, cart_hash=cart_hash, dry_run=False)
-    receipt = service.place_order(
-        make_request(cart_hash=cart_hash, token=token)
-    )
+    receipt = service.place_order(make_request(cart_hash=cart_hash, token=token))
     assert receipt["state"] == STATE_CONFIRMED
     assert receipt["order_id"] == "2496728264"
     assert fake.place_calls == 1
@@ -84,9 +80,7 @@ def test_cart_drift_aborts_before_click(tmp_path, kernel_key, keys) -> None:
 def test_cap_refuses_even_with_valid_token(tmp_path, kernel_key, keys) -> None:
     key, kid = kernel_key
     fake = FakeRappiClient(total="60000.00")
-    service = make_service(
-        tmp_path, live_config(max_order_cop="50000.00"), fake, keys
-    )
+    service = make_service(tmp_path, live_config(max_order_cop="50000.00"), fake, keys)
     cart_hash = compute_cart_hash("restaurant", fake.recalculate("restaurant")["stores"][0])
     token = mint(key, kid, cart_hash=cart_hash, amount="60000.00", dry_run=False)
     with pytest.raises(CapExceeded):

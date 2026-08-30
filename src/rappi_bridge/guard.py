@@ -38,9 +38,7 @@ def check_drift(approved_amount: Decimal, checkout_total: Decimal) -> None:
         )
 
 
-def check_address(
-    delivery_address_id: str | None, expected_address_id: str | None
-) -> None:
+def check_address(delivery_address_id: str | None, expected_address_id: str | None) -> None:
     """A real run split the delivery between local coords and the account's
     active address. If the mandate authorizes an address and the checkout
     points elsewhere, abort."""

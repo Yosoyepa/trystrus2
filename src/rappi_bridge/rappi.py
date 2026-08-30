@@ -40,6 +40,7 @@ def absolute_image_url(path: Any, prefix: str = "products") -> str | None:
         return path
     return f"{IMAGES_BASE_URL}/{prefix}/{path.lstrip('/')}"
 
+
 # The web build hash rotates with Rappi's frontend deploys; if requests start
 # failing en masse, refresh from a live browser session (smoke test F0).
 _APP_VERSION = "e1de6be43aa29091011474615d7ac0810051c36a"
@@ -108,13 +109,9 @@ class RappiClient:
             "deviceid": self._session.device_id,
         }
 
-    def _request(
-        self, method: str, path: str, *, params: Any = None, body: Any = None
-    ) -> Any:
+    def _request(self, method: str, path: str, *, params: Any = None, body: Any = None) -> Any:
         try:
-            response = self._client.request(
-                method, path, params=params, json=body
-            )
+            response = self._client.request(method, path, params=params, json=body)
         except httpx.HTTPError as exc:
             raise RappiError(f"rappi transport error on {path}: {exc}") from exc
         if response.status_code in (401, 403):
@@ -161,9 +158,7 @@ class RappiClient:
         return preferred
 
     def recalculate(self, store_type: str) -> dict[str, Any]:
-        return self._request(
-            "POST", RECALC_PATH.format(store_type=store_type), body={}
-        )
+        return self._request("POST", RECALC_PATH.format(store_type=store_type), body={})
 
     def checkout_detail(self, store_type: str) -> dict[str, Any]:
         return self._request("GET", CHECKOUT_DETAIL_PATH.format(store_type=store_type))
@@ -173,9 +168,7 @@ class RappiClient:
 
     # -- write-side --------------------------------------------------------
 
-    def add_to_cart(
-        self, store_type: str, stores_payload: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    def add_to_cart(self, store_type: str, stores_payload: list[dict[str, Any]]) -> dict[str, Any]:
         """PUT replaces the store contents (DELETE /product is broken: 404)."""
         return self._request(
             "PUT",
@@ -238,9 +231,7 @@ class LazyRappiClient:
                 image = absolute_image_url(product.get("image"))
                 extra = [
                     url
-                    for url in (
-                        absolute_image_url(p) for p in (product.get("images") or [])
-                    )
+                    for url in (absolute_image_url(p) for p in (product.get("images") or []))
                     if url
                 ]
                 if image and image not in extra:
@@ -264,7 +255,6 @@ class LazyRappiClient:
                 )
         return results
 
-
     def get_payment_methods(self, store_type: str) -> list[dict[str, Any]]:
         """Saved payment methods. NOT in checkout/detail — separate resolver."""
         return self._request(
@@ -280,9 +270,7 @@ class LazyRappiClient:
     def set_payment_method(self, store_type: str, payload: dict[str, Any]) -> Any:
         """Bind a payment method to the cart. Without this, Rappi charges
         the order in CASH — silently (discovered by the CLI fork)."""
-        return self._request(
-            "PUT", PAYMENT_PUT_PATH.format(store_type=store_type), body=payload
-        )
+        return self._request("PUT", PAYMENT_PUT_PATH.format(store_type=store_type), body=payload)
 
 
 def build_payment_payload(method: dict[str, Any]) -> dict[str, Any]:
@@ -318,9 +306,7 @@ def build_payment_payload(method: dict[str, Any]) -> dict[str, Any]:
                     "tags": charge.get("tags"),
                     "online_payment": charge.get("online_payment"),
                     "payment_method": charge.get("payment_method"),
-                    "payment_method_description": charge.get(
-                        "payment_method_description"
-                    ),
+                    "payment_method_description": charge.get("payment_method_description"),
                     "payment_method_icon": charge.get("payment_method_icon"),
                     "user_default_refund_payment_method": charge.get(
                         "user_default_refund_payment_method"

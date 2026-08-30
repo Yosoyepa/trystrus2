@@ -10,9 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class BridgeConfig(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="AVAL_BRIDGE_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="AVAL_BRIDGE_", env_file=".env", extra="ignore")
 
     rappi_base_url: str = "https://services.grability.rappi.com"
     # Session file written by the audited CLI login (`rappi login`) or the

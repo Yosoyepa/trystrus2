@@ -41,8 +41,12 @@ class FakeRappiClient(RappiClient):
             }
         },
     }
-    CASH_METHOD = {"id": "cash", "main_description": "Efectivo", "available": True,
-                   "metadata": {"charge_data": {"payment_method": "cash"}}}
+    CASH_METHOD = {
+        "id": "cash",
+        "main_description": "Efectivo",
+        "available": True,
+        "metadata": {"charge_data": {"payment_method": "cash"}},
+    }
 
     def __init__(
         self,

@@ -381,9 +381,9 @@ def _unpack_idempotency_row(row: Any) -> IdempotencyRecord:
         # own column on this shared table), so psycopg hands back a str.
         expires_at=_utc(expires_at),
         response=response,
-        created_at=_utc(created_at) if isinstance(created_at, datetime) else _utc(
-            datetime.fromisoformat(created_at)
-        ),
+        created_at=_utc(created_at)
+        if isinstance(created_at, datetime)
+        else _utc(datetime.fromisoformat(created_at)),
         claim_token=marker.get("claim_token"),
     )
 

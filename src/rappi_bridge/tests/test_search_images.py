@@ -30,9 +30,7 @@ def make_lazy(handler, tmp_path) -> LazyRappiClient:
 
     session_file = tmp_path / "session.json"
     session_file.write_text("{}", encoding="utf-8")
-    inner = RappiClient(
-        SESSION, base_url="https://x", transport=httpx.MockTransport(handler)
-    )
+    inner = RappiClient(SESSION, base_url="https://x", transport=httpx.MockTransport(handler))
     lazy = LazyRappiClient.__new__(LazyRappiClient)
     lazy._config = SimpleNamespace(
         session_file=session_file, rappi_base_url="https://x", http_timeout_s=5.0
@@ -92,8 +90,7 @@ def test_absolute_image_url_handles_edges() -> None:
     assert absolute_image_url("") is None
     assert absolute_image_url(123) is None
     assert (
-        absolute_image_url("/leading/slash.png")
-        == f"{IMAGES_BASE_URL}/products/leading/slash.png"
+        absolute_image_url("/leading/slash.png") == f"{IMAGES_BASE_URL}/products/leading/slash.png"
     )
     assert (
         absolute_image_url("http://legacy.example/p.png", prefix="restaurants_logo")

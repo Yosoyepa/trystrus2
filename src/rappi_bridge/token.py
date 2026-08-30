@@ -82,9 +82,7 @@ def verify_capture_token(
     if claims.get("purchase_id") != expected_purchase_id:
         raise ApprovalInvalid("capture token is bound to another purchase")
     if claims.get("cart_hash") != expected_cart_hash:
-        raise ApprovalInvalid(
-            "capture token is bound to another cart — re-quote required"
-        )
+        raise ApprovalInvalid("capture token is bound to another cart — re-quote required")
     if Decimal(str(claims.get("amount"))) != Decimal(expected_amount):
         raise ApprovalInvalid("capture token amount differs from the approved one")
     if bool(claims.get("dry_run")) != bool(expected_dry_run):

@@ -87,9 +87,7 @@ def create_app(
         _guard_token(authorization)
         token = str(body.get("token", ""))
         device_id = body.get("device_id")
-        return login_flow.connect_with_token(
-            token, device_id=str(device_id) if device_id else None
-        )
+        return login_flow.connect_with_token(token, device_id=str(device_id) if device_id else None)
 
     @app.delete("/v1/rappi/session")
     def session_disconnect(
@@ -134,9 +132,7 @@ def create_app(
     ) -> Any:
         _guard_token(authorization)
         if not idempotency_key:
-            raise HTTPException(
-                status_code=400, detail="Idempotency-Key header is required"
-            )
+            raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
         request = PlaceOrderRequest(
             idem_key=idempotency_key,
             purchase_id=str(body.get("purchase_id", "")),

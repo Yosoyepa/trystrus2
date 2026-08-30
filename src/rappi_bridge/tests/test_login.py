@@ -118,9 +118,7 @@ def test_cors_allows_platform_front(tmp_path) -> None:
     config = make_config(tmp_path)
     app = create_app(config, service=object(), login_flow=LoginFlow(config))
     client = TestClient(app)
-    response = client.get(
-        "/healthz", headers={"Origin": "http://localhost:3000"}
-    )
+    response = client.get("/healthz", headers={"Origin": "http://localhost:3000"})
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
 
@@ -154,9 +152,7 @@ def test_manual_endpoint_over_http(tmp_path) -> None:
         login_flow=LoginFlow(config, prober=fake_prober),
     )
     client = TestClient(app)
-    response = client.post(
-        "/v1/rappi/session/manual", json={"token": "ft.gAAAA-manual"}
-    )
+    response = client.post("/v1/rappi/session/manual", json={"token": "ft.gAAAA-manual"})
     assert response.status_code == 200
     assert response.json()["state"] == "captured"
     bad = client.post("/v1/rappi/session/manual", json={"token": "nope"})
@@ -166,6 +162,4 @@ def test_manual_endpoint_over_http(tmp_path) -> None:
 
 def test_login_profile_dir_is_created(tmp_path) -> None:
     config = make_config(tmp_path)
-    assert config.login_profile_dir == pathlib.Path(
-        "var/rappi-bridge/login-profile"
-    )
+    assert config.login_profile_dir == pathlib.Path("var/rappi-bridge/login-profile")

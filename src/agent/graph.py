@@ -227,9 +227,7 @@ def node_propose(conn, run: dict) -> str:
         memory_text=state.get("memory_text", ""),
         guidance=" ".join(state.get("guidance", [])),
     )
-    chosen = next(
-        (o for o in state["offers"] if o["offer_id"] == proposal.get("offer_id")), None
-    )
+    chosen = next((o for o in state["offers"] if o["offer_id"] == proposal.get("offer_id")), None)
     # The merchant's own CDN pictures ride along with the proposal: the model
     # never authors a URL, it only picked which offer to show.
     if chosen:

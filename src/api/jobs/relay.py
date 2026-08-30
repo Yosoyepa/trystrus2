@@ -58,9 +58,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     relay = build_relay()
     drained = relay.drain(limit=100)
-    logger.info(
-        json.dumps({"message": "outbox.drain.complete", "drained": drained})
-    )
+    logger.info(json.dumps({"message": "outbox.drain.complete", "drained": drained}))
     return 0
 
 

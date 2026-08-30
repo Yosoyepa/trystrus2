@@ -83,9 +83,7 @@ def test_missing_preferred_method_fails_closed(tmp_path, kernel_key, keys) -> No
 def test_explicit_cash_allowed_when_operator_opts_in(tmp_path, kernel_key, keys) -> None:
     key, kid = kernel_key
     fake = FakeRappiClient(payment_methods=[dict(FakeRappiClient.CASH_METHOD)])
-    service = make_service(
-        tmp_path, BridgeConfig(dry_run=False, allow_cash=True), fake, keys
-    )
+    service = make_service(tmp_path, BridgeConfig(dry_run=False, allow_cash=True), fake, keys)
     cart_hash = compute_cart_hash("restaurant", fake.recalculate("restaurant")["stores"][0])
     token = mint(key, kid, cart_hash=cart_hash, dry_run=False)
     receipt = service.place_order(make_request(cart_hash=cart_hash, token=token))

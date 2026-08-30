@@ -191,9 +191,7 @@ class LoginFlow:
                     "started_at": self._status["started_at"],
                 }
 
-    def _write_session(
-        self, *, token: str, device_id: str, lat: str, lng: str
-    ) -> None:
+    def _write_session(self, *, token: str, device_id: str, lat: str, lng: str) -> None:
         path: Path = self._config.session_file
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(

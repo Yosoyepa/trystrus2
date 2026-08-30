@@ -406,9 +406,7 @@ class RappiBridgeMcp:
             raise RuntimeError(f"bridge {path} -> {response.status_code}")
         return response.json()
 
-    def search(
-        self, conn, *, query: str | None = None, category=None, **_: Any
-    ) -> list[dict]:
+    def search(self, conn, *, query: str | None = None, category=None, **_: Any) -> list[dict]:
         if not query:
             return []
         data = self._get("/v1/rappi/search", {"q": query})
@@ -426,8 +424,7 @@ class RappiBridgeMcp:
                     "eta": item.get("eta"),
                     "images": images,  # Rappi's own CDN URLs, verbatim
                     "description": (
-                        f"delivery {item.get('shipping_cost', 0)} COP"
-                        f" · {item.get('eta', '')}"
+                        f"delivery {item.get('shipping_cost', 0)} COP · {item.get('eta', '')}"
                     ),
                 }
             )

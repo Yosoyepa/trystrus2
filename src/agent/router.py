@@ -18,22 +18,62 @@ from . import llm
 # in Spanish. Kept as data so adding a merchant never means editing logic.
 CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "flights": (
-        "vuelo", "vuelos", "volar", "flight", "flights", "aerolinea",
-        "aerolínea", "boleto", "tiquete", "avión", "avion",
+        "vuelo",
+        "vuelos",
+        "volar",
+        "flight",
+        "flights",
+        "aerolinea",
+        "aerolínea",
+        "boleto",
+        "tiquete",
+        "avión",
+        "avion",
     ),
     "hotels": ("hotel", "hoteles", "noche", "noches", "alojamiento", "hospedaje"),
     "food": (
-        "rappi", "pizza", "hamburguesa", "comida", "domicilio", "restaurante",
-        "almuerzo", "cena", "desayuno", "food", "antojo",
+        "rappi",
+        "pizza",
+        "hamburguesa",
+        "comida",
+        "domicilio",
+        "restaurante",
+        "almuerzo",
+        "cena",
+        "desayuno",
+        "food",
+        "antojo",
     ),
     "groceries": (
-        "mercado", "supermercado", "papas", "pringles", "producto", "productos",
-        "groceries", "market", "compras del mercado", "fruta", "cereal",
-        "botella", "agua", "gaseosa", "jugo", "leche", "pan",
+        "mercado",
+        "supermercado",
+        "papas",
+        "pringles",
+        "producto",
+        "productos",
+        "groceries",
+        "market",
+        "compras del mercado",
+        "fruta",
+        "cereal",
+        "botella",
+        "agua",
+        "gaseosa",
+        "jugo",
+        "leche",
+        "pan",
     ),
     "retail": (
-        "tienda", "comprar", "compra", "retail", "snack", "galleta", "bebida",
-        "cigarro", "papeleria", "papelería",
+        "tienda",
+        "comprar",
+        "compra",
+        "retail",
+        "snack",
+        "galleta",
+        "bebida",
+        "cigarro",
+        "papeleria",
+        "papelería",
     ),
 }
 
@@ -63,8 +103,7 @@ def score_candidates(
         scope = candidate["scope"]
         scope_categories = list(scope.get("categories", []))
         scope_merchants = [
-            str(merchant).removesuffix(_MERCHANT_WORD)
-            for merchant in scope.get("merchants", [])
+            str(merchant).removesuffix(_MERCHANT_WORD) for merchant in scope.get("merchants", [])
         ]
         score = 0
         reasons: list[str] = []
@@ -75,9 +114,7 @@ def score_candidates(
             hits = sorted(set(CATEGORY_KEYWORDS.get(scope_category, ())) & tokens)
             if hits:
                 score += 2
-                reasons.append(
-                    f"palabras {hits} del rubro '{scope_category}' en el pedido"
-                )
+                reasons.append(f"palabras {hits} del rubro '{scope_category}' en el pedido")
         merchant_hits = [
             merchant for merchant in scope_merchants if merchant and merchant in tokens
         ]
