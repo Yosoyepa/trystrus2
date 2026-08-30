@@ -34,17 +34,6 @@ markers = [
 line-length = 100
 target-version = "py313"
 src = ["src"]
-exclude = [
-    "src/api/domain",
-    "src/api/router.py",
-    "src/api/main.py",
-    "src/api/schemas.py",
-    "src/api/services.py",
-    "src/api/repository.py",
-    "src/api/tests/test_domain_gate.py",
-    "src/api/tests/test_smoke.py",
-    "src/api/tests/test_webhooks.py",
-]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
