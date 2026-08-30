@@ -49,6 +49,7 @@ def create_app(
 
     @app.exception_handler(BridgeError)
     async def _bridge_error(_request: Any, exc: BridgeError) -> JSONResponse:
+        print(f"BRIDGE ERROR [{exc.http_status}]: {exc.reason} - {exc} (detail: {exc.detail})")
         return JSONResponse(
             status_code=exc.http_status,
             content={"reason": exc.reason, "detail": exc.detail, "message": str(exc)},

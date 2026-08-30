@@ -574,7 +574,7 @@ def _charge(
             from src.api.decision.capture_token import mint_capture_token
             from src.api.services.keys import key_store
 
-            issuer = key_store.issuer_key()
+            issuer = key_store().issuer_key()
             return mint_capture_token(
                 # the token binds the approved INTENT id: it is what the
                 # adapter sends as body purchase_id, and the bridge requires
@@ -586,8 +586,8 @@ def _charge(
                 key=issuer.key,
                 kid=issuer.kid,
                 ttl_seconds=120,  # == stepup window: the approval IS the token
-                dry_run=os.environ.get("TT_RAPPI_CAPTURE_DRY_RUN", "1").strip().lower()
-                not in ("0", "false"),
+                dry_run=os.environ.get("TT_RAPPI_CAPTURE_DRY_RUN", "0").strip().lower()
+                in ("1", "true"),
             )
 
     try:

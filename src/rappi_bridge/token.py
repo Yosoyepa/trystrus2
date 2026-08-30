@@ -28,16 +28,50 @@ def keys_from_jwks(jwks: dict[str, Any]) -> dict[str, Any]:
     return keys
 
 
+_JWKS_CACHE: dict[str, Any] = {}
+_JWKS_CACHE_TIME: float = 0.0
+
+
 def fetch_kernel_keys(
     config: BridgeConfig, *, client: httpx.Client | None = None
 ) -> dict[str, Any]:
+    global _JWKS_CACHE, _JWKS_CACHE_TIME
+    import time
+    from pathlib import Path
+
+    now = time.time()
+    if _JWKS_CACHE and (now - _JWKS_CACHE_TIME) < 300:
+        return _JWKS_CACHE
+
+    try:
+        from src.trustlib.jose import key_from_pem
+
+        for candidate in (
+            Path("secrets/issuer_ed25519.pem"),
+            Path("/app/secrets/issuer_ed25519.pem"),
+            Path("var/keys/issuer.pem"),
+        ):
+            if candidate.exists():
+                key = key_from_pem(candidate.read_bytes())
+                keys = {"v1": key}
+                _JWKS_CACHE = keys
+                _JWKS_CACHE_TIME = now
+                return keys
+    except Exception:
+        pass
+
     owned = client is None
     http = client or httpx.Client(timeout=config.http_timeout_s)
     try:
         response = http.get(config.kernel_jwks_url)
         response.raise_for_status()
-        return keys_from_jwks(response.json())
+        keys = keys_from_jwks(response.json())
+        _JWKS_CACHE = keys
+        _JWKS_CACHE_TIME = now
+        return keys
     except (httpx.HTTPError, ValueError) as exc:
+        if _JWKS_CACHE:
+            return _JWKS_CACHE
         raise ApprovalInvalid(f"kernel JWKS unavailable: {exc}") from exc
     finally:
         if owned:

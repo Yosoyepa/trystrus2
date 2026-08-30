@@ -101,6 +101,12 @@ class LoginFlow:
                 self._config.session_file.unlink(missing_ok=True)
             except OSError:
                 pass
+            try:
+                import shutil
+                if self._config.login_profile_dir.exists():
+                    shutil.rmtree(self._config.login_profile_dir, ignore_errors=True)
+            except Exception:
+                pass
             self._status = self._initial_status()
             return dict(self._status)
 

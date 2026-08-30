@@ -9,7 +9,7 @@ WORKDIR /app
 # Install project dependencies with layer caching
 COPY pyproject.toml uv.lock ./
 RUN uv venv /app/.venv && \
-    uv sync --frozen --no-install-project --no-dev
+    uv sync --frozen --no-install-project --no-dev --extra rappi
 
 # Copy source and fixtures
 COPY src/ /app/src/
@@ -19,6 +19,8 @@ COPY alembic/ /app/alembic/
 
 # Production runner image
 FROM python:3.13-slim AS runner
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser
 
@@ -36,6 +38,13 @@ COPY --from=builder --chown=appuser:appuser /app/src /app/src
 COPY --from=builder --chown=appuser:appuser /app/aval /app/aval
 COPY --from=builder --chown=appuser:appuser /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=appuser:appuser /app/alembic /app/alembic
+
+# Install Playwright browser dependencies and chromium
+RUN /app/.venv/bin/playwright install --with-deps chromium && \
+    mkdir -p /ms-playwright && \
+    chmod -R 777 /ms-playwright && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create writable runtime directories for keys, tokens, and logs
 RUN mkdir -p /app/secrets /app/var && chown -R appuser:appuser /app/secrets /app/var

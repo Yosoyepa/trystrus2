@@ -254,6 +254,14 @@ class Session:
             return lines
 
         if status in ("rejected", "compensated"):
+            reason = result.get("reason_code")
+            detail = result.get("detail", "")
+            if reason == "MERCHANT_MIN_AMOUNT" or "mínimo" in str(detail).lower() or "min_amount" in str(detail).lower():
+                lines.append(f"Monto mínimo no alcanzado: {detail}")
+                lines.append(
+                    "¿Deseas agregar más unidades o complementar tu pedido con otro producto para alcanzar el mínimo de compra?"
+                )
+                return lines
             lines.append(
                 f"Refused: {result.get('reason_code')} — {result.get('detail', '')}".strip(" —")
             )

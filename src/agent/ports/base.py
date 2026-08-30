@@ -116,20 +116,12 @@ def register_merchant(merchant: MerchantPort) -> MerchantPort:
 
 
 def _bootstrap_local() -> None:
-    """Register the in-process merchant if no one has registered anything.
-
-    Without this the library only works after an explicit setup() call, which
-    turns every test and every script into a place where the registry can be
-    forgotten. The local merchant is always safe to have: it is the mock, and
-    the mandate's scope still decides whether anyone may buy from it.
-    """
+    """Register merchants from configuration if no one has registered anything."""
     if MERCHANTS:
         return
-    from .local import LocalMerchant
+    from .setup import setup
 
-    merchant = LocalMerchant()
-    merchant.discover()
-    register_merchant(merchant)
+    setup()
 
 
 def merchant_for(offer_or_id: dict | str | None) -> MerchantPort:

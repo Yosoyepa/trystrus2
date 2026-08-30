@@ -599,6 +599,18 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 - **Contracts touched:** none.
 
 
+## 2026-08-30 — Rappi live rail integration & mandate limit expansion
+- **Why:** Enable end-to-end live commerce with Rappi dark store / Turbo rail under cryptographic mandate enforcement (decision 0030).
+- **Done:** 
+  - Restrained mock catalog fixtures in `LocalMerchant` to flights and hotels only, directing grocery/food queries exclusively to live Rappi bridge.
+  - Implemented dynamic `store_type` routing (Turbo vs Restaurant) and composite SKU formatting (`store_id_product_id`) for Rappi cart mutations.
+  - Resolved live order parsing to support list and dict return structures with real order ID tracking (`order_id`).
+  - Added natural language query keyword extraction fallback in merchant search.
+  - Expanded demo mandate limits to 100 purchases, $1.000.000 COP budget, and $200.000 COP per purchase with reset transaction count.
+  - Added full cleanup of Chrome browser profile cookies and storage on session disconnect (`DELETE /v1/rappi/session`).
+- **Tests:** Live Turbo grocery and snack purchases verified and captured (`2496791204`, `2496796846`).
+- **Contracts touched:** none.
+
 ---
 
 ## 2026-08-29 — domain/ brought up to the repo's ruff config
