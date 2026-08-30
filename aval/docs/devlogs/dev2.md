@@ -7,6 +7,23 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — C1 implementation: velocity store foundation
+- **Why:** R-BURST needs a deterministic counter projection that can be read
+  before evaluation and updated atomically after an observed intent.
+- **Done:** added the decision ports, lock-protected in-memory repositories,
+  PostgreSQL minute-bucket upserts, cooldown expiry records, open-authorization
+  counters, strict money handling, and transaction-aware outbox/reservation
+  seams. The shared repository modules also contain the C2 idempotency adapter
+  because both adapters use the same frozen persistence boundary.
+- **Tests:** unit coverage exercises count and amount buckets, rolling-hour
+  escalations, cooldown expiry, open-authorization compensation, derived-key
+  enforcement, replay, conflict, retention, and purge behavior.
+- **Decision:** no schema or contract files were changed; the frozen DDL
+  remains authoritative.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
 - **Why:** start resolving the gap register without colliding with the
   coder-1 run in flight — everything here is NEW files; the gate fixes that

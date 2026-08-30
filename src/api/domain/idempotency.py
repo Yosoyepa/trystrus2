@@ -108,6 +108,7 @@ class IdempotencyRecord:
     expires_at: datetime
     response: Mapping[str, Any] | None = None
     created_at: datetime | None = None
+    claim_token: str | None = None
 
     def __post_init__(self) -> None:
         if not self.key or not self.scope or not self.derived_from:
@@ -132,6 +133,7 @@ def make_record(
     *,
     ttl: timedelta = IDEMPOTENCY_TTL,
     response: Mapping[str, Any] | None = None,
+    claim_token: str | None = None,
 ) -> IdempotencyRecord:
     """Build a record with the contract's default 45-day retention."""
 
@@ -146,6 +148,7 @@ def make_record(
         expires_at=created + ttl,
         response=response,
         created_at=created,
+        claim_token=claim_token,
     )
 
 
