@@ -24,6 +24,23 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — C2 implementation: idempotency claim ownership
+- **Why:** a matching retry must replay the first response, while a
+  concurrent request that sees an unresolved claim must not execute the
+  purchase side effects a second time.
+- **Done:** added the application claim coordinator. It derives the key from
+  the intent JTI, creates a unique pending claim token, and exposes ownership
+  explicitly to the verify use case. Repositories persist the token inside
+  their namespaced JSONB metadata without changing the frozen DDL.
+- **Tests:** added English unit coverage for first-owner and second-claim
+  behavior while retaining the store tests for conflict, TTL, replay, and
+  first-response preservation.
+- **Decision:** non-owners fail closed until the owner has persisted the
+  response; no payment or purchase side effect is repeated.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
 - **Why:** start resolving the gap register without colliding with the
   coder-1 run in flight — everything here is NEW files; the gate fixes that
