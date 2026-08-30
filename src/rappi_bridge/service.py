@@ -135,6 +135,40 @@ class BridgeService:
             raise Disabled("bridge is disabled (kill switch)")
         return self._client.search(query)
 
+    def add_to_cart(
+        self,
+        *,
+        store_type: str,
+        store_id: str,
+        product_id: str,
+        name: str,
+        quantity: int = 1,
+        price: int = 0,
+    ) -> dict[str, Any]:
+        """Bind the approved product as the cart's ONLY contents.
+
+        PUT replaces whatever was in the cart (DELETE is broken server-side),
+        which is what makes the later cart_hash binding meaningful: the cart
+        can only ever hold what this method put there.
+        """
+        if not self._config.enabled:
+            raise Disabled("bridge is disabled (kill switch)")
+        payload = [
+            {
+                "id": int(store_id),
+                "products": [
+                    {
+                        "id": str(product_id),
+                        "name": str(name)[:80],
+                        "toppings": [],
+                        "units": max(1, int(quantity)),
+                        "price": int(price),
+                    }
+                ],
+            }
+        ]
+        return self._client.add_to_cart(store_type, payload)
+
     def payment_methods(self) -> list[dict[str, Any]]:
         """Saved methods with the currently-preferred one flagged SELECTED."""
         if not self._config.enabled:

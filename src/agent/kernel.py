@@ -559,6 +559,37 @@ def _charge(
         "offer_id": intent["offer_id"],
         "title": intent["offer_id"],
     }
+
+    capture = None
+    if getattr(port, "kernel_capture", False):
+
+        def capture(*, amount: str, cart_hash: str) -> str:
+            """Decision 0030: the kernel issuer key mints the capture token
+            binding purchase, reservation, quoted total and cart. Reaching
+            this call path IS the released approval; the bridge re-verifies
+            the token, the drift and the cap before its single click.
+            TT_RAPPI_CAPTURE_DRY_RUN=0 mints a live-capture token."""
+            import os
+
+            from src.api.decision.capture_token import mint_capture_token
+            from src.api.services.keys import key_store
+
+            issuer = key_store.issuer_key()
+            return mint_capture_token(
+                # the token binds the approved INTENT id: it is what the
+                # adapter sends as body purchase_id, and the bridge requires
+                # body == token on that field
+                purchase_id=str(intent["jti"]),
+                reservation_id=decision.get("reservation_id"),
+                amount=amount,
+                cart_hash=cart_hash,
+                key=issuer.key,
+                kid=issuer.kid,
+                ttl_seconds=120,  # == stepup window: the approval IS the token
+                dry_run=os.environ.get("TT_RAPPI_CAPTURE_DRY_RUN", "1").strip().lower()
+                not in ("0", "false"),
+            )
+
     try:
         result = port.settle(
             conn,
@@ -568,6 +599,7 @@ def _charge(
             intent=intent,
             signature=signature,
             verify_fn=live_state,
+            capture=capture,
         )
     except RailError as exc:
         return _compensate(conn, purchase_id, claims, intent, exc.code, str(exc), run_id)

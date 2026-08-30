@@ -88,16 +88,22 @@ class MerchantPort(Protocol):
         intent: dict,
         signature: str,
         verify_fn,
+        capture=None,
     ) -> dict:
         """Called ONLY by the kernel, ONLY after the gate approved.
 
         No agent code path reaches this. It lives on the merchant port rather
         than in the tool registry precisely so it cannot appear in a tool
-        listing -- a capability the agent cannot name is a capability it cannot
-        be talked into using.
+        listing -- a capability the agent cannot name is a capability it
+        cannot be talked into using.
 
         `verify_fn` re-reads mandate state at settlement time, which is what
         keeps revocation synchronous (M9).
+
+        `capture` is the kernel's capture-token minter (decision 0030,
+        `amount`/`cart_hash` -> signed token) for merchants that settle
+        through a guarded bridge click; declare `kernel_capture = True` on
+        the port to receive it. It is None for every other merchant.
         """
 
 
