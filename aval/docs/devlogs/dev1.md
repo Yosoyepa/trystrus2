@@ -7,6 +7,24 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — explicit offer selection survives an unavailable LLM
+
+- **Why:** the production-integration invariant run exposed that S4/K1 passed
+  only when a live model interpreted `buy offer ofr_cor_300`. With no key or a
+  model outage, the documented deterministic fallback ignored the explicit ID,
+  chose the globally cheapest catalog row and denied for the wrong reason.
+- **Built:** `_propose_fallback` now recognizes an exact catalog `offer_id` in
+  the buyer request before applying cheapest-match selection. The model still
+  has no enforcement authority; the selected offer goes through the unchanged
+  deterministic gate.
+- **Tests:** S4/K1 now exercises the hostile-ontology boundary without network
+  or an LLM key; full invariant and pytest results are recorded in the IaC
+  release entry.
+- **Decision:** none; this restores the existing proposal contract and S4.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-30 — every mandate a transaction was transacted against
 
 - **Why:** asked for a view showing, per transaction, every mandate involved.
