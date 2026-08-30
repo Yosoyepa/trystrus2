@@ -109,9 +109,11 @@ jobs:
           for svc in aval-dev-kernel aval-dev-merchant aval-dev-yuno-sim aval-dev-web; do
             URL=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
             REV=$(gcloud run services describe "$svc" --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
-            CODE=$(curl -sS -o /tmp/body -w '%{http_code}' "$URL/healthz" 2>/tmp/curlerr || true)
+            # /health, NOT /healthz: Google's edge intercepts /healthz on
+            # *.run.app and 404s before the request reaches the container.
+            CODE=$(curl -sS -o /tmp/body -w '%{http_code}' "$URL/health" 2>/tmp/curlerr || true)
             echo "== $svc"
-            echo "   url:    $URL/healthz"
+            echo "   url:    $URL/health"
             echo "   ready:  $REV"
             echo "   status: ${CODE:-ERR} $(tr -d '\n' </tmp/curlerr 2>/dev/null || true)"
             echo "   body:   $(head -c 300 /tmp/body 2>/dev/null || true)"
