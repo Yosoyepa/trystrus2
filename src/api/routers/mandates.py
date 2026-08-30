@@ -311,7 +311,17 @@ async def revoke_mandate(
 @router.get("/mandates", response_model=list[MandateView])
 async def list_mandates(user_id: str, session: AsyncSession = Depends(get_session)):
     records = await repo.list_mandates(session, user_id)
-    return [_to_view(r) for r in records]
+    views: list[MandateView] = []
+    for record in records:
+        try:
+            views.append(_to_view(record))
+        except Exception:
+            # Rows written by older revisions (the agent lane before the
+            # schema unification) may carry claims the strict MandateClaims
+            # rejects. One stale row must not 500 the whole listing — the
+            # console's first call is exactly this endpoint.
+            log.warning("skipping unreadable mandate %s", record.jti)
+    return views
 
 
 @router.get("/mandates/by-jti/{jti}", response_model=MandateView)
