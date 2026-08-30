@@ -7,6 +7,40 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — execution round 1: canonical unification (RT-9), evidence module (D-1), golden vectors, critical-fixes card
+- **Why:** start resolving the gap register without colliding with the
+  coder-1 run in flight — everything here is NEW files; the gate fixes that
+  live in their WIP files are handed over as a precise fix card instead.
+- **Done:**
+  (1) `src/api/canonical.py` — the single strict canonical JSON (floats,
+  sets, naive datetimes and non-str keys rejected; Decimal/datetime/Enum
+  canonical), leaf module so domain/decision/audit/events can all adopt it
+  after the lanes merge;
+  (2) `src/api/tests/test_canonical_golden.py` — 12 tests incl. two golden
+  vectors whose JSON literals are hand-written and whose SHA-256 digests were
+  computed independently of the implementation (TX-10 groundwork);
+  (3) `src/api/evidence/` — R-EVIDENCE pack use case (models/ports/service):
+  assembles mandate + intent + decision + receipt + ledger slice + chain
+  verdict + root checkpoint, fail-closed by construction (`integrity` ok /
+  failed with explicit reasons, failures never hidden), digest over the
+  canonical envelope; ports are lane-local (no imports from decision/ or
+  audit/) so the composition root wires adapters after the merge;
+  (4) `src/api/tests/test_evidence_pack.py` — 9 tests (happy path, digest
+  stability, tampered chain, missing witness/receipt/slice/decision, unknown
+  purchase, model invariants);
+  (5) [`../plans/2026-08-29-dev2-critical-fixes-card.md`](../plans/2026-08-29-dev2-critical-fixes-card.md) —
+  six code-level fix cards (RT-1 UV bypass, RT-2 replay wiring, RT-3/G-2/G-6
+  fail-closed downgrades, G-5 silent-degraded modes, RT-6 step-up ratio in the
+  reservation guard, minor debts) to run AFTER C1–C5, one commit per card.
+- **Tests:** `uv run pytest src/api/tests/test_canonical_golden.py
+  src/api/tests/test_evidence_pack.py` → 21 passed; ruff clean on the new
+  files; coder suite observed in parallel: 62 passed / 1 skipped (their WIP,
+  IndentationError already fixed on their side).
+- **Decision:** none new.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — gate/gap analysis (8 parallel audits) + phase evolution plan
 - **Why:** after the parallel-phase run was verified and merged, the next
   phase of Dev 2 needed ground truth: where the gate is incomplete, where the
