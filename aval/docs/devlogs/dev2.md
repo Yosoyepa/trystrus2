@@ -7,6 +7,12 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-29 — P5: outbox relay with SKIP LOCKED
+- **Why:** implement transactional event distribution via the Postgres outbox drained by `FOR UPDATE SKIP LOCKED` poller dispatching to idempotent sinks and signed merchant webhooks (decisions #10, #15, #19).
+- **Done:** created `src/api/events/ports.py` (`OutboxEvent`, `Sink`, `OutboxStore`, `Clock`), `src/api/events/sinks_memory.py` (`InMemoryOutboxStore` with skip-lock simulation, `InMemorySink` with transient error injection), `src/api/events/webhook_signed.py` (`SignedWebhookPoster` signing canonical bodies with `RootSigner` evidence key headers `X-Aval-Signature`), `src/api/events/relay.py` (`OutboxRelay` poller with per-event error isolation, `PostgresOutboxStore` with `FOR UPDATE SKIP LOCKED`), and test suite `src/api/tests/test_events_relay.py` (6 unit and `@pytest.mark.db` tests verifying in-order delivery, retry on transient failure, signature verification, and concurrent worker deduplication).
+- **Decision:** none new (implements #10, #15, #19).
+- **Contracts touched:** none.
+
 ## 2026-08-29 — P4: chain verification use case (T9)
 - **Why:** implement the full `Ledger` application service use cases (`append`, `sign_root`, `verify_chain`) supporting root signing and fail-closed chain verification against the external witness (decisions #7, #15, #19).
 - **Done:** created `src/api/audit/service.py` (`LedgerService` orchestrating repo, signers, and witness) and test suite `src/api/tests/test_audit_verify.py` implementing test T9 (the live demo script: intact 25-event chain with 2 signed checkpoints verifies clean; 1-byte payload mutation at seq 7 breaks verification at seq 7; hash corruption at seq 15 breaks at seq 15; invalid root sig fails; divergent external witness fails; missing witness fails).
