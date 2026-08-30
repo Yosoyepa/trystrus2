@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 from . import audit, limits, llm, memory, ontology as ontology_mod, registry
 from .ids import new_id, now_iso
-from .mocks import merchant
+from .ports.base import search_all
 
 MAX_REPLANS = 2
 STOP, PAUSE = "__stop__", "__pause__"
@@ -94,6 +94,13 @@ def node_perceive(conn, run: dict) -> str:
     """Assemble the context. Ontology + history + run state. Never the gate (S4)."""
     version = registry.get_version(conn, run["agent_id"], run["agent_version"])
     onto = json.loads(version["ontology"])
+    mandate_row = conn.execute("SELECT claims FROM mandates WHERE jti=?",
+                               (run["mandate_jti"],)).fetchone()
+    claims = json.loads(mandate_row["claims"]) if mandate_row else {}
+    # The scope is a filter here only to save pointless calls; the gate enforces
+    # it regardless, so a merchant the buyer never allowed can never be bought from.
+    run["state"]["allowed_merchants"] = (claims.get("scope") or {}).get("merchants")
+    run["state"]["currency"] = claims.get("currency", "USD")
     summary = memory.summarise(conn, run["mandate_jti"])
     run["state"]["ontology_text"] = limits.clamp_text(ontology_mod.render(onto))
     run["state"]["memory"] = summary
@@ -113,11 +120,14 @@ def node_search(conn, run: dict) -> str:
     """MCP tools. Read-only, cost nothing, commit nothing."""
     criteria = run["state"].get("criteria") or {}
     limits.guard_merchant_call(conn, run["agent_id"], run["mandate_jti"])
-    offers = merchant.search_offers(
-        conn, origin=criteria.get("origin"), destination=criteria.get("destination"),
-        date=criteria.get("date"), category=criteria.get("category"))
+    allowed = run["state"].get("allowed_merchants")
+    offers = search_all(conn, allowed=allowed, origin=criteria.get("origin"),
+                        destination=criteria.get("destination"),
+                        date=criteria.get("date"), category=criteria.get("category"),
+                        query=run["state"]["request"])
     if not offers:  # a filter that matched nothing is worse than a broad list
-        offers = merchant.search_offers(conn, category=criteria.get("category"))
+        offers = search_all(conn, allowed=allowed, category=criteria.get("category"),
+                            query=run["state"]["request"])
     run["state"]["offers"] = limits.clamp_offers(offers)
     offers = run["state"]["offers"]
     _save(conn, run, node="search", event={"offers_found": len(offers)})
@@ -154,9 +164,13 @@ def node_gate(conn, run: dict) -> str:
     from . import kernel
     state = run["state"]
     _save(conn, run, node="gate")
-    result = kernel.submit_purchase(conn, offer_id=state["proposal"]["offer_id"],
-                                    mandate_jti=run["mandate_jti"],
-                                    run_id=run["run_id"])
+    chosen = next((o for o in state["offers"]
+                   if o["offer_id"] == state["proposal"]["offer_id"]), None)
+    result = kernel.submit_purchase(
+        conn, offer_id=state["proposal"]["offer_id"],
+        mandate_jti=run["mandate_jti"],
+        merchant_id=(chosen or {}).get("merchant_id"),
+        run_id=run["run_id"])
     state["result"] = result
     if result["status"] == "captured":
         return "receipt"

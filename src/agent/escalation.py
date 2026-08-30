@@ -137,14 +137,19 @@ def _retry_through_gate(conn, row, approver: str, *, sticky: bool) -> dict[str, 
                             (row["purchase_id"],)).fetchone()
     intent_row = conn.execute("SELECT * FROM purchase_intents WHERE jti=?",
                               (purchase["intent_jti"],)).fetchone()
-    offer_id = json.loads(intent_row["intent"])["offer_id"] if intent_row else None
+    stored = json.loads(intent_row["intent"]) if intent_row else {}
+    offer_id = stored.get("offer_id")
+    merchant_id = stored.get("merchant_id")
     if offer_id is None:
         # the intent was never persisted (it never reserved), rebuild from the purchase
         ev = conn.execute(
             "SELECT payload FROM audit_events WHERE type='purchase.requested' "
             "AND payload LIKE ? ORDER BY seq DESC LIMIT 1",
             (f'%{row["purchase_id"]}%',)).fetchone()
-        offer_id = json.loads(ev["payload"])["offer_id"] if ev else None
+        if ev:
+            payload = json.loads(ev["payload"])
+            offer_id = payload.get("offer_id")
+            merchant_id = merchant_id or payload.get("merchant_id")
     if offer_id is None:
         return {"status": "rejected", "reason_code": "RAIL_ERROR",
                 "detail": "cannot rebuild the intent to retry"}
@@ -166,7 +171,7 @@ def _retry_through_gate(conn, row, approver: str, *, sticky: bool) -> dict[str, 
         mandate_jti = derived["jti"]
 
     return kernel.submit_purchase(conn, offer_id=offer_id, mandate_jti=mandate_jti,
-                                  run_id=row["run_id"])
+                                  merchant_id=merchant_id, run_id=row["run_id"])
 
 
 def sweep(conn) -> list[dict[str, Any]]:

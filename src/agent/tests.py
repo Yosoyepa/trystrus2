@@ -641,6 +641,139 @@ def _n3():
     assert len(set(claimed)) == total, (len(set(claimed)), total)
 
 
+# ── X: extensibility ─────────────────────────────────────────────────────────
+@case("X1", "no tool can declare a settling effect, and `pay` is refused")
+def _x1():
+    from .ports.base import EFFECTS, Tool, TOOLS
+    conn, _ = fresh()
+    from .ports.setup import setup
+    setup()
+    for bad in ("pay", "settle", "charge", "write"):
+        try:
+            Tool(name="x", effect=bad, merchant_id="m")
+            raise AssertionError(f"a tool declaring effect {bad!r} was constructible")
+        except ValueError:
+            pass
+    assert all(t.effect in EFFECTS for t in TOOLS.tools.values())
+    TOOLS.assert_no_money_tools()
+
+
+@case("X2", "a second merchant appears in search but scope still gates it")
+def _x2():
+    from .ports.base import MERCHANTS, register_merchant, search_all, normalise_offer
+    conn, ctx = fresh()
+    from .ports.setup import setup
+    setup()
+
+    class Rival:
+        merchant_id, currency = "rival-air", "USD"
+
+        def discover(self): return {}
+
+        def search(self, conn, **criteria):
+            return [normalise_offer({"offer_id": "riv_1", "category": "flights",
+                                     "title": "Rival BOG-COR", "price": "99.00",
+                                     "currency": "USD", "destination": "COR"},
+                                    merchant_id=self.merchant_id)]
+
+        def get(self, conn, offer_id):
+            return self.search(conn)[0] if offer_id == "riv_1" else None
+
+        def settle(self, conn, **kw):
+            return {"accepted": True, "receipt": {"receipt_id": "r", "amount": "99.00",
+                    "currency": "USD", "title": "Rival", "merchant_id": self.merchant_id,
+                    "offer_id": "riv_1", "mandate_jti": kw["mandate_claims"]["jti"],
+                    "capture_id": "c", "at": "now"}}
+
+    register_merchant(Rival())
+    assert "rival-air" in MERCHANTS
+    everyone = search_all(conn, destination="COR", category="flights")
+    assert any(o["merchant_id"] == "rival-air" for o in everyone), "new merchant invisible"
+
+    # ... and the mandate's scope is still what decides
+    out = kernel.submit_purchase(conn, offer_id="riv_1", mandate_jti=ctx["mandate_jti"],
+                                 merchant_id="rival-air")
+    assert out["reason_code"] == "MERCHANT_NOT_ALLOWED", out
+    captured = conn.execute(
+        "SELECT COUNT(*) c FROM purchases WHERE status='captured'").fetchone()["c"]
+    assert captured == 0, captured
+
+
+@case("X3", "a merchant that fails to settle compensates; nothing is captured")
+def _x3():
+    from .ports.base import MERCHANTS
+    conn, ctx = fresh()
+    from .ports.setup import setup
+    setup()
+    real = MERCHANTS["vuelaya"]
+
+    class Broken:
+        merchant_id, currency = "vuelaya", "USD"
+        def discover(self): return {}
+        def search(self, conn, **k): return real.search(conn, **k)
+        def get(self, conn, offer_id): return real.get(conn, offer_id)
+        def settle(self, conn, **kw): raise RuntimeError("rail exploded mid-capture")
+
+    MERCHANTS["vuelaya"] = Broken()
+    try:
+        out = kernel.submit_purchase(conn, offer_id="ofr_cor_130",
+                                     mandate_jti=ctx["mandate_jti"],
+                                     merchant_id="vuelaya")
+    finally:
+        MERCHANTS["vuelaya"] = real
+    assert out["status"] == "rejected", out
+    row = mandate_mod.get(conn, ctx["mandate_jti"])
+    assert row["reserved_amount"] == "0.00", f"reservation leaked: {row['reserved_amount']}"
+    assert row["spent_total"] == "0.00", row["spent_total"]
+    purchase = conn.execute("SELECT status FROM purchases ORDER BY created_at DESC "
+                            "LIMIT 1").fetchone()
+    assert purchase["status"] == "compensated", purchase["status"]
+
+
+@case("X4", "against a LIVE merchant MCP: buy through the gate, refuse `pay`")
+def _x4():
+    """Skips when the merchant apps are not running; asserts hard when they are."""
+    import json as _json
+    import urllib.error, urllib.request
+    from .ports.base import TOOLS, search_all
+    from .ports.setup import setup
+
+    url = "http://localhost:3000/api/mcp"
+    try:
+        urllib.request.urlopen(url.replace("/api/mcp", "/api/airports"), timeout=3).read()
+    except (urllib.error.URLError, OSError):
+        print(f"{'':<12}  (skipped: no merchant on :3000)")
+        return
+
+    conn, ctx = fresh()
+    setup(vuelaya_url=url)
+    cop = _json.loads(conn.execute(
+        "SELECT claims FROM mandates WHERE claims::jsonb->>'currency'='COP' LIMIT 1"
+    ).fetchone()["claims"])
+
+    assert any(r["name"] == "pay" and r["merchant_id"] == "vuelaya-mcp"
+               for r in TOOLS.refused), "their settling tool was not refused"
+    assert "pay" not in TOOLS.callable_names("vuelaya-mcp")
+
+    offers = search_all(conn, allowed=cop["scope"]["merchants"],
+                        destination="MDE", category="flights")
+    flights = [o for o in offers if o["merchant_id"] == "vuelaya-mcp"]
+    assert flights, "the live merchant returned no flights"
+    assert all(o["currency"] == "COP" for o in flights)
+
+    pick = min(flights, key=lambda o: float(o["price"]))
+    out = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                 mandate_jti=cop["jti"], merchant_id="vuelaya-mcp")
+    assert out["status"] == "captured", out
+    assert out["receipt"]["currency"] == "COP"
+
+    # and once revoked, the same live merchant sells us nothing
+    mandate_mod.revoke(conn, cop["jti"], actor="Marta")
+    after = kernel.submit_purchase(conn, offer_id=pick["offer_id"],
+                                   mandate_jti=cop["jti"], merchant_id="vuelaya-mcp")
+    assert after["reason_code"] == "MANDATE_REVOKED", after
+
+
 def main() -> int:
     print(f"{'property':<12}{'check':<62}result")
     print("─" * 84)

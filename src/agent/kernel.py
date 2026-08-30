@@ -156,8 +156,14 @@ def verify(conn, *, mandate_token: str, intent: dict, intent_sig: str,
         return _refuse(conn, claims["jti"], "MANDATE_EXPIRED", "past its validity window")
 
     # CHECK 3 -- is the purchase inside the mandate?
-    from .mocks.merchant import get_offer
-    offer = get_offer(conn, intent["offer_id"])
+    # The offer is re-fetched from the merchant that issued it, so the price the
+    # gate checks is the merchant's live price, not whatever the agent carried.
+    from .ports.base import merchant_for
+    try:
+        offer = merchant_for(intent["merchant_id"]).get(conn, intent["offer_id"])
+    except KeyError:
+        return _refuse(conn, claims["jti"], "MERCHANT_NOT_ALLOWED",
+                       f"no merchant registered as {intent['merchant_id']!r}")
     if offer is None:
         return _refuse(conn, claims["jti"], "RAIL_ERROR", "offer withdrawn")
     if fmt(intent["amount"]) != fmt(offer["price"]):
@@ -302,6 +308,7 @@ def build_intent(*, mandate_jti: str, agent_id: str, offer: dict) -> dict[str, A
 
 
 def submit_purchase(conn, *, offer_id: str, mandate_jti: str,
+                    merchant_id: str | None = None,
                     run_id: str | None = None) -> dict[str, Any]:
     """The saga, as the MCP tool `request_purchase` triggers it.
 
@@ -310,15 +317,20 @@ def submit_purchase(conn, *, offer_id: str, mandate_jti: str,
     passing verify (S2).
     """
     from . import mandate as mandate_mod
-    from .mocks import merchant
+    from .ports.base import merchant_for
     from .registry import agent_private_key
 
     mandate_row = mandate_mod.get(conn, mandate_jti)
     claims = json.loads(mandate_row["claims"])
-    offer = merchant.get_offer(conn, offer_id)
+    try:
+        port = merchant_for(merchant_id)
+    except (KeyError, StopIteration):
+        return {"status": "rejected", "reason_code": "MERCHANT_NOT_ALLOWED",
+                "detail": f"no merchant registered as {merchant_id!r}"}
+    offer = port.get(conn, offer_id)
     if offer is None:
         return {"status": "rejected", "reason_code": "RAIL_ERROR",
-                "detail": f"no such offer {offer_id}"}
+                "detail": f"no such offer {offer_id} at {port.merchant_id}"}
 
     intent = build_intent(mandate_jti=mandate_jti, agent_id=claims["agent"], offer=offer)
     signature = jws.sign_detached(intent, agent_private_key(claims["agent"]),
@@ -332,7 +344,8 @@ def submit_purchase(conn, *, offer_id: str, mandate_jti: str,
         (purchase_id, mandate_jti, intent["jti"], intent["amount"], stamp, stamp))
     audit.append(conn, "purchase.requested",
                  {"purchase_id": purchase_id, "intent_jti": intent["jti"],
-                  "offer_id": offer_id, "amount": intent["amount"]},
+                  "offer_id": offer_id, "amount": intent["amount"],
+                  "merchant_id": port.merchant_id},
                  agent_id=claims["agent"], run_id=run_id, mandate_jti=mandate_jti)
 
     decision = verify(conn, mandate_token=mandate_row["token"], intent=intent,
@@ -367,24 +380,34 @@ def submit_purchase(conn, *, offer_id: str, mandate_jti: str,
 
 def _charge(conn, *, purchase_id, mandate_row, claims, intent, signature, decision,
             run_id) -> dict[str, Any]:
-    from .mocks import merchant
     from .mocks.rail import RailError
+    from .ports.base import merchant_for
 
     conn.execute("UPDATE purchases SET status='charging', reservation_id=?, updated_at=?"
                  " WHERE id=?", (decision.get("reservation_id"), now_iso(), purchase_id))
+
+    def live_state():
+        """Re-read mandate state at settlement time. A cached answer here is
+        exactly the time-of-check-to-time-of-use hole revocation must not have."""
+        row = conn.execute("SELECT status FROM mandates WHERE jti=?",
+                           (claims["jti"],)).fetchone()
+        if row and row["status"] == "active":
+            return {"decision": APPROVED,
+                    "reservation_id": decision.get("reservation_id")}
+        return {"decision": REJECTED, "reason_code": "MANDATE_REVOKED"}
+
+    port = merchant_for(intent["merchant_id"])
+    offer = port.get(conn, intent["offer_id"]) or {"offer_id": intent["offer_id"],
+                                                   "title": intent["offer_id"]}
     try:
-        result = merchant.checkout_charge(
-            conn, mandate_token=mandate_row["token"], intent=intent,
-            intent_sig=signature,
-            # Revocation is re-read inside the charging path (M9). The merchant
-            # asks us again at pay time; a cached answer would reopen TOCTOU.
-            verify_fn=lambda: {"decision": APPROVED,
-                               "reservation_id": decision.get("reservation_id")}
-            if conn.execute("SELECT status FROM mandates WHERE jti=?",
-                            (claims["jti"],)).fetchone()["status"] == "active"
-            else {"decision": REJECTED, "reason_code": "MANDATE_REVOKED"})
+        result = port.settle(conn, offer=offer, mandate_claims=claims,
+                             mandate_token=mandate_row["token"], intent=intent,
+                             signature=signature, verify_fn=live_state)
     except RailError as exc:
         return _compensate(conn, purchase_id, claims, intent, exc.code, str(exc), run_id)
+    except Exception as exc:
+        return _compensate(conn, purchase_id, claims, intent, "RAIL_ERROR",
+                           str(exc)[:200], run_id)
 
     if not result.get("accepted"):
         return _compensate(conn, purchase_id, claims, intent,

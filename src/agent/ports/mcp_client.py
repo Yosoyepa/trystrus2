@@ -40,8 +40,43 @@ class McpError(Exception):
     pass
 
 
+class McpTransport:
+    """Bare JSON-RPC-over-MCP plumbing. No policy, no allow-list.
+
+    Sessions are per call rather than long-lived: that costs a round trip and
+    buys crash-safety, since there is no session to resume wrongly after an
+    instance disappears.
+    """
+
+    def __init__(self, url: str, timeout: float = 25.0):
+        self.url = url
+        self.timeout = timeout
+
+    async def _call_async(self, tool: str, args: dict[str, Any]) -> str:
+        async with Client(self.url, raise_exceptions=True) as client:
+            result = await client.call_tool(tool, args)
+            return "".join(getattr(b, "text", "") or "" for b in result.content)
+
+    def call(self, tool: str, **args: Any) -> Any:
+        raw = asyncio.run(asyncio.wait_for(self._call_async(tool, args), self.timeout))
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {"_text": raw}        # some tools answer in prose; keep it
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        async def go():
+            async with Client(self.url, raise_exceptions=True) as client:
+                listing = await client.list_tools()
+                return [{"name": t.name, "description": (t.description or "")}
+                        for t in listing.tools]
+        return asyncio.run(go())
+
+
 class McpMerchant:
-    """One merchant, reachable over MCP."""
+    """One merchant, reachable over MCP, speaking the frozen three-tool contract."""
 
     def __init__(self, url: str | None = None, merchant_id: str = "vuelaya",
                  timeout: float = 20.0):

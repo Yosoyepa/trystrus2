@@ -96,9 +96,10 @@ def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
     limits.guard_merchant_call(conn, row["agent_id"], row["mandate_jti"])
     query = json.loads(row["query"])
     threshold = json.loads(row["threshold"])
-    offers = merchant.search_offers(
-        conn, origin=query.get("origin"), destination=query.get("destination"),
-        date=query.get("date"), category=query.get("category"))
+    from .ports.base import search_all
+    offers = search_all(conn, origin=query.get("origin"),
+                        destination=query.get("destination"),
+                        date=query.get("date"), category=query.get("category"))
     conn.execute("UPDATE watches SET last_checked_at=?, last_seen_price=? WHERE id=?",
                  (now_iso(), offers[0]["price"] if offers else None, watch_id))
 
@@ -139,7 +140,8 @@ def check(conn, watch_id: str, *, force: bool = False) -> dict[str, Any]:
     # Fires into the same gate as everything else (S2).
     from . import kernel
     result = kernel.submit_purchase(conn, offer_id=matched["offer_id"],
-                                    mandate_jti=row["mandate_jti"])
+                                    mandate_jti=row["mandate_jti"],
+                                    merchant_id=matched.get("merchant_id"))
     if result["status"] in ("captured", "escalated"):
         conn.execute("UPDATE watches SET status='fired', fired_at=? WHERE id=?",
                      (now_iso(), watch_id))
