@@ -1,0 +1,310 @@
+diff --git a/apps/mami/lib/mcp/server.ts b/apps/mami/lib/mcp/server.ts
+index 8c87c6a..d7a2713 100644
+--- a/apps/mami/lib/mcp/server.ts
++++ b/apps/mami/lib/mcp/server.ts
+@@ -8,13 +8,15 @@ import { DeliveryAddress } from '../types';
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ export function registerMcpTools(server: any): void {
+   // 1. list_products
+-  server.tool(
++  server.registerTool(
+     'list_products',
+-    'List available products in the catalog with pagination and optional category filtering.',
+     {
+-      page: z.number().int().min(1).optional().describe('Page number (default: 1)'),
+-      limit: z.number().int().min(1).max(100).optional().describe('Number of items per page (default: 20)'),
+-      category: z.string().optional().describe('Filter by category name (e.g. "Snacks & Chips", "Beverages & Sodas", etc.)'),
++      description: 'List available products in the catalog with pagination and optional category filtering.',
++      inputSchema: {
++        page: z.number().int().min(1).optional().describe('Page number (default: 1)'),
++        limit: z.number().int().min(1).max(100).optional().describe('Number of items per page (default: 20)'),
++        category: z.string().optional().describe('Filter by category name (e.g. "Snacks & Chips", "Beverages & Sodas", etc.)'),
++      },
+     },
+     async ({ page, limit, category }: { page?: number; limit?: number; category?: string }) => {
+       try {
+@@ -55,13 +57,15 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 2. search_products
+-  server.tool(
++  server.registerTool(
+     'search_products',
+-    'Search products in the catalog by query keyword (matches title, description, or category).',
+     {
+-      query: z.string().describe('Search query keyword'),
+-      category: z.string().optional().describe('Optional category filter'),
+-      limit: z.number().int().min(1).max(100).optional().describe('Maximum number of products to return (default: 20)'),
++      description: 'Search products in the catalog by query keyword (matches title, description, or category).',
++      inputSchema: {
++        query: z.string().describe('Search query keyword'),
++        category: z.string().optional().describe('Optional category filter'),
++        limit: z.number().int().min(1).max(100).optional().describe('Maximum number of products to return (default: 20)'),
++      },
+     },
+     async ({ query, category, limit }: { query: string; category?: string; limit?: number }) => {
+       try {
+@@ -97,13 +101,15 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 3. add_to_cart
+-  server.tool(
++  server.registerTool(
+     'add_to_cart',
+-    'Add an item to the shopping cart. If session_id is not provided, the server generates a new one and returns it. Always preserve the returned session_id for subsequent cart operations.',
+     {
+-      session_id: z.string().optional().describe('Cart session ID. Omit on initial call to generate a new session ID.'),
+-      product_id: z.string().describe('The product ID or SKU to add'),
+-      quantity: z.number().int().min(1).describe('Quantity of the product to add'),
++      description: 'Add an item to the shopping cart. If session_id is not provided, the server generates a new one and returns it. Always preserve the returned session_id for subsequent cart operations.',
++      inputSchema: {
++        session_id: z.string().optional().describe('Cart session ID. Omit on initial call to generate a new session ID.'),
++        product_id: z.string().describe('The product ID or SKU to add'),
++        quantity: z.number().int().min(1).describe('Quantity of the product to add'),
++      },
+     },
+     async ({ session_id, product_id, quantity }: { session_id?: string; product_id: string; quantity: number }) => {
+       try {
+@@ -153,13 +159,15 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 4. remove_from_cart
+-  server.tool(
++  server.registerTool(
+     'remove_from_cart',
+-    'Remove a product from the shopping cart or decrease its quantity.',
+     {
+-      session_id: z.string().describe('The active cart session ID'),
+-      product_id: z.string().describe('The product ID or SKU to remove'),
+-      quantity: z.number().int().min(1).optional().describe('Optional quantity to subtract. If omitted or >= current quantity, item is removed entirely.'),
++      description: 'Remove a product from the shopping cart or decrease its quantity.',
++      inputSchema: {
++        session_id: z.string().describe('The active cart session ID'),
++        product_id: z.string().describe('The product ID or SKU to remove'),
++        quantity: z.number().int().min(1).optional().describe('Optional quantity to subtract. If omitted or >= current quantity, item is removed entirely.'),
++      },
+     },
+     async ({ session_id, product_id, quantity }: { session_id: string; product_id: string; quantity?: number }) => {
+       try {
+@@ -209,11 +217,13 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 5. review_cart
+-  server.tool(
++  server.registerTool(
+     'review_cart',
+-    'Review all items, quantities, subtotals, and total price in the active cart before checkout.',
+     {
+-      session_id: z.string().describe('The active cart session ID'),
++      description: 'Review all items, quantities, subtotals, and total price in the active cart before checkout.',
++      inputSchema: {
++        session_id: z.string().describe('The active cart session ID'),
++      },
+     },
+     async ({ session_id }: { session_id: string }) => {
+       try {
+@@ -263,22 +273,24 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 6. pay
+-  server.tool(
++  server.registerTool(
+     'pay',
+-    'Execute atomic checkout and payment for the active cart. Validates stock, decrements inventory, creates order, and calculates estimated arrival time.',
+     {
+-      session_id: z.string().describe('The active cart session ID'),
+-      delivery_address: z.union([
+-        z.string().describe('Plain text delivery address'),
+-        z.object({
+-          street: z.string().describe('Street address and apartment/unit number'),
+-          city: z.string().describe('City name'),
+-          postal_code: z.string().optional().describe('Postal / Zip code'),
+-          recipient_name: z.string().optional().describe('Name of recipient'),
+-          phone: z.string().optional().describe('Contact phone number'),
+-          notes: z.string().optional().describe('Delivery instructions or access notes'),
+-        }),
+-      ]).describe('Delivery destination address'),
++      description: 'Execute atomic checkout and payment for the active cart. Validates stock, decrements inventory, creates order, and calculates estimated arrival time.',
++      inputSchema: {
++        session_id: z.string().describe('The active cart session ID'),
++        delivery_address: z.union([
++          z.string().describe('Plain text delivery address'),
++          z.object({
++            street: z.string().describe('Street address and apartment/unit number'),
++            city: z.string().describe('City name'),
++            postal_code: z.string().optional().describe('Postal / Zip code'),
++            recipient_name: z.string().optional().describe('Name of recipient'),
++            phone: z.string().optional().describe('Contact phone number'),
++            notes: z.string().optional().describe('Delivery instructions or access notes'),
++          }),
++        ]).describe('Delivery destination address'),
++      },
+     },
+     async ({ session_id, delivery_address }: { session_id: string; delivery_address: string | DeliveryAddress }) => {
+       try {
+diff --git a/apps/vuela-ya/lib/mcp/server.ts b/apps/vuela-ya/lib/mcp/server.ts
+index 2fe9d0c..45a86ad 100644
+--- a/apps/vuela-ya/lib/mcp/server.ts
++++ b/apps/vuela-ya/lib/mcp/server.ts
+@@ -9,11 +9,13 @@ import { CabinClass } from '../types';
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ export function registerMcpTools(server: any): void {
+   // 1. list_airports
+-  server.tool(
++  server.registerTool(
+     'list_airports',
+-    'List all served domestic Colombian airports with their IATA codes, cities, and full airport names. Use this tool to get valid origin and destination codes before searching flights.',
+     {
+-      query: z.string().optional().describe('Optional search query to filter airports by city name or IATA code substring (e.g., "Bogota" or "BOG")'),
++      description: 'List all served domestic Colombian airports with their IATA codes, cities, and full airport names. Use this tool to get valid origin and destination codes before searching flights.',
++      inputSchema: {
++        query: z.string().optional().describe('Optional search query to filter airports by city name or IATA code substring (e.g., "Bogota" or "BOG")'),
++      },
+     },
+     async ({ query }: { query?: string }) => {
+       try {
+@@ -46,15 +48,17 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 2. search_flights
+-  server.tool(
++  server.registerTool(
+     'search_flights',
+-    'Search scheduled domestic Colombian flights between two airports for a specific departure date. Returns matching flights with real-time seat availability and prices.',
+     {
+-      origin: z.string().describe('3-letter IATA code of origin airport (e.g., "BOG", "MDE", "CTG") - must be a valid code from list_airports'),
+-      destination: z.string().describe('3-letter IATA code of destination airport (e.g., "CTG", "MDE", "CLO") - must be a valid code from list_airports'),
+-      departure_date: z.string().describe('Departure date in YYYY-MM-DD format (e.g., "2026-08-30")'),
+-      passengers: z.number().int().min(1).max(6).optional().describe('Number of passengers (default: 1)'),
+-      cabin_class: z.enum(['economy', 'business']).optional().describe('Filter by cabin class ("economy" or "business")'),
++      description: 'Search scheduled domestic Colombian flights between two airports for a specific departure date. Returns matching flights with real-time seat availability and prices.',
++      inputSchema: {
++        origin: z.string().describe('3-letter IATA code of origin airport (e.g., "BOG", "MDE", "CTG") - must be a valid code from list_airports'),
++        destination: z.string().describe('3-letter IATA code of destination airport (e.g., "CTG", "MDE", "CLO") - must be a valid code from list_airports'),
++        departure_date: z.string().describe('Departure date in YYYY-MM-DD format (e.g., "2026-08-30")'),
++        passengers: z.number().int().min(1).max(6).optional().describe('Number of passengers (default: 1)'),
++        cabin_class: z.enum(['economy', 'business']).optional().describe('Filter by cabin class ("economy" or "business")'),
++      },
+     },
+     async ({
+       origin,
+@@ -128,11 +132,13 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 3. compare_flights
+-  server.tool(
++  server.registerTool(
+     'compare_flights',
+-    'Compare 2 to 4 flights side-by-side, displaying schedules, durations, prices per cabin class, aircraft types, and live seat availability.',
+     {
+-      flight_ids: z.array(z.string()).min(2).max(4).describe('Array of 2 to 4 flight IDs to compare side-by-side'),
++      description: 'Compare 2 to 4 flights side-by-side, displaying schedules, durations, prices per cabin class, aircraft types, and live seat availability.',
++      inputSchema: {
++        flight_ids: z.array(z.string()).min(2).max(4).describe('Array of 2 to 4 flight IDs to compare side-by-side'),
++      },
+     },
+     async ({ flight_ids }: { flight_ids: string[] }) => {
+       try {
+@@ -177,11 +183,13 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 4. get_flight_details
+-  server.tool(
++  server.registerTool(
+     'get_flight_details',
+-    'Retrieve full detailed information for a specific flight, including airport names, schedule, aircraft model, and seat availability breakdown by cabin class.',
+     {
+-      flight_id: z.string().describe('The unique ID of the flight'),
++      description: 'Retrieve full detailed information for a specific flight, including airport names, schedule, aircraft model, and seat availability breakdown by cabin class.',
++      inputSchema: {
++        flight_id: z.string().describe('The unique ID of the flight'),
++      },
+     },
+     async ({ flight_id }: { flight_id: string }) => {
+       try {
+@@ -228,12 +236,14 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 5. get_seat_map
+-  server.tool(
++  server.registerTool(
+     'get_seat_map',
+-    'Get the real-time seat map for a flight, showing all seat numbers, cabin classes (business/economy), prices, and live statuses (available, held, booked). Applies lazy hold expiration.',
+     {
+-      flight_id: z.string().describe('The unique ID of the flight'),
+-      booking_session_id: z.string().optional().describe('Optional booking session ID to identify seats held by this session'),
++      description: 'Get the real-time seat map for a flight, showing all seat numbers, cabin classes (business/economy), prices, and live statuses (available, held, booked). Applies lazy hold expiration.',
++      inputSchema: {
++        flight_id: z.string().describe('The unique ID of the flight'),
++        booking_session_id: z.string().optional().describe('Optional booking session ID to identify seats held by this session'),
++      },
+     },
+     async ({ flight_id, booking_session_id }: { flight_id: string; booking_session_id?: string }) => {
+       try {
+@@ -280,14 +290,16 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 6. select_seat
+-  server.tool(
++  server.registerTool(
+     'select_seat',
+-    'Select and temporarily hold a seat on a flight for 10 minutes. If booking_session_id is not provided, the server generates a new one and returns it. Always retain and reuse this booking_session_id for subsequent seat selections, releases, or payment.',
+     {
+-      booking_session_id: z.string().optional().describe('Active booking session ID. Omit on first call to generate a new session handle.'),
+-      flight_id: z.string().describe('The unique flight ID'),
+-      seat_number: z.string().describe('The seat number to select and hold (e.g., "1A", "12C")'),
+-      passenger_name: z.string().optional().describe('Optional passenger name for this seat'),
++      description: 'Select and temporarily hold a seat on a flight for 10 minutes. If booking_session_id is not provided, the server generates a new one and returns it. Always retain and reuse this booking_session_id for subsequent seat selections, releases, or payment.',
++      inputSchema: {
++        booking_session_id: z.string().optional().describe('Active booking session ID. Omit on first call to generate a new session handle.'),
++        flight_id: z.string().describe('The unique flight ID'),
++        seat_number: z.string().describe('The seat number to select and hold (e.g., "1A", "12C")'),
++        passenger_name: z.string().optional().describe('Optional passenger name for this seat'),
++      },
+     },
+     async ({
+       booking_session_id,
+@@ -348,12 +360,14 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 7. release_seat
+-  server.tool(
++  server.registerTool(
+     'release_seat',
+-    'Release a seat currently held by your booking session, immediately returning it to available status.',
+     {
+-      booking_session_id: z.string().describe('The active booking session ID'),
+-      seat_number: z.string().describe('The seat number to release (e.g., "1A", "12C")'),
++      description: 'Release a seat currently held by your booking session, immediately returning it to available status.',
++      inputSchema: {
++        booking_session_id: z.string().describe('The active booking session ID'),
++        seat_number: z.string().describe('The seat number to release (e.g., "1A", "12C")'),
++      },
+     },
+     async ({ booking_session_id, seat_number }: { booking_session_id: string; seat_number: string }) => {
+       try {
+@@ -394,15 +408,17 @@ export function registerMcpTools(server: any): void {
+   );
+ 
+   // 8. pay
+-  server.tool(
++  server.registerTool(
+     'pay',
+-    'Finalize and confirm the flight booking atomically for all seats held in the session. Converts held seats to booked status and returns the confirmed booking reference code.',
+     {
+-      booking_session_id: z.string().describe('The active booking session ID with held seats'),
+-      passenger_name: z.string().describe('Full name of the primary passenger'),
+-      passenger_document_id: z.string().describe('Government ID or passport number of the passenger'),
+-      contact_email: z.string().email().describe('Contact email address for the booking confirmation and e-ticket'),
+-      payment_confirmation: z.record(z.string(), z.unknown()).optional().describe('Optional payment details / token simulation object'),
++      description: 'Finalize and confirm the flight booking atomically for all seats held in the session. Converts held seats to booked status and returns the confirmed booking reference code.',
++      inputSchema: {
++        booking_session_id: z.string().describe('The active booking session ID with held seats'),
++        passenger_name: z.string().describe('Full name of the primary passenger'),
++        passenger_document_id: z.string().describe('Government ID or passport number of the passenger'),
++        contact_email: z.string().email().describe('Contact email address for the booking confirmation and e-ticket'),
++        payment_confirmation: z.record(z.string(), z.unknown()).optional().describe('Optional payment details / token simulation object'),
++      },
+     },
+     async ({
+       booking_session_id,
