@@ -7,6 +7,38 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — First LIVE run analyzed: real order placed via CLI; HITL pattern mapped to Aval; 4 new guardrails
+- **What happened:** a Claude Code session drove `@crafter/rappi-cli`
+  end-to-end on the owner's machine and placed a REAL paid order
+  (`2496728264`, $18.300 COP, Turbo Parque Bavaria) after a conversational
+  confirm. Factibility is no longer open: login (token capture via the
+  owner's own Chrome, no CVC needed at checkout), search, cart, checkout and
+  place-order all validated in production.
+- **Measured failure modes (validate the design):** price drift search
+  $9.400 → checkout $10.300 with a store re-resolution AND a service fee
+  invisible in search; split-brain addresses (search uses local coords,
+  cart/checkout use the account's active address); server-side store minimum
+  rejected the first order with no money moved; `remove-from-cart` is broken
+  (DELETE 404) and the PUT cart call REPLACES store contents.
+- **New guardrails added to the blocking checklist:** (11) address binding —
+  bridge asserts checkout delivery address against the mandate; (12) clean
+  cart precondition + PUT-replace semantics; (13) structured replan for
+  `MERCHANT_MIN_AMOUNT`; (14) mandate ceilings and step-up ratios computed on
+  the checkout TOTAL, never on search prices.
+- **HITL mapping:** the session's two-phase UX (preview → explicit confirm →
+  execute) is exactly our escalation shape but without enforcement; in Aval
+  the "sí" becomes a passkey-signed escalation resolution, the execution is
+  gated by capture_token bound to amount+cart_hash with a pre-POST re-fetch
+  (drift aborts), and a repeated confirm cannot duplicate an order
+  (single-flight). What we keep from the session: full transparency before
+  confirm and the "I place nothing until you confirm" stance.
+- **Artifacts:**
+  [`research/2026-08-30-dev2-rappi-live-run-findings.md`](../research/2026-08-30-dev2-rappi-live-run-findings.md).
+  Work continues on `main` per team direction; F0′ is effectively done, next
+  is the guard bridge + F1 dry-runs on the secondary account.
+
+---
+
 ## 2026-08-30 — `@crafter/rappi-cli` audited: adoption approved as bridge substrate (not as agent surface)
 - **Why:** teammate shared an npm CLI that orders from Rappi directly via the
   web-internal API (`services.grability.rappi.com`) with CLI + REST + MCP
