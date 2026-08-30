@@ -53,7 +53,9 @@ DSN = get_dsn()
 # Docker image — the Dockerfile copies `aval/` alongside `src/`, so the
 # relative path from here (`src/agent/db.py` -> repo root -> `aval/...`)
 # lands in the same place in every one of those environments.
-_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "aval" / "contracts" / "fixtures" / "schema.sql"
+_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "aval" / "contracts" / "fixtures" / "schema.sql"
+)
 
 
 def _load_schema() -> str:

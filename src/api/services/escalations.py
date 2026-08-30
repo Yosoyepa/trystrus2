@@ -238,7 +238,9 @@ def _view(row: Escalation) -> EscalationView:
             decision=row.decision,
             approver=row.approver or "system",
             channel=row.channel or "web",
-            resolved_at=_from_iso(row.resolved_at) if row.resolved_at else _from_iso(row.timeout_at),
+            resolved_at=(
+                _from_iso(row.resolved_at) if row.resolved_at else _from_iso(row.timeout_at)
+            ),
             receipt_sig=row.receipt_sig,
         )
     return EscalationView(

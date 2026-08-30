@@ -114,9 +114,7 @@ class PostgresOutboxStore:
                                 payload=payload,
                                 created_at=_parse_iso(r["created_at"]),
                                 relayed_at=(
-                                    _parse_iso(r["relayed_at"])
-                                    if r.get("relayed_at")
-                                    else None
+                                    _parse_iso(r["relayed_at"]) if r.get("relayed_at") else None
                                 ),
                             )
                         )
