@@ -413,20 +413,25 @@ class RappiBridgeMcp:
         offers: list[dict] = []
         for item in data.get("results", []):
             images = [u for u in (item.get("images") or [item.get("image")]) if u]
+            # normalise_offer, not a hand-rolled shape: every consumer down the
+            # graph (audit `cheapest`, the gate, the proposal) reads `price`,
+            # and a rappi offer with `amount` instead is a KeyError away from
+            # failing the whole run.
             offers.append(
-                {
-                    "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
-                    "merchant_id": self.merchant_id,
-                    "category": "groceries",
-                    "title": f"{item['title']} — {item['store_name']}",
-                    "amount": str(int(item.get("price", 0))),
-                    "currency": self.currency,
-                    "eta": item.get("eta"),
-                    "images": images,  # Rappi's own CDN URLs, verbatim
-                    "description": (
-                        f"delivery {item.get('shipping_cost', 0)} COP · {item.get('eta', '')}"
-                    ),
-                }
+                normalise_offer(
+                    {
+                        "offer_id": f"rappi_{item['store_id']}_{item['sku']}",
+                        "category": "groceries",
+                        "title": f"{item['title']} - {item['store_name']}",
+                        "price": item.get("price", 0),
+                        "currency": self.currency,
+                        "images": images,  # Rappi's own CDN URLs, verbatim
+                        "description": (
+                            f"delivery {item.get('shipping_cost', 0)} COP - {item.get('eta', '')}"
+                        ),
+                    },
+                    merchant_id=self.merchant_id,
+                )
             )
         return offers
 

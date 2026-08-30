@@ -122,7 +122,9 @@ def score_candidates(
             score += 1
             reasons.append(f"merchant '{merchant_hits[0]}' nombrado en el pedido")
         scored.append({**candidate, "score": score, "reasons": reasons})
-    scored.sort(key=lambda item: (-item["score"], item["mandate_jti"]))
+    # Score first; ties break toward the NEWEST mandate — the freshest
+    # agreement is the one the person signed last.
+    scored.sort(key=lambda item: (-item["score"], str(item.get("created_at", ""))))
     return scored
 
 

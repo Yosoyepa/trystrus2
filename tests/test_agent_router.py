@@ -6,6 +6,7 @@ FLIGHTS = {
     "agent_id": "agt_a",
     "agent_name": "flights_marta",
     "mandate_jti": "mdt_a",
+    "created_at": "2026-08-30T12:00:00+00:00",
     "scope": {"categories": ["flights", "hotels"], "merchants": ["vuelaya-mcp"]},
     "currency": "USD",
 }
@@ -13,6 +14,7 @@ RAPPI = {
     "agent_id": "agt_b",
     "agent_name": "rappi_comprador",
     "mandate_jti": "mdt_b",
+    "created_at": "2026-08-30T12:00:00+00:00",
     "scope": {
         "categories": ["food", "groceries", "retail"],
         "merchants": ["rappi"],

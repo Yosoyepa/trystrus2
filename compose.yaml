@@ -40,6 +40,8 @@ services:
       dockerfile: Dockerfile
     container_name: aval-kernel
     restart: unless-stopped
+    security_opt:
+      - label=disable
     command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001"]
     env_file:
       - path: .env
@@ -53,7 +55,7 @@ services:
       AVAL_RP_ORIGIN: http://localhost:3000
       AVAL_RP_ID: localhost
       AVAL_ISSUER: http://localhost:8001
-      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://host.containers.internal:8010}
+      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://169.254.1.2:8010}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -63,8 +65,8 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - aval-secrets:/app/secrets
-      - aval-var:/app/var
+      - ./var/podman-secrets:/app/secrets
+      - ./var/podman-var:/app/var
     depends_on:
       db:
         condition: service_healthy
@@ -84,6 +86,8 @@ services:
       dockerfile: Dockerfile
     container_name: aval-yuno-sim
     restart: unless-stopped
+    security_opt:
+      - label=disable
     command: ["uvicorn", "src.yuno_sim.main:app", "--host", "0.0.0.0", "--port", "8002"]
     environment:
       PORT: "8002"
@@ -95,7 +99,7 @@ services:
     ports:
       - "8002:8002"
     volumes:
-      - aval-secrets:/app/secrets
+      - ./var/podman-secrets:/app/secrets
     depends_on:
       db:
         condition: service_healthy
@@ -117,6 +121,8 @@ services:
       dockerfile: Dockerfile
     container_name: aval-merchant
     restart: unless-stopped
+    security_opt:
+      - label=disable
     command: ["uvicorn", "src.merchant.main:app", "--host", "0.0.0.0", "--port", "8003"]
     environment:
       PORT: "8003"
@@ -128,8 +134,8 @@ services:
     ports:
       - "8003:8003"
     volumes:
-      - aval-secrets:/app/secrets
-      - aval-var:/app/var
+      - ./var/podman-secrets:/app/secrets
+      - ./var/podman-var:/app/var
     depends_on:
       db:
         condition: service_healthy
@@ -174,10 +180,6 @@ services:
 volumes:
   aval-pgdata:
     name: aval-pgdata
-  aval-secrets:
-    name: aval-secrets
-  aval-var:
-    name: aval-var
 
 networks:
   aval-net:
