@@ -24,7 +24,7 @@ Fija estas variables una sola vez y reemplázalas en todos los comandos:
 
 ```bash
 export OWNER_REPO="bysergr/trytrust-backend"        # dueño/repo de GitHub
-export PROJECT_ID="aval-demo-001"                   # id del proyecto GCP (global, único)
+export PROJECT_ID="trytrust"                        # proyecto GCP actual
 export REGION="southamerica-east1"
 export DOMAIN="trytrust.lat"                        # vacío en dev si aún no hay DNS
 ```
@@ -33,7 +33,7 @@ export DOMAIN="trytrust.lat"                        # vacío en dev si aún no h
 
 | Gate | Qué | Dueño |
 |---|---|---|
-| CR-01 | Unificar el DDL de `mandates` (kernel `aval/contracts/fixtures/schema.sql` vs `src/agent/db.py.SCHEMA`/alembic-0001). Si se despliega sin esto, quien provisiona primero gana y el otro carril devuelve 503. | Dev 2 + Dev 3 |
+| CR-01 | **Cerrado** por decisión 0029 + migración 0009: `src/agent/db.py.SCHEMA` deriva del fixture canónico y la cadena converge bases dev antiguas. | Dev 1 + Dev 2 + Dev 3 |
 | CR-02 | Componer el kernel con los adaptadores Postgres/KMS/GCS en `deps.py` (hoy usa stores en memoria: multi-instancia pierde compras/evidencia/idempotencia). | Dev 2 |
 | Rotación | El `.env` local contiene una clave Gemini real — **rotarla** antes de cualquier demo o compartición. | Equipo |
 
@@ -58,10 +58,10 @@ Verificación: `gcloud services list --enabled | head`.
 ## Fase 2 — Bucket de estado (fuera del estado)
 
 ```bash
-gcloud storage buckets create "gs://aval-tfstate" \
+gcloud storage buckets create "gs://trytrust-tfstate" \
   --location="$REGION" --uniform-bucket-level-access \
   --public-access-prevention
-gcloud storage buckets update gs://aval-tfstate --versioning
+gcloud storage buckets update gs://trytrust-tfstate --versioning
 ```
 
 ---
@@ -170,9 +170,17 @@ gh variable set DEPLOY_SA     --body "$DEPLOY_SA"
 ```
 
 Mientras `WIF_PROVIDER` no exista, todos los workflows de deploy **se
-auto-saltan** (safe gate ya implementado). Environment `prod` con
+auto-saltan** (safe gate ya implementado). Crea el environment `prod` con
 **required reviewers**: GitHub → Settings → Environments → New environment
-`prod` → Required reviewers.
+`prod` → Required reviewers. Solo después arma el segundo seguro:
+
+```bash
+gh variable set PROD_DEPLOY_ENABLED --body true
+```
+
+Sin esa variable, tanto `infra-apply(prod)` como `deploy-prod` fallan antes de
+entrar al environment; GitHub no puede crear accidentalmente un `prod` sin
+protección por el simple hecho de despachar el workflow.
 
 ### 5.4 Si prefieres dar permisos a nivel proyecto al SA de deploy
 
@@ -188,10 +196,11 @@ endurecimiento post-hackathon: mover esos bindings a recursos concretos
    solo). Al mergear, `deploy-dev.yml` se dispara automáticamente.
 2. Primer deploy manual (recomendado para ver los logs en vivo):
    Actions → **deploy-dev** → Run workflow.
-3. El pipeline hace, en orden: build+push de `backend` y `web` → **job de
-   migraciones** (`alembic upgrade head`, `--wait`: si falla, NO despliega) →
-   deploy del kernel con secretos y Cloud SQL por socket → smoke
-   `curl /healthz | grep ok` → ejecución única de relay y sweeper.
+3. El pipeline hace, en orden: build+push de `backend` y `web` con SHA →
+   actualiza los tres jobs a ese SHA → **job de migraciones** (`alembic
+   upgrade head`, `--wait`: si falla, NO despliega) → actualiza kernel,
+   merchant, yuno-sim y web al mismo SHA → smoke de los cuatro servicios →
+   ejecución única de relay y sweeper.
 
 Verificación:
 
@@ -227,6 +236,11 @@ curl -fsS "$KERNEL_URL/healthz" && curl -fsS "$KERNEL_URL/health"
 5. **Passkeys**: solo funcionan con el dominio real (`*.run.app` está en la
    Public Suffix List). Probar registro de passkey en `https://trytrust.lat`
    antes del demo.
+6. **Rappi real**: el bridge y su sesión no se despliegan. La decisión 0030
+   exige que permanezcan en la máquina propietaria. Para habilitar búsqueda
+   real en producción se necesita un túnel HTTPS autenticado y configurar
+   `TT_RAPPI_BRIDGE_URL` en el kernel; sin ese túnel el fallback es el catálogo
+   fixture y debe mostrarse como tal.
 
 ---
 
@@ -283,7 +297,7 @@ curl -fsS "$BASE/api/agent/limits" | jq                   # agente vivo
 ```bash
 # 1. proyecto + estado
 gcloud projects create $PROJECT_ID && gcloud billing projects link $PROJECT_ID --billing-account=BILLING_ID
-gcloud storage buckets create gs://aval-tfstate --location=$REGION --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets create gs://trytrust-tfstate --location=$REGION --uniform-bucket-level-access --public-access-prevention
 # 2. infra (local, primera vez)
 cd iac && gcloud auth application-default login
 tofu init -backend-config=environments/dev.backend.hcl

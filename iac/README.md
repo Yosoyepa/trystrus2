@@ -33,7 +33,7 @@ tofu validate
 
 ## Bootstrap (once, with a GCP project)
 
-1. `gcloud storage buckets create gs://aval-tfstate --location=southamerica-east1 --uniform-bucket-level-access --public-access-prevention`
+1. `gcloud storage buckets create gs://trytrust-tfstate --location=southamerica-east1 --uniform-bucket-level-access --public-access-prevention`
 2. WIF for GitHub Actions:
    ```bash
    gcloud iam workload-identity-pools create aval-github --location=global
@@ -49,8 +49,11 @@ tofu validate
    `*-db-url`, `*-idem-secret`, `*-llm-gemini-key`, `*-llm-openai-key`,
    `aval-issuer-ed25519`, `aval-merchant-es256`, `aval-yuno-webhook-ed25519`.
 4. Repo variables (GitHub → Settings → Variables): `GCP_PROJECT`,
-   `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. Until `WIF_PROVIDER` is set,
-   all deploy workflows self-skip.
+   `GCP_REGION`, `WIF_PROVIDER`, `DEPLOY_SA`. After configuring required
+   reviewers on the `prod` environment, set `PROD_DEPLOY_ENABLED=true`.
+   Until WIF exists, deploy workflows self-skip; until the explicit prod
+   switch exists, both prod apply and prod promotion fail before selecting the
+   GitHub environment.
 
 ## Deploy
 
@@ -60,7 +63,8 @@ tofu init -backend-config=environments/dev.backend.hcl
 tofu plan  -var-file=environments/dev.tfvars
 tofu apply -var-file=environments/dev.tfvars
 
-# app (after infra): GitHub Actions → deploy-dev (auto on main) / deploy-prod (manual)
+# app (after infra): GitHub Actions → deploy-dev (auto on main/iac) /
+# deploy-prod (manual, exact commit SHA, protected environment)
 ```
 
 ## Decisions baked in (see aval/docs/research/2026-08-29-iac-cloudrun-analysis.md)
@@ -68,7 +72,14 @@ tofu apply -var-file=environments/dev.tfvars
 - **LB gestionado + Cloud Armor, no nginx**: nginx no puede adjuntar Armor;
   `ingress=internal-and-cloud-load-balancing` evita el bypass por `*.run.app`.
 - **Jobs (relay/sweeper/migrations) como Cloud Run Jobs**, no lifespan loops.
+- **Promoción separada del IaC**: OpenTofu administra la forma de servicios y
+  jobs; Actions actualiza únicamente imágenes inmutables y siempre apunta los
+  jobs a la revisión nueva antes de ejecutar migraciones.
 - **Secrets siempre por `--set-secrets`** (nunca env vars planas).
 - **Gemini por API key hoy; Vertex/ADC es el endurecimiento recomendado.**
 - **Dominio propio requerido en prod**: sin DNS no hay cert/LB y las passkeys
   fallan en `*.run.app` (Public Suffix List, ADR-018).
+- **Rappi no se hospeda en Cloud Run**: por decisión 0030, la sesión vive en
+  la máquina propietaria. Producción necesita un túnel autenticado desde el
+  kernel hacia ese bridge; sin él, el agente usa el catálogo fixture y no se
+  presenta como búsqueda real.

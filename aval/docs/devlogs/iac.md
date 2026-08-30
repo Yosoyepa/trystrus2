@@ -6,6 +6,45 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 
 ---
 
+## 2026-08-30 — `main` integrado + promoción segura de una sola revisión
+- **Why:** `main@1c5af4e` contiene la reparación de búsqueda real de Rappi,
+  pero su deploy dev falló: el pipeline construía la imagen nueva y ejecutaba
+  el job de migraciones todavía fijado a la imagen anterior. El workflow prod
+  además actualizaba solo el kernel y usaba `latest`, por lo que podía mezclar
+  revisiones entre cuatro servicios.
+- **Done:** merge limpio de `origin/main` en `iac/cloudrun`; dev y prod ahora
+  fijan migrations/relay/sweeper al mismo SHA del backend antes de migrar,
+  abortan antes de tocar tráfico cuando la migración falla y promueven kernel,
+  merchant, yuno-sim y web como una sola revisión. Prod comprueba que ambas
+  imágenes existen y hace smoke de las cuatro rutas del LB. OpenTofu conserva
+  la forma de los recursos e ignora únicamente el campo de imagen, cuyo dueño
+  es el pipeline de promoción.
+- **Release guard:** CI vuelve a ejecutar los 42 invariantes del agente sin
+  clave LLM; los workflows prod exigen el kill switch
+  `PROD_DEPLOY_ENABLED=true`, que solo se arma después de crear el environment
+  `prod` con required reviewers, y rechazan cualquier tag que no sea un SHA
+  completo de 40 caracteres.
+- **Wiring fixed:** `YUNO_ISSUER_URL` ya no añade `/api` a la URL directa de
+  Cloud Run en dev; en prod, yuno y merchant usan las rutas del LB que sí
+  reescriben `/api`, `/yuno` y `/merchant`. `prod.tfvars` apunta al proyecto
+  real `trytrust`, a imágenes existentes y a `https://trytrust.lat/yuno`; el
+  estado prod comparte `trytrust-tfstate` bajo el prefijo aislado `env/prod`.
+- **Verification:** Ruff limpio; 410 pytest pasan (2 GCP excluidos) sobre una
+  base PostgreSQL creada desde la cadena Alembic; invariantes del agente 42/42
+  sin clave LLM; build Vite/TypeScript limpio; `tofu fmt` y `tofu validate`
+  verdes; YAML parsea y `docs-guard` pasa.
+- **Release gates still open:** CR-02 continúa abierto (`src/api/deps.py`
+  compone compras, evidencia e idempotencia con memoria); el environment
+  GitHub `prod` todavía debe tener required reviewers; la clave Gemini expuesta
+  durante diagnóstico debe rotarse. Rappi real no se sube a Cloud Run por la
+  decisión 0030: requiere un túnel autenticado hacia la máquina que custodia
+  la sesión; sin él, producción cae explícitamente al fixture.
+- **Decision:** ninguna nueva; se aplican decisiones 0029/0030 y el playbook
+  existente.
+- **Contracts touched:** none.
+
+---
+
 ## 2026-08-29 — deployment playbook + DSN dialect fix
 - **Why:** the team needs the exact path from zero to deployed-with-CI/CD;
   verification while writing it exposed a real bug in the IaC wiring.

@@ -33,6 +33,11 @@ resource "google_cloud_run_v2_service" "kernel" {
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    # GitHub Actions owns immutable image promotion; IaC owns service shape.
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account                  = google_service_account.runtime.email
     timeout                          = "300s"
@@ -176,6 +181,10 @@ resource "google_cloud_run_v2_service" "yuno_sim" {
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "120s"
@@ -204,7 +213,7 @@ resource "google_cloud_run_v2_service" "yuno_sim" {
       }
       env {
         name  = "YUNO_ISSUER_URL"
-        value = "${google_cloud_run_v2_service.kernel.uri}/api"
+        value = var.domain != "" ? "https://${var.domain}/api" : google_cloud_run_v2_service.kernel.uri
       }
       env {
         name = "YUNO_DATABASE_URL"
@@ -249,6 +258,10 @@ resource "google_cloud_run_v2_service" "merchant" {
   ingress  = var.domain != "" ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "120s"
@@ -277,11 +290,11 @@ resource "google_cloud_run_v2_service" "merchant" {
       }
       env {
         name  = "MERCHANT_KERNEL_URL"
-        value = google_cloud_run_v2_service.kernel.uri
+        value = var.domain != "" ? "https://${var.domain}/api" : google_cloud_run_v2_service.kernel.uri
       }
       env {
         name  = "MERCHANT_YUNO_SIM_URL"
-        value = google_cloud_run_v2_service.yuno_sim.uri
+        value = var.domain != "" ? "https://${var.domain}/yuno" : google_cloud_run_v2_service.yuno_sim.uri
       }
       env {
         name  = "MERCHANT_FIXTURES_DIR"
@@ -330,6 +343,10 @@ resource "google_cloud_run_v2_service" "web" {
   ingress  = "INGRESS_TRAFFIC_ALL"
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
   template {
     service_account = google_service_account.runtime.email
     timeout         = "60s"
@@ -372,6 +389,10 @@ resource "google_cloud_run_v2_job" "migrations" {
   name     = "${local.name_prefix}-migrations"
   location = var.region
   labels   = local.labels
+
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
 
   template {
     template {
@@ -422,6 +443,10 @@ resource "google_cloud_run_v2_job" "outbox_relay" {
   location = var.region
   labels   = local.labels
 
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
   template {
     template {
       service_account = google_service_account.jobs.email
@@ -471,6 +496,10 @@ resource "google_cloud_run_v2_job" "sweeper" {
   name     = "${local.name_prefix}-sweeper"
   location = var.region
   labels   = local.labels
+
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
 
   template {
     template {

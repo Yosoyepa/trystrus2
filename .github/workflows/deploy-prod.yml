@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag to deploy (defaults to main's latest)"
+        description: "Immutable image tag to deploy (empty = selected commit SHA)"
         required: false
-        default: "latest"
+        default: ""
 
 concurrency:
   group: deploy-prod
@@ -21,7 +21,20 @@ permissions:
   id-token: write
 
 jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the protected-production kill switch
+        env:
+          PROD_DEPLOY_ENABLED: ${{ vars.PROD_DEPLOY_ENABLED }}
+        run: |
+          if [ "$PROD_DEPLOY_ENABLED" != "true" ]; then
+            echo "PROD_DEPLOY_ENABLED must be true only after the prod environment has required reviewers."
+            exit 1
+          fi
+
   deploy:
+    needs: release-gate
     if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     environment: prod
@@ -30,7 +43,7 @@ jobs:
       PROJECT: ${{ vars.GCP_PROJECT }}
       REGION: ${{ vars.GCP_REGION }}
       REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
-      TAG: ${{ inputs.image_tag || 'latest' }}
+      TAG: ${{ inputs.image_tag || github.sha }}
 
     steps:
       - uses: actions/checkout@v5
@@ -50,44 +63,83 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
+      - name: Verify immutable images exist
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "image_tag must be the full 40-character commit SHA; got: $TAG"
+            exit 1
+          fi
+          gcloud artifacts docker images describe "$REPO/backend:${TAG}" --project="$PROJECT"
+          gcloud artifacts docker images describe "$REPO/web:${TAG}" --project="$PROJECT"
+
+      - name: Point Cloud Run Jobs at this revision
+        run: |
+          set -euo pipefail
+          for job in aval-prod-migrations aval-prod-outbox-relay aval-prod-sweeper; do
+            gcloud run jobs update "$job" \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --image="$REPO/backend:${TAG}" \
+              --quiet
+          done
+
       - name: Run migrations
         run: |
-          gcloud run jobs execute aval-prod-migrations \
-            --region "$REGION" --wait \
-            && gcloud run jobs deploy aval-prod-migrations \
-            --image "$REPO/backend:${TAG}" --region "$REGION" \
-            --set-secrets "DATABASE_URL=aval-prod-db-url:latest" \
+          set -euo pipefail
+          if ! gcloud run jobs execute aval-prod-migrations \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --wait; then
+            gcloud run jobs executions list \
+              --job=aval-prod-migrations \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --limit=1 || true
+            exit 1
+          fi
+
+      - name: Deploy all Cloud Run Services
+        run: |
+          set -euo pipefail
+          gcloud run services update aval-prod-kernel \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$REPO/backend:${TAG}" \
+            --update-env-vars="AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno" \
             --quiet
 
-      - name: Deploy kernel (prod)
-        uses: google-github-actions/deploy-cloudrun@v3
-        with:
-          service: aval-prod-kernel
-          region: ${{ env.REGION }}
-          image: ${{ env.REPO }}/backend:${{ env.TAG }}
-          env_vars: |-
-            APP_MODULE=src.api.main:app
-            AVAL_GCP_PROJECT=${{ vars.GCP_PROJECT }}
-            AVAL_RP_ID=trytrust.lat
-            AVAL_RP_ORIGIN=https://trytrust.lat
-            AVAL_YUNO_SIM_URL=https://trytrust.lat/yuno
-            LLM_PROVIDER=gemini
-            LLM_MODEL=gemini-3.7-flash
-          secrets: |-
-            DATABASE_URL=aval-prod-db-url:latest
-            AVAL_DATABASE_URL=aval-prod-db-url:latest
-            AVAL_IDEM_SECRET=aval-prod-idem-secret:latest
-            GEMINI_API_KEY=aval-prod-llm-gemini-key:latest
-            OPENAI_API_KEY=aval-prod-llm-openai-key:latest
-          cloudsql_instances: ${{ vars.GCP_PROJECT }}:${{ env.REGION }}:aval-prod-db
-          flags: >-
-            --min-instances=1
-            --max-instances=10
-            --cpu=1
-            --memory=512Mi
-            --concurrency=20
-            --ingress=internal-and-cloud-load-balancing
-            --no-allow-unauthenticated
+          gcloud run services update aval-prod-merchant \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$REPO/backend:${TAG}" \
+            --quiet
+
+          gcloud run services update aval-prod-yuno-sim \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$REPO/backend:${TAG}" \
+            --quiet
+
+          gcloud run services update aval-prod-web \
+            --project="$PROJECT" \
+            --region="$REGION" \
+            --image="$REPO/web:${TAG}" \
+            --quiet
 
       - name: Smoke test (through the LB, not run.app)
-        run: curl -fsS https://trytrust.lat/api/healthz | grep -q ok
+        run: |
+          set -euo pipefail
+          for path in /api/health /yuno/health /merchant/health /; do
+            echo "checking https://trytrust.lat${path}"
+            curl --fail --silent --show-error \
+              --retry 6 --retry-delay 5 --retry-all-errors \
+              "https://trytrust.lat${path}" >/dev/null
+          done
+
+      - name: Tick relay and sweeper once
+        run: |
+          gcloud run jobs execute aval-prod-outbox-relay \
+            --project="$PROJECT" --region="$REGION" --wait
+          gcloud run jobs execute aval-prod-sweeper \
+            --project="$PROJECT" --region="$REGION" --wait
