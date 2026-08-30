@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS offers (
   id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, category TEXT NOT NULL,
   title TEXT NOT NULL, amount TEXT NOT NULL, currency TEXT NOT NULL,
   origin TEXT, destination TEXT, depart_date TEXT,
-  description TEXT, active INTEGER NOT NULL DEFAULT 1
+  description TEXT, active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- ── recurrent search: thresholds a human sets ───────────────────────────────

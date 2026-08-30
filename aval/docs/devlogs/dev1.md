@@ -7,6 +7,23 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — `offers.active` broke seed and 38 property checks
+
+- **Why:** `main` could not run `cli seed` from a clean clone: the catalog insert
+  crashed with `column "active" is of type integer but expression is of type
+  boolean`. The property suite was at 4/42 on *any* database, private or shared —
+  so this was never the shared-schema collision it looked like.
+- **Built:** one word. `db.py` declared `active INTEGER NOT NULL DEFAULT 1` while
+  `mocks/merchant.py` had moved to boolean semantics (`active=TRUE`,
+  `WHERE active IS TRUE`). The DDL now says `BOOLEAN NOT NULL DEFAULT TRUE`.
+- **Tests:** 42/42 green again; `reset` → `seed` → `demo` runs end to end.
+- **Found:** the agent lane contradicted *itself*, and Alembic 0001 applies
+  `db.SCHEMA` verbatim, so the migration carried the same mismatch. The cheapest
+  possible instance of the four-schema problem, and the argument for fixing the
+  root cause rather than the symptom.
+
+---
+
 ## 2026-08-30 — Frontend-to-Backend Agent Bridge, PostgreSQL schema unification & Gemini live integration
 
 - **Why:** wired frontend chat directly to real `/api/agent/ask` backed by Google Gemini and unified PostgreSQL database schemas.
