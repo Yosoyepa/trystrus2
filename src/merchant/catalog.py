@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import Numeric, Select, cast, select, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,11 +24,11 @@ def to_offer(row: OfferRow) -> Offer:
         merchant_id=row.merchant_id,
         category=row.category,
         title=row.title,
-        amount=row.amount,
+        amount=f"{row.amount:.2f}",
         currency=row.currency,
         origin=row.origin,
         destination=row.destination,
-        date=row.depart_date,
+        date=row.depart_date.isoformat() if row.depart_date else None,
         description=row.description,
     )
 
@@ -50,11 +50,9 @@ async def seed_initial_offers(session: AsyncSession, config: Settings | None = N
         entries = raw.get("offers", []) if isinstance(raw, dict) else raw
         for entry in entries:
             offer = Offer.model_validate(entry)
-            # Validate the fixture's date without changing what gets stored:
-            # `depart_date` is TEXT (see OfferRow), so the ISO string itself
-            # is the value, kept only if it actually parses as a date.
-            if offer.date:
-                date.fromisoformat(offer.date)
+            # Storage types are the fixture's (NUMERIC money, DATE travel):
+            # convert at the seam so binds carry real types, never text.
+            travel = date.fromisoformat(offer.date) if offer.date else None
             statement = (
                 insert(OfferRow)
                 .values(
@@ -62,11 +60,11 @@ async def seed_initial_offers(session: AsyncSession, config: Settings | None = N
                     merchant_id=offer.merchant_id,
                     category=offer.category,
                     title=offer.title,
-                    amount=offer.amount,
+                    amount=Decimal(offer.amount),
                     currency=offer.currency,
                     origin=offer.origin.upper() if offer.origin else None,
                     destination=offer.destination.upper() if offer.destination else None,
-                    depart_date=offer.date,
+                    depart_date=travel,
                     description=offer.description,
                     active=True,
                 )
@@ -90,11 +88,9 @@ async def list_offers(
     if destination:
         statement = statement.where(OfferRow.destination == destination.upper())
     if travel_date:
-        statement = statement.where(OfferRow.depart_date == travel_date.isoformat())
-    # `amount` is TEXT (see OfferRow); cast for the sort so "9.00" doesn't
-    # lexicographically outrank "10.00" — the column's storage stays a
-    # string, only the ORDER BY sees it as a number.
-    statement = statement.order_by(cast(OfferRow.amount, Numeric).asc(), OfferRow.id.asc())
+        statement = statement.where(OfferRow.depart_date == travel_date)
+    # NUMERIC storage: the DB itself orders money correctly now.
+    statement = statement.order_by(OfferRow.amount.asc(), OfferRow.id.asc())
     rows = (await session.execute(statement)).scalars().all()
     return [to_offer(row) for row in rows]
 
@@ -111,7 +107,7 @@ async def update_price(session: AsyncSession, offer_id: str, amount: Decimal) ->
     result = await session.execute(
         update(OfferRow)
         .where(OfferRow.id == offer_id, OfferRow.active.is_(True))
-        .values(amount=f"{amount:.2f}")
+        .values(amount=amount.quantize(Decimal("0.01")))
         .returning(OfferRow)
     )
     row = result.scalar_one_or_none()

@@ -4,11 +4,6 @@ version = "0.0.1a0"
 description = "Aval — a trust layer for purchases made by AI agents (NextWave 2026, Yuno x Nauta)"
 readme = "README.md"
 requires-python = ">=3.13"
-
-[project.optional-dependencies]
-# Config Rappi OTP login capture (headful Chrome via channel="chrome");
-# the token never leaves the machine, so this stays an opt-in extra.
-rappi = ["playwright>=1.5"]
 dependencies = [
     "alembic>=1.14",
     "asyncpg>=0.30.0",
@@ -32,6 +27,11 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "webauthn>=2.5",
 ]
+
+[project.optional-dependencies]
+# Config Rappi OTP login capture (headful Chrome via channel="chrome");
+# the token never leaves the machine, so this stays an opt-in extra.
+rappi = ["playwright>=1.5"]
 
 [dependency-groups]
 dev = [

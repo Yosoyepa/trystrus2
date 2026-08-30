@@ -63,6 +63,7 @@ services:
       - "8001:8001"
     volumes:
       - aval-secrets:/app/secrets
+      - aval-var:/app/var
     depends_on:
       db:
         condition: service_healthy
@@ -127,6 +128,7 @@ services:
       - "8003:8003"
     volumes:
       - aval-secrets:/app/secrets
+      - aval-var:/app/var
     depends_on:
       db:
         condition: service_healthy
@@ -173,6 +175,8 @@ volumes:
     name: aval-pgdata
   aval-secrets:
     name: aval-secrets
+  aval-var:
+    name: aval-var
 
 networks:
   aval-net:

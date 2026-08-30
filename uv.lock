@@ -95,8 +95,6 @@ wheels = [
 name = "aval"
 version = "0.0.1a0"
 source = { virtual = "." }
-
-[package.optional-dependencies]
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
@@ -120,6 +118,8 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "webauthn" },
 ]
+
+[package.optional-dependencies]
 rappi = [
     { name = "playwright" },
 ]
@@ -136,30 +136,30 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'dependencies'", specifier = ">=1.14" },
-    { name = "asyncpg", marker = "extra == 'dependencies'", specifier = ">=0.30.0" },
-    { name = "cryptography", marker = "extra == 'dependencies'", specifier = ">=44.0" },
-    { name = "fastapi", marker = "extra == 'dependencies'", specifier = ">=0.115" },
-    { name = "google-cloud-kms", marker = "extra == 'dependencies'", specifier = ">=3.0.0" },
-    { name = "google-cloud-secret-manager", marker = "extra == 'dependencies'", specifier = ">=2.0.0" },
-    { name = "google-cloud-storage", marker = "extra == 'dependencies'", specifier = ">=3.0.0" },
-    { name = "httpx", marker = "extra == 'dependencies'", specifier = ">=0.28" },
-    { name = "jwcrypto", marker = "extra == 'dependencies'", specifier = ">=1.5.6" },
-    { name = "mcp", marker = "extra == 'dependencies'", specifier = ">=1.2" },
+    { name = "alembic", specifier = ">=1.14" },
+    { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "cryptography", specifier = ">=44.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "google-cloud-kms", specifier = ">=3.0.0" },
+    { name = "google-cloud-secret-manager", specifier = ">=2.0.0" },
+    { name = "google-cloud-storage", specifier = ">=3.0.0" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "jwcrypto", specifier = ">=1.5.6" },
+    { name = "mcp", specifier = ">=1.2" },
     { name = "playwright", marker = "extra == 'rappi'", specifier = ">=1.5" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'dependencies'", specifier = ">=3.2" },
-    { name = "psycopg-pool", marker = "extra == 'dependencies'", specifier = ">=3.2" },
-    { name = "pydantic", marker = "extra == 'dependencies'", specifier = ">=2.9" },
-    { name = "pydantic-settings", marker = "extra == 'dependencies'", specifier = ">=2.5" },
-    { name = "python-ulid", marker = "extra == 'dependencies'", specifier = ">=4.0" },
-    { name = "pyyaml", marker = "extra == 'dependencies'", specifier = ">=6.0" },
-    { name = "rfc8785", marker = "extra == 'dependencies'", specifier = ">=0.1.4" },
-    { name = "sd-jwt", marker = "extra == 'dependencies'", specifier = ">=0.10.4" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'dependencies'", specifier = ">=2.0" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'dependencies'", specifier = ">=0.30" },
-    { name = "webauthn", marker = "extra == 'dependencies'", specifier = ">=2.5" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "psycopg-pool", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pydantic-settings", specifier = ">=2.5" },
+    { name = "python-ulid", specifier = ">=4.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rfc8785", specifier = ">=0.1.4" },
+    { name = "sd-jwt", specifier = ">=0.10.4" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "webauthn", specifier = ">=2.5" },
 ]
-provides-extras = ["rappi", "dependencies"]
+provides-extras = ["rappi"]
 
 [package.metadata.requires-dev]
 dev = [

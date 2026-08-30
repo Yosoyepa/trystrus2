@@ -7,6 +7,39 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Backend LIVE via podman (user's runtime): three integration bugs found and fixed
+- **Setup:** stack brought up with `podman compose up -d --build db kernel
+  yuno_sim merchant` (no Docker on this machine; Podman 5.8.4 is the team
+  runtime). DB seeds `schema.sql` on first init; agent seed auto-runs on
+  first `/agent/*` call (agents `agt_b8b3…`, mandates `mdt_28de…` USD/
+  vuelaya and `mdt_c672…` COP/vuelaya-mcp+mami).
+- **Bug 1 (mine):** yesterday's playwright optional-extra patch placed
+  `[project.optional-dependencies]` BETWEEN `requires-python` and
+  `dependencies`, kicking the runtime deps out of `[project]` — `uv sync
+  --no-dev` in the Dockerfile installed an EMPTY venv (`uvicorn not found`
+  at container start). pyproject reordered; lock regenerated; lesson: TOML
+  table headers split tables.
+- **Bug 2 (schema drift, merchant):** `OfferRow` mapped `depart_date` TEXT +
+  `amount` TEXT but the unified fixture schema has `travel_date DATE` +
+  `amount NUMERIC(12,2)` — merchant died at startup seeding. Fixed by
+  mapping to the real columns and converting at the `to_offer` seam
+  (DTO stays TEXT money). Merchant healthy, 13 offers seeded.
+- **Bug 3 (schema drift, api services):** the escalation sweeper bound ISO
+  STRINGS into `timestamptz` columns — `operator does not exist: timestamptz
+  < character varying`, 72 errors; same drift class. `models.Escalation`
+  timestamp columns are now `DateTime(timezone=True)` and
+  `services/escalations.py` binds datetimes (`_utc`); `_from_iso` tolerates
+  legacy TEXT rows. This unblocks the step-up path of `/agent/ask`.
+- **Known data inconsistency (team decision needed):** the COP mandate scope
+  references merchants `["vuelaya-mcp","mami"]` but every catalog row is
+  `merchant_id='vuelaya'` (which only the USD mandate allows) — the COP agent
+  can never find a purchasable offer. Mandates are signed (not editable);
+  either fixtures move to `vuelaya-mcp` or a `mami` catalog is seeded.
+- Front now wires to the live kernel via `trytrust-platform/.env.local`
+  (KERNEL_URL/AGENT_ID/MANDATE_JTI/BRIDGE_URL).
+
+---
+
 ## 2026-08-30 — OTP login blocked by Rappi antifraud (400 «looks_bad») → real fingerprint + persistent profile + manual-token plan B
 - **What happened:** first real attempt at Config Rappi reached the OTP screen
   but `POST /api/rocket/login/whatsapp/application_user` answered 400

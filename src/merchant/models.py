@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Numeric, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,11 +15,11 @@ from .db import Base
 class OfferRow(Base):
     """The shared `offers` table, mapped locally without importing kernel code.
 
-    `amount` and `depart_date` are TEXT, not NUMERIC/DATE: `offers` is one of
-    the tables the agent lane also reads and writes
-    (`aval/contracts/fixtures/schema.sql`), and its definition wins on every
-    column two lanes share — money in particular, so a comparison never
-    depends on how the server normalises one numeric literal against another.
+    Columns follow `aval/contracts/fixtures/schema.sql` (decision 0029: the
+    fixture is the schema). The legacy attribute name `depart_date` is kept
+    for the merchant code paths; it maps to the fixture's `travel_date`
+    column, and money is NUMERIC(12,2) in storage — the TEXT DTO lives at
+    the `to_offer` seam, never in a bind parameter.
     """
 
     __tablename__ = "offers"
@@ -28,11 +28,11 @@ class OfferRow(Base):
     merchant_id: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(Text, nullable=False)
     origin: Mapped[str | None] = mapped_column(Text)
     destination: Mapped[str | None] = mapped_column(Text)
-    depart_date: Mapped[str | None] = mapped_column(Text)
+    depart_date: Mapped[date | None] = mapped_column("travel_date", Date)
     description: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
