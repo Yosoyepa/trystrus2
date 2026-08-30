@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api import repository as repo
-from trustlib import fake, ids
+from trustlib import fake
 from trustlib.events import UnknownEventType, emit_event
 from trustlib.models import MandateStatus, ReasonCode
 
@@ -25,11 +25,15 @@ pytestmark = pytest.mark.asyncio
 
 
 async def make_mandate(session, *, user_id: str = "usr_marta") -> str:
+    """Return the mandate's identifier — its own `jti`.
+
+    `mandates` keys on `jti` (the agent lane's table, shared verbatim), so
+    unlike the old two-id design there is nothing else to mint here.
+    """
     claims = fake.mandate(user_id=user_id)
-    mandate_id = ids.new_id(ids.MANDATE)
-    await repo.create_mandate(session, claims, mandate_id=mandate_id)
+    await repo.create_mandate(session, claims, mandate_id=claims.jti)
     await session.commit()
-    return mandate_id
+    return claims.jti
 
 
 # ==========================================================================

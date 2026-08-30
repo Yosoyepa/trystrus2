@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
@@ -16,7 +17,7 @@ from trustlib.models import EscalationResolution, EscalationStatus, ReasonCode
 
 from ..config import settings
 from ..db import session_factory
-from ..models import Escalation
+from ..models import Escalation, iso_now
 from .keys import key_store
 
 
@@ -30,6 +31,19 @@ class EscalationConflict(Exception):
         super().__init__(message)
 
 
+def _iso(moment: datetime) -> str:
+    """`escalations.timeout_at`/`resolved_at`/`created_at` are TEXT (the agent
+    lane's table, shared verbatim). One fixed, zero-padded format is what
+    makes `<`/`>=` on those columns sort the same way TIMESTAMPTZ did."""
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise ValueError("escalation timestamps must be timezone-aware")
+    return moment.astimezone(UTC).replace(microsecond=0).isoformat()
+
+
+def _from_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
 async def create(
     session: AsyncSession,
     *,
@@ -39,14 +53,17 @@ async def create(
     timeout_at: datetime | None = None,
 ) -> EscalationView:
     """Helper for Dev 2's saga: an escalation begins pending and expires soon."""
+    deadline = timeout_at or datetime.now(UTC) + timedelta(
+        seconds=settings().escalation_timeout_seconds
+    )
     row = Escalation(
         id=ids.new_id(ids.ESCALATION),
         purchase_id=purchase_id,
-        mandate_id=mandate_id,
+        mandate_jti=mandate_id,
         status=EscalationStatus.PENDING.value,
-        diff=diff,
-        timeout_at=timeout_at
-        or datetime.now(UTC) + timedelta(seconds=settings().escalation_timeout_seconds),
+        diff=json.dumps(diff) if diff is not None else None,
+        timeout_at=_iso(deadline),
+        created_at=iso_now(),
     )
     session.add(row)
     await session.flush()
@@ -58,8 +75,11 @@ async def expire_pending(session: AsyncSession, *, now: datetime | None = None) 
     moment = now or datetime.now(UTC)
     result = await session.execute(
         update(Escalation)
-        .where(Escalation.status == EscalationStatus.PENDING.value, Escalation.timeout_at < moment)
-        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT", resolved_at=moment)
+        .where(
+            Escalation.status == EscalationStatus.PENDING.value,
+            Escalation.timeout_at < _iso(moment),
+        )
+        .values(status=EscalationStatus.EXPIRED.value, decision="REJECT", resolved_at=_iso(moment))
         .returning(Escalation.id, Escalation.purchase_id)
     )
     expired = list(result.all())
@@ -83,7 +103,7 @@ async def list_escalations(
     await expire_pending(session)
     statement = select(Escalation)
     if mandate_id:
-        statement = statement.where(Escalation.mandate_id == mandate_id)
+        statement = statement.where(Escalation.mandate_jti == mandate_id)
     if status:
         statement = statement.where(Escalation.status == status.value)
     statement = statement.order_by(Escalation.created_at.desc())
@@ -145,7 +165,7 @@ async def resolve(
         .where(
             Escalation.id == escalation_id,
             Escalation.status == EscalationStatus.PENDING.value,
-            Escalation.timeout_at >= moment,
+            Escalation.timeout_at >= _iso(moment),
         )
         .values(
             status=EscalationStatus.RESOLVED.value,
@@ -153,7 +173,7 @@ async def resolve(
             approver=approver,
             channel=channel,
             receipt_sig=receipt_sig,
-            resolved_at=moment,
+            resolved_at=_iso(moment),
         )
         .returning(Escalation)
     )
@@ -218,15 +238,15 @@ def _view(row: Escalation) -> EscalationView:
             decision=row.decision,
             approver=row.approver or "system",
             channel=row.channel or "web",
-            resolved_at=row.resolved_at or row.timeout_at,
+            resolved_at=_from_iso(row.resolved_at) if row.resolved_at else _from_iso(row.timeout_at),
             receipt_sig=row.receipt_sig,
         )
     return EscalationView(
         escalation_id=row.id,
-        mandate_id=row.mandate_id,
+        mandate_id=row.mandate_jti,
         purchase_id=row.purchase_id,
         status=EscalationStatus(row.status),
-        diff=row.diff,
-        timeout_at=row.timeout_at,
+        diff=json.loads(row.diff) if row.diff else None,
+        timeout_at=_from_iso(row.timeout_at),
         resolution=resolution,
     )

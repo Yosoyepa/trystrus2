@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, Numeric, Text, func
+from sqlalchemy import Boolean, DateTime, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +13,14 @@ from .db import Base
 
 
 class OfferRow(Base):
-    """The shared `offers` table, mapped locally without importing kernel code."""
+    """The shared `offers` table, mapped locally without importing kernel code.
+
+    `amount` and `depart_date` are TEXT, not NUMERIC/DATE: `offers` is one of
+    the tables the agent lane also reads and writes
+    (`aval/contracts/fixtures/schema.sql`), and its definition wins on every
+    column two lanes share — money in particular, so a comparison never
+    depends on how the server normalises one numeric literal against another.
+    """
 
     __tablename__ = "offers"
 
@@ -21,11 +28,11 @@ class OfferRow(Base):
     merchant_id: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
     currency: Mapped[str] = mapped_column(Text, nullable=False)
     origin: Mapped[str | None] = mapped_column(Text)
     destination: Mapped[str | None] = mapped_column(Text)
-    travel_date: Mapped[date | None] = mapped_column(Date)
+    depart_date: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

@@ -185,20 +185,11 @@ class TestPostgresOutboxRelay:
 
             with psycopg.connect(db_url) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS outbox (
-                          seq BIGSERIAL PRIMARY KEY,
-                          event_id TEXT UNIQUE NOT NULL,
-                          type TEXT NOT NULL,
-                          aggregate_id TEXT NOT NULL,
-                          payload JSONB NOT NULL,
-                          relayed_at TIMESTAMPTZ,
-                          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                        );
-                        TRUNCATE TABLE outbox RESTART IDENTITY;
-                        """
-                    )
+                    # `outbox` comes from the canonical schema
+                    # (aval/contracts/fixtures/schema.sql) — this fixture only
+                    # resets state between tests, it does not define the
+                    # table.
+                    cur.execute("TRUNCATE TABLE outbox RESTART IDENTITY")
                     conn.commit()
         except Exception as exc:
             pytest.skip(f"PostgreSQL unreachable: {exc}")

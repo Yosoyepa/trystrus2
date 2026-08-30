@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +38,13 @@ def _money(value: Decimal | str | int) -> Decimal:
 
 def _minute(value: datetime) -> datetime:
     return _utc(value).replace(second=0, microsecond=0)
+
+
+def _iso(value: datetime) -> str:
+    """Format for the columns this module writes that are TEXT, not
+    TIMESTAMPTZ — `mandates`, `purchases` and `outbox` are the agent lane's
+    tables, shared verbatim (aval/contracts/fixtures/schema.sql)."""
+    return _utc(value).replace(microsecond=0).isoformat()
 
 
 class _PostgresAdapter:
@@ -90,9 +97,9 @@ class PostgresVelocityStore(_PostgresAdapter):
 
     _UPSERT = """
         INSERT INTO velocity_counters
-            (mandate_id, counter, window, bucket_start, val)
+            (mandate_id, counter, "window", bucket_start, val)
         VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (mandate_id, counter, window, bucket_start)
+        ON CONFLICT (mandate_id, counter, "window", bucket_start)
         DO UPDATE SET val = velocity_counters.val + EXCLUDED.val
     """
 
@@ -101,7 +108,7 @@ class PostgresVelocityStore(_PostgresAdapter):
         FROM velocity_counters
         WHERE mandate_id = %s
           AND counter = %s
-          AND window = %s
+          AND "window" = %s
           AND bucket_start >= %s
           AND bucket_start <= %s
     """
@@ -176,9 +183,9 @@ class PostgresVelocityStore(_PostgresAdapter):
             cursor.execute(
                 """
                 INSERT INTO velocity_counters
-                    (mandate_id, counter, window, bucket_start, val)
+                    (mandate_id, counter, "window", bucket_start, val)
                 VALUES (%s, 'open_authz', 'current', %s, 0)
-                ON CONFLICT (mandate_id, counter, window, bucket_start)
+                ON CONFLICT (mandate_id, counter, "window", bucket_start)
                 DO UPDATE SET val = GREATEST(0, velocity_counters.val - 1)
                 """,
                 (mandate_id, datetime(1970, 1, 1, tzinfo=UTC)),
@@ -229,7 +236,7 @@ class PostgresVelocityStore(_PostgresAdapter):
                 SELECT COALESCE(val, 0)
                 FROM velocity_counters
                 WHERE mandate_id = %s AND counter = 'open_authz'
-                  AND window = 'current' AND bucket_start = %s
+                  AND "window" = 'current' AND bucket_start = %s
                 """,
                 (mandate_id, bucket),
             )
@@ -246,7 +253,7 @@ class PostgresVelocityStore(_PostgresAdapter):
                 SELECT MAX(bucket_start)
                 FROM velocity_counters
                 WHERE mandate_id = %s AND counter = 'cooldown'
-                  AND window = 'expiry' AND bucket_start > %s
+                  AND "window" = 'expiry' AND bucket_start > %s
                 """,
                 (mandate_id, current),
             )
@@ -300,7 +307,7 @@ class PostgresVelocityStore(_PostgresAdapter):
                 SELECT COALESCE(val, 0)
                 FROM velocity_counters
                 WHERE mandate_id = %s AND counter = 'open_authz'
-                  AND window = 'current' AND bucket_start = %s
+                  AND "window" = 'current' AND bucket_start = %s
                 """,
                 (mandate_id, open_bucket),
             )
@@ -310,7 +317,7 @@ class PostgresVelocityStore(_PostgresAdapter):
                 SELECT MAX(bucket_start)
                 FROM velocity_counters
                 WHERE mandate_id = %s AND counter = 'cooldown'
-                  AND window = 'expiry' AND bucket_start > %s
+                  AND "window" = 'expiry' AND bucket_start > %s
                 """,
                 (mandate_id, current),
             )
@@ -334,18 +341,30 @@ class PostgresVelocityStore(_PostgresAdapter):
     read = get_spend_view
 
 
-def _pack_idempotency_response(record: IdempotencyRecord) -> dict[str, Any]:
-    return {
-        "_aval_idempotency": {
-            "request_fingerprint": record.request_fingerprint,
-            "claim_token": record.claim_token,
-        },
-        "response": record.response,
-    }
+def _pack_idempotency_response(record: IdempotencyRecord) -> str:
+    """Serialize to the column's actual declared type.
+
+    `idempotency_keys.response` is TEXT (the agent lane's table, shared
+    verbatim — see aval/contracts/fixtures/schema.sql). Handing psycopg a
+    raw dict for a TEXT column raises "cannot adapt type 'dict' using
+    placeholder '%s'"; the column was never JSONB, so the fix is to
+    serialize here rather than to cast the column.
+    """
+    return json.dumps(
+        {
+            "_aval_idempotency": {
+                "request_fingerprint": record.request_fingerprint,
+                "claim_token": record.claim_token,
+            },
+            "response": record.response,
+        }
+    )
 
 
 def _unpack_idempotency_row(row: Any) -> IdempotencyRecord:
     key, scope, stored_response, derived_from, expires_at, created_at = row
+    if isinstance(stored_response, str):
+        stored_response = json.loads(stored_response)
     metadata: Mapping[str, Any] = stored_response if isinstance(stored_response, Mapping) else {}
     marker = metadata.get("_aval_idempotency", {})
     response = metadata.get("response") if "response" in metadata else stored_response
@@ -357,9 +376,14 @@ def _unpack_idempotency_row(row: Any) -> IdempotencyRecord:
         scope=scope,
         derived_from=derived_from,
         request_fingerprint=fingerprint,
+        # `expires_at` stays TIMESTAMPTZ (a [2]-only addition — see the
+        # canonical schema's header); `created_at` is TEXT (the agent lane's
+        # own column on this shared table), so psycopg hands back a str.
         expires_at=_utc(expires_at),
         response=response,
-        created_at=_utc(created_at),
+        created_at=_utc(created_at) if isinstance(created_at, datetime) else _utc(
+            datetime.fromisoformat(created_at)
+        ),
         claim_token=marker.get("claim_token"),
     )
 
@@ -401,7 +425,7 @@ class PostgresIdempotencyStore(_PostgresAdapter):
                     _pack_idempotency_response(candidate),
                     candidate.derived_from,
                     candidate.expires_at,
-                    candidate.created_at or current,
+                    _iso(candidate.created_at or current),
                 ),
             )
             row = cursor.fetchone()
@@ -474,17 +498,26 @@ class PostgresIdempotencyStore(_PostgresAdapter):
             if current.response is not None:
                 return current
             updated = replace(current, response=dict(response))
+            # response is TEXT, so the JSONB `?`/`->>` guard this used to run
+            # doesn't parse. A compare-and-swap on the exact previous text —
+            # the same idiom src/agent/kernel.py uses for the money columns —
+            # gives back the identical guarantee: this UPDATE only lands if
+            # nothing else has touched the row since we read `current`.
             cursor.execute(
                 """
                 UPDATE idempotency_keys
                 SET response = %s
                 WHERE key = %s
-                  AND response ? '_aval_idempotency'
-                  AND response->>'response' IS NULL
+                  AND response = %s
                   AND expires_at > %s
                 RETURNING key, scope, response, derived_from, expires_at, created_at
                 """,
-                (_pack_idempotency_response(updated), key, current_time),
+                (
+                    _pack_idempotency_response(updated),
+                    key,
+                    _pack_idempotency_response(current),
+                    current_time,
+                ),
             )
             saved_row = cursor.fetchone()
             if saved_row:
@@ -517,17 +550,43 @@ class PostgresOutboxWriter(_PostgresAdapter):
             cursor.execute(
                 """
                 INSERT INTO outbox (event_id, type, aggregate_id, payload, created_at)
-                VALUES (%s, %s, %s, %s::jsonb, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (event_id) DO NOTHING
                 """,
-                (event.event_id, event.type, event.aggregate_id, payload, event.created_at),
+                (
+                    event.event_id,
+                    event.type,
+                    event.aggregate_id,
+                    payload,
+                    _iso(event.created_at),
+                ),
             )
 
     write = append
 
 
+def _fmt_money(value: Decimal) -> str:
+    """Match `src/agent/crypto/money.py:fmt` exactly — same rounding, same
+    string shape — since the two lanes now write the same TEXT column."""
+    return str(_money(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 class PostgresReservationStore(_PostgresAdapter):
-    """Atomic mandate reservation using one conditional ``UPDATE``."""
+    """Atomic mandate reservation.
+
+    `mandates.reserved_amount`/`spent_total`/`txn_count` are TEXT, not
+    NUMERIC (the agent lane's table, shared verbatim — see
+    aval/contracts/fixtures/schema.sql's header): Postgres can't do
+    `reserved_amount + %s` on a TEXT column, and even if it could, the
+    project's whole reason for keeping money as TEXT is to make an UPDATE's
+    guard an exact string comparison rather than an arithmetic one. So this
+    reserves the same way `src/agent/kernel.py:reserve_chain` does: read the
+    row, compute the new value in Python, then guard the UPDATE on every
+    value read matching exactly — a compare-and-swap, not `SET x = x + 1`.
+    A concurrent writer makes the guard match zero rows, which this reports
+    as a lost race rather than retrying (retrying blindly is exactly what
+    would let two concurrent callers both believe they reserved).
+    """
 
     def reserve(
         self,
@@ -543,52 +602,59 @@ class PostgresReservationStore(_PostgresAdapter):
         candidate = _money(amount)
         budget = _money(total_budget)
         identifier = reservation_id or str(uuid4())
-        count_clause = ""
-        params: list[Any] = [candidate, candidate, budget]
-        if max_txn_count is not None:
-            count_clause = " AND txn_count_period + 1 <= %s"
-            params.append(max_txn_count)
-        reservation_clause = ""
-        if reservation_key is not None:
-            reservation_clause = """
-                  AND NOT EXISTS (
-                    SELECT 1 FROM purchases
-                    WHERE id = %s AND status = 'pending_capture'
-                  )
-            """
-            params.append(reservation_key)
-        params.append(mandate_id)
         with self._transaction(transaction) as connection, self._cursor(connection) as cursor:
-            cursor.execute(
-                f"""
-                UPDATE mandates
-                SET reserved_amount = reserved_amount + %s,
-                    txn_count_period = txn_count_period + 1,
-                    updated_at = now()
-                WHERE reserved_amount + spent_total + %s <= %s
-                  AND status = 'active'
-                  {count_clause}
-                  {reservation_clause}
-                  AND id = %s
-                RETURNING id
-                """,
-                tuple(params),
-            )
-            row = cursor.fetchone()
-            if not row and reservation_key is not None:
+            if reservation_key is not None:
                 cursor.execute(
                     """
-                    SELECT reservation_id
-                    FROM purchases
+                    SELECT reservation_id FROM purchases
                     WHERE id = %s AND status = 'pending_capture'
-                      AND reservation_id IS NOT NULL
                     """,
                     (reservation_key,),
                 )
                 existing = cursor.fetchone()
-                if existing and existing[0]:
-                    return str(existing[0])
-        return identifier if row else None
+                if existing is not None:
+                    # Already reserved under this key — idempotent replay,
+                    # not a new reservation.
+                    return str(existing[0]) if existing[0] else None
+
+            cursor.execute(
+                "SELECT reserved_amount, spent_total, txn_count, status "
+                "FROM mandates WHERE jti = %s",
+                (mandate_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            reserved_amount, spent_total, txn_count, mandate_status = row
+            if mandate_status != "active":
+                return None
+            reserved_dec = _money(reserved_amount)
+            spent_dec = _money(spent_total)
+            if reserved_dec + spent_dec + candidate > budget:
+                return None
+            if max_txn_count is not None and int(txn_count) + 1 > max_txn_count:
+                return None
+
+            cursor.execute(
+                """
+                UPDATE mandates
+                SET reserved_amount = %s, txn_count = %s, updated_at = %s
+                WHERE jti = %s AND status = 'active'
+                  AND reserved_amount = %s AND spent_total = %s AND txn_count = %s
+                RETURNING jti
+                """,
+                (
+                    _fmt_money(reserved_dec + candidate),
+                    int(txn_count) + 1,
+                    _iso(datetime.now(UTC)),
+                    mandate_id,
+                    reserved_amount,
+                    spent_total,
+                    txn_count,
+                ),
+            )
+            won = cursor.fetchone()
+        return identifier if won else None
 
     def release(
         self,
@@ -599,29 +665,46 @@ class PostgresReservationStore(_PostgresAdapter):
         transaction: Any = None,
     ) -> bool:
         candidate = _money(amount)
-        reservation_clause = ""
-        params: list[Any] = [candidate, mandate_id, candidate]
-        if reservation_id is not None:
-            reservation_clause = """
-                  AND EXISTS (
+        with self._transaction(transaction) as connection, self._cursor(connection) as cursor:
+            if reservation_id is not None:
+                cursor.execute(
+                    """
                     SELECT 1 FROM purchases
                     WHERE reservation_id = %s
-                      AND mandate_id = %s
+                      AND mandate_jti = %s
                       AND status = 'pending_capture'
-                  )
-            """
-            params.extend([reservation_id, mandate_id])
-        with self._transaction(transaction) as connection, self._cursor(connection) as cursor:
+                    """,
+                    (reservation_id, mandate_id),
+                )
+                if cursor.fetchone() is None:
+                    return False
+
             cursor.execute(
-                f"""
+                "SELECT reserved_amount, txn_count FROM mandates WHERE jti = %s",
+                (mandate_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return False
+            reserved_amount, txn_count = row
+            reserved_dec = _money(reserved_amount)
+            if reserved_dec < candidate:
+                return False
+
+            cursor.execute(
+                """
                 UPDATE mandates
-                SET reserved_amount = reserved_amount - %s,
-                    txn_count_period = GREATEST(0, txn_count_period - 1),
-                    updated_at = now()
-                WHERE id = %s AND reserved_amount >= %s
-                {reservation_clause}
+                SET reserved_amount = %s, txn_count = %s, updated_at = %s
+                WHERE jti = %s AND reserved_amount = %s AND txn_count = %s
                 """,
-                tuple(params),
+                (
+                    _fmt_money(reserved_dec - candidate),
+                    max(0, int(txn_count) - 1),
+                    _iso(datetime.now(UTC)),
+                    mandate_id,
+                    reserved_amount,
+                    txn_count,
+                ),
             )
             return bool(getattr(cursor, "rowcount", 0))
 

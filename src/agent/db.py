@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -43,186 +44,30 @@ def get_dsn() -> str:
 
 DSN = get_dsn()
 
-SCHEMA = """
--- ── configuration: editable, with an immutable record of every edit ──────────
-CREATE TABLE IF NOT EXISTS people (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT,
-  role TEXT NOT NULL DEFAULT 'member',
-  token_hash TEXT UNIQUE,              -- console credential, hashed (see auth.py)
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS agents (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL,
-  owner_id TEXT REFERENCES people(id),
-  approver_id TEXT REFERENCES people(id),
-  auditor_id TEXT REFERENCES people(id),
-  status TEXT NOT NULL DEFAULT 'active',      -- active|paused|retired
-  public_jwk TEXT NOT NULL,
-  current_version INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS agent_versions (      -- append only (E9)
-  agent_id TEXT NOT NULL REFERENCES agents(id),
-  version INTEGER NOT NULL,
-  ontology TEXT NOT NULL,                        -- JSON: domain knowledge (K1)
-  model_cfg TEXT NOT NULL,
-  changed_by TEXT REFERENCES people(id),
-  reason TEXT, created_at TEXT NOT NULL,
-  PRIMARY KEY (agent_id, version)
-);
+# `aval/contracts/fixtures/schema.sql` is the one description of the database
+# in the repository — `compose.yaml` mounts that exact file into
+# `/docker-entrypoint-initdb.d/`, so a container and this process reading the
+# same bytes is what makes "works on my machine" not a demo failure. Resolved
+# relative to this file rather than the CWD so it works identically from the
+# CLI, from pytest (whatever directory collection started in), and from the
+# Docker image — the Dockerfile copies `aval/` alongside `src/`, so the
+# relative path from here (`src/agent/db.py` -> repo root -> `aval/...`)
+# lands in the same place in every one of those environments.
+_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "aval" / "contracts" / "fixtures" / "schema.sql"
 
--- ── mandates and instruments ────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS mandates (
-  jti TEXT PRIMARY KEY, user_id TEXT NOT NULL, agent_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active',
-  claims TEXT NOT NULL, token TEXT NOT NULL,
-  reserved_amount TEXT NOT NULL DEFAULT '0.00',   -- written ONLY by verify (M3)
-  spent_total TEXT NOT NULL DEFAULT '0.00',
-  txn_count INTEGER NOT NULL DEFAULT 0,
-  parent_jti TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS payment_instruments (
-  token_ref TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL, rail TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
-);
 
--- ── merchant ────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS offers (
-  id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, category TEXT NOT NULL,
-  title TEXT NOT NULL, amount TEXT NOT NULL, currency TEXT NOT NULL,
-  origin TEXT, destination TEXT, depart_date TEXT,
-  description TEXT, active INTEGER NOT NULL DEFAULT 1
-);
+def _load_schema() -> str:
+    try:
+        return _SCHEMA_PATH.read_text()
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"canonical schema not found at {_SCHEMA_PATH} — it ships with the repo "
+            "under aval/contracts/fixtures/ and the Dockerfile copies aval/ into the "
+            "image; if you moved either, fix the path above rather than re-inlining SQL"
+        ) from exc
 
--- ── recurrent search: thresholds a human sets ───────────────────────────────
-CREATE TABLE IF NOT EXISTS watches (
-  id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, mandate_jti TEXT NOT NULL,
-  created_by TEXT REFERENCES people(id),
-  query TEXT NOT NULL, threshold TEXT NOT NULL,
-  interval_s INTEGER NOT NULL DEFAULT 300,
-  autobuy INTEGER NOT NULL DEFAULT 1,
-  status TEXT NOT NULL DEFAULT 'active',
-  last_checked_at TEXT, last_seen_price TEXT, fired_at TEXT,
-  created_at TEXT NOT NULL
-);
 
--- ── decision and evidence ───────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS purchase_intents (
-  jti TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL, agent_id TEXT NOT NULL,
-  nonce TEXT NOT NULL UNIQUE, intent TEXT NOT NULL, signature TEXT NOT NULL,
-  status TEXT NOT NULL, created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS purchases (
-  id TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL, intent_jti TEXT NOT NULL,
-  status TEXT NOT NULL,
-  reason_code TEXT, amount TEXT, reservation_id TEXT, receipt TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS escalations (
-  id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL, mandate_jti TEXT NOT NULL,
-  run_id TEXT, approver_id TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
-  diff TEXT, timeout_at TEXT NOT NULL,
-  decision TEXT, approver TEXT, channel TEXT, receipt_sig TEXT,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-  key TEXT PRIMARY KEY, scope TEXT NOT NULL, response TEXT,
-  created_at TEXT NOT NULL
-);
-
--- ── the agent's own runs ────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS agent_runs (
-  run_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
-  agent_version INTEGER NOT NULL,             -- pinned at run start (E8, K3)
-  mandate_jti TEXT NOT NULL, session_id TEXT,
-  node TEXT NOT NULL, state TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'running',
-  escalation_id TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS chat_messages (
-  id BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL,
-  role TEXT NOT NULL, text TEXT NOT NULL, run_id TEXT, created_at TEXT NOT NULL
-);
-
--- ── the chain (E1-E5) ───────────────────────────────────────────────────────
--- Partitioned by chain_key so writers contend only within one mandate. A
--- single global chain made every event in the system queue behind one row:
--- to write entry N you must first read entry N-1. Marta's purchases no longer
--- wait behind Juan's; the checkpoints table restores one global proof over all
--- of them.
-CREATE TABLE IF NOT EXISTS chains (
-  chain_key TEXT PRIMARY KEY,
-  head_hash TEXT NOT NULL,
-  length BIGINT NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS audit_events (
-  seq BIGSERIAL PRIMARY KEY,
-  chain_key TEXT NOT NULL,
-  chain_seq BIGINT NOT NULL,
-  event_id TEXT NOT NULL UNIQUE, type TEXT NOT NULL,
-  actor TEXT, agent_id TEXT, run_id TEXT, mandate_jti TEXT,
-  payload TEXT NOT NULL,
-  prev_hash TEXT NOT NULL, hash TEXT NOT NULL,
-  root_sig TEXT, created_at TEXT NOT NULL,
-  UNIQUE (chain_key, chain_seq)
-);
-CREATE TABLE IF NOT EXISTS checkpoints (
-  id BIGSERIAL PRIMARY KEY,
-  root_hash TEXT NOT NULL, chain_heads TEXT NOT NULL,
-  signature TEXT, chains_covered INTEGER NOT NULL, events_covered BIGINT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
--- E1 is enforced by the database, not by convention: an append-only log
--- defended only by code review is not append-only.
-CREATE OR REPLACE FUNCTION trytrust_append_only() RETURNS TRIGGER AS $fn$
-BEGIN
-  RAISE EXCEPTION '% is append-only (E1)', TG_TABLE_NAME;
-END;
-$fn$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events;
-CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
-  FOR EACH ROW EXECUTE FUNCTION trytrust_append_only();
-DROP TRIGGER IF EXISTS audit_events_no_delete ON audit_events;
-CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
-  FOR EACH ROW EXECUTE FUNCTION trytrust_append_only();
-DROP TRIGGER IF EXISTS agent_versions_no_update ON agent_versions;
-CREATE TRIGGER agent_versions_no_update BEFORE UPDATE ON agent_versions
-  FOR EACH ROW EXECUTE FUNCTION trytrust_append_only();
-
-CREATE TABLE IF NOT EXISTS outbox (
-  seq BIGSERIAL PRIMARY KEY, event_id TEXT NOT NULL UNIQUE,
-  type TEXT NOT NULL, aggregate_id TEXT NOT NULL, payload TEXT NOT NULL,
-  relayed_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
-  created_at TEXT NOT NULL
-);
-
--- ── guardrails ──────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS rate_buckets (
-  key TEXT PRIMARY KEY, tokens DOUBLE PRECISION NOT NULL, updated_at TEXT NOT NULL
-);
--- (the `locks` table is retired: single-flight uses Postgres advisory locks,
---  which need no TTL because the lock dies with the session — a crashed holder
---  releases immediately instead of wedging the system until a timeout expires)
-CREATE TABLE IF NOT EXISTS counters (
-  key TEXT NOT NULL, window_key TEXT NOT NULL, value DOUBLE PRECISION NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL, PRIMARY KEY (key, window_key)
-);
-
-CREATE INDEX IF NOT EXISTS ix_audit_chain ON audit_events(chain_key, chain_seq);
-CREATE INDEX IF NOT EXISTS ix_audit_mandate ON audit_events(mandate_jti);
-CREATE INDEX IF NOT EXISTS ix_audit_agent ON audit_events(agent_id);
-CREATE INDEX IF NOT EXISTS ix_audit_run ON audit_events(run_id);
-CREATE INDEX IF NOT EXISTS ix_runs_session ON agent_runs(session_id);
-CREATE INDEX IF NOT EXISTS ix_outbox_undelivered ON outbox(relayed_at, seq);
-CREATE INDEX IF NOT EXISTS ix_watches_due ON watches(status, last_checked_at);
-CREATE INDEX IF NOT EXISTS ix_purchases_mandate ON purchases(mandate_jti, status);
-"""
+SCHEMA = _load_schema()
 
 TABLES = [
     "chat_messages",
@@ -245,6 +90,25 @@ TABLES = [
     "agents",
     "people",
     "audit_events",
+    # The rest of the canonical schema. `reset` means a clean slate, so it has
+    # to drop every table the schema creates -- not only the ones this lane
+    # writes. Leaving the identity, rail and fraud tables behind is how a demo
+    # starts with a stale passkey credential or a yesterday's payment still in
+    # it. The DROP is CASCADE, so listing order does not matter.
+    "merchant_orders",
+    "webauthn_challenges",
+    "webauthn_credentials",
+    "yuno_disputes",
+    "yuno_idempotency",
+    "yuno_payments",
+    "yuno_payment_tokens",
+    "yuno_setup_tokens",
+    "velocity_counters",
+    "baseline_hists",
+    "baseline_metrics",
+    "risk_lists",
+    "risk_subjects",
+    "webhook_archive",
 ]
 
 

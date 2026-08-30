@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Bug, RefreshCw, Zap } from 'lucide-react';
+import { Bug, RefreshCw, Zap, WifiOff } from 'lucide-react';
 import { Badge } from '../common/Badge';
 
 export const TamperMutationInjector: React.FC = () => {
-  const { auditEvents, tamperBlock, verifyChain, restoreLedger } = useApp();
+  const { auditEvents, tamperBlock, verifyChain, restoreLedger, auditBackendError } = useApp();
   const [selectedSeq, setSelectedSeq] = useState<number>(4);
   const [tamperField, setTamperField] = useState<'price' | 'amount' | 'limits' | 'custom'>('price');
   const [customValue, setCustomValue] = useState<string>('999.00');
@@ -61,6 +61,16 @@ export const TamperMutationInjector: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {auditBackendError && (
+        <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-950/30 text-rose-300 text-xs font-mono flex items-center gap-2">
+          <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>
+            {auditBackendError} The mutation below is applied to the local sandbox only — re-verification against
+            the real chain requires the live backend.
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
         {/* Step 1: Select Block */}

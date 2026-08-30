@@ -132,19 +132,15 @@ class TestPostgresRepository:
 
             with psycopg.connect(db_url) as conn:
                 with conn.cursor() as cur:
+                    # `audit_events` and `chains` come from the canonical
+                    # schema (aval/contracts/fixtures/schema.sql) — this
+                    # fixture only resets state between tests, it does not
+                    # define the table (a second, conflicting definition
+                    # here is exactly the drift this whole migration removed).
                     cur.execute(
                         """
-                        CREATE TABLE IF NOT EXISTS audit_events (
-                          seq BIGSERIAL PRIMARY KEY,
-                          mandate_id TEXT NOT NULL,
-                          type TEXT NOT NULL,
-                          payload JSONB NOT NULL,
-                          prev_hash CHAR(64) NOT NULL,
-                          hash CHAR(64) NOT NULL,
-                          root_sig TEXT,
-                          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                        );
                         TRUNCATE TABLE audit_events RESTART IDENTITY;
+                        DELETE FROM chains WHERE chain_key = 'api-ledger';
                         """
                     )
                     conn.commit()
