@@ -7,6 +7,35 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — Config Rappi LIVE: OTP login capture in the bridge + Tower Control front wired
+- **What shipped (bridge):** `login.py` — headful OTP login capture via the
+  owner's own Chrome (`channel="chrome"`, chromium fallback, 5-min window);
+  passive `ft.` token capture from `/ms/application-user/auth`; session file
+  written chmod 600 with the active address's coords; status machine
+  idle→waiting_login→captured|error with MASKED labels only (name initials +
+  bullet email — the run real's whoami masking bug is now our code too).
+  `LazyRappiClient` lets the bridge start with NO session and picks up the
+  fresh token by file mtime. Endpoints: `GET/POST /v1/rappi/session/{status,
+  login}`, `DELETE /v1/rappi/session`; CORS for the platform front
+  (`AVAL_BRIDGE_CORS_ORIGINS`). playwright as optional extra
+  (`uv sync --extra rappi`); lock updated. 7 new tests (custody 0600, single
+  window on double start, error path, endpoints, CORS); suite 37 bridge /
+  307 total green.
+- **What shipped (front):** bysergr/trytrust-platform was an empty "Tower
+  Control" placeholder — built the chat shell (messages, input, kernel
+  `/agent/ask` wiring with graceful echo fallback) and the **Config Rappi**
+  button + side panel: status dot (idle/waiting/captured/error), "Iniciar
+  login OTP" with 3-step instructions, 2s polling while waiting, masked
+  account + active address on success, disconnect, and a bridge-unreachable
+  hint. Local bring-up verified: bridge :8010 (healthz dry_run=true, CORS
+  header present), front :3000 serving both strings, playwright 1.62 +
+  system Chrome detected.
+- **Note:** an over-eager `ruff --fix` touched `src/api/routers/mandates.py`
+  (team lane) — reverted; commit stays scoped. F0 of the demo can now start:
+  click Config Rappi → OTP → status captured → preflight.
+
+---
+
 ## 2026-08-30 — Rappi bridge BUILT (decision 0030): guard edge + capture tokens, 30 tests, suite 307 green
 - **What shipped:** `src/rappi_bridge/` — the guarded execution edge running
   on the credential machine only. Native httpx port of the audited CLI

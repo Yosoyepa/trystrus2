@@ -1,8 +1,9 @@
 """Local HTTP surface of the bridge (contract: aval/contracts/rappi-bridge.yaml).
 
-Binds 127.0.0.1 by default; the kernel is the only intended client. Error
-mapping: guard rejections 409 with a `reason`, Rappi pre-capture rejections
-402, kill-switch/DRY_RUN mismatches 423, click ambiguity 502.
+Binds 127.0.0.1 by default; intended clients are the kernel and the platform
+front (Config Rappi panel). Error mapping: guard rejections 409 with a
+`reason`, Rappi pre-capture rejections 402, kill-switch/DRY_RUN mismatches
+423, click ambiguity 502.
 """
 
 from __future__ import annotations
@@ -10,11 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import BridgeConfig
 from .errors import BridgeError
-from .rappi import RappiClient, load_session
+from .login import LoginFlow
+from .rappi import LazyRappiClient
 from .service import BridgeService, PlaceOrderRequest
 from .state import BridgeState
 from .token import fetch_kernel_keys
@@ -24,24 +27,28 @@ def create_app(
     config: BridgeConfig | None = None,
     *,
     service: BridgeService | None = None,
+    login_flow: LoginFlow | None = None,
 ) -> FastAPI:
     config = config or BridgeConfig()
     if service is None:
-        client = RappiClient(
-            load_session(config.session_file),
-            base_url=config.rappi_base_url,
-            timeout_s=config.http_timeout_s,
-        )
+        client: Any = LazyRappiClient(config)  # starts with no session (idle)
         state = BridgeState(config.state_db_path)
         service = BridgeService(config, client, state, keys=lambda: fetch_kernel_keys(config))
+    login_flow = login_flow or LoginFlow(config)
 
     app = FastAPI(title="Aval Rappi Bridge", version="0.1.0", docs_url=None)
     app.state.service = service
+    app.state.login_flow = login_flow
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origin_list,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    )
 
     @app.exception_handler(BridgeError)
-    async def _bridge_error(
-        _request: Any, exc: BridgeError
-    ) -> JSONResponse:
+    async def _bridge_error(_request: Any, exc: BridgeError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.http_status,
             content={"reason": exc.reason, "detail": exc.detail, "message": str(exc)},
@@ -59,10 +66,31 @@ def create_app(
             "cap_cop": str(config.cap),
         }
 
+    # -- session / Config Rappi ---------------------------------------------
+
+    @app.get("/v1/rappi/session/status")
+    def session_status(authorization: str | None = Header(default=None)) -> Any:
+        _guard_token(authorization)
+        return login_flow.status()
+
+    @app.post("/v1/rappi/session/login")
+    def session_login(authorization: str | None = Header(default=None)) -> Any:
+        _guard_token(authorization)
+        return login_flow.start()
+
+    @app.delete("/v1/rappi/session")
+    def session_disconnect(
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        _guard_token(authorization)
+        return login_flow.disconnect()
+
     @app.get("/v1/rappi/session/preflight")
     def preflight(authorization: str | None = Header(default=None)) -> Any:
         _guard_token(authorization)
         return service.preflight()
+
+    # -- commerce -------------------------------------------------------------
 
     @app.post("/v1/rappi/quote")
     def quote(

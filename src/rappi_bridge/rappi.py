@@ -176,3 +176,35 @@ class RappiClient:
             PLACE_ORDER_PATH.format(store_type=store_type),
             body={"return_key": return_key},
         )
+
+
+class LazyRappiClient:
+    """Duck-typed RappiClient that (re)loads the session file on demand.
+
+    Lets the bridge start with NO session (status: idle) and picks up the
+    fresh token as soon as the Config Rappi login writes it.
+    """
+
+    def __init__(self, config: Any) -> None:
+        self._config = config
+        self._inner: RappiClient | None = None
+        self._mtime: int | None = None
+
+    def _ensure(self) -> RappiClient:
+        path = self._config.session_file
+        if not path.exists():
+            raise SessionExpired("no Rappi session — use Config Rappi login")
+        mtime = path.stat().st_mtime_ns
+        if self._inner is None or mtime != self._mtime:
+            self._inner = RappiClient(
+                load_session(path),
+                base_url=self._config.rappi_base_url,
+                timeout_s=self._config.http_timeout_s,
+            )
+            self._mtime = mtime
+        return self._inner
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._ensure(), name)

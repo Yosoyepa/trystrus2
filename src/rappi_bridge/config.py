@@ -37,6 +37,14 @@ class BridgeConfig(BaseSettings):
     http_timeout_s: float = 15.0
     quote_ttl_s: int = 300
     action_budget: int = 24
+    # OTP login capture ("Config Rappi"): "chrome" uses the owner's installed
+    # Google Chrome (falls back to Playwright's chromium); "" forces chromium.
+    login_browser: str = "chrome"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def cap(self) -> Decimal:

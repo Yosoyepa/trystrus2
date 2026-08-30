@@ -11,6 +11,7 @@ import json
 import sqlite3
 import threading
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 RECEIVED = "received"
@@ -44,7 +45,9 @@ class BridgeState:
     def __init__(self, db_path: str | Any) -> None:
         # RLock: claim() re-enters get() while holding the lock.
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        path = Path(str(db_path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_SCHEMA)
         self._conn.commit()
