@@ -7,6 +7,29 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — OTP login blocked by Rappi antifraud (400 «looks_bad») → real fingerprint + persistent profile + manual-token plan B
+- **What happened:** first real attempt at Config Rappi reached the OTP screen
+  but `POST /api/rocket/login/whatsapp/application_user` answered 400
+  `looks_bad` — the antifraud rejected the exchange. Root cause (high
+  confidence): our context spoofed a mobile UA over real desktop Chrome, so
+  client hints (`sec-ch-ua-platform`) contradicted the claimed device; plus a
+  brand-new profile = zero device trust. Yesterday's successful login ran on
+  the owner's real Chrome fingerprint.
+- **Fixes:** `_launch_browser` no longer spoofs UA and uses a PERSISTENT
+  profile (`AVAL_BRIDGE_LOGIN_PROFILE_DIR`, var/rappi-bridge/login-profile —
+  dedicated dir; the owner's personal Chrome profile is untouched) so the
+  device fingerprint is stable and accumulates trust. Plan B that cannot be
+  blocked: `POST /v1/rappi/session/manual {token}` (DevTools →
+  services.grability… request → Authorization header) —
+  `LoginFlow.connect_with_token` validates the `ft.` prefix, probes whoami,
+  writes the 0600 session file; invalid input raises BridgeError (409).
+  Front panel gained the manual-token section with step-by-step instructions.
+- **Tests:** +4 (manual connect custody, non-ft rejection, HTTP endpoint,
+  profile-dir contract) — bridge suite 41 green, ruff clean. Operator note:
+  always request a FRESH WhatsApp OTP per attempt; stale codes also fail.
+
+---
+
 ## 2026-08-30 — Config Rappi LIVE: OTP login capture in the bridge + Tower Control front wired
 - **What shipped (bridge):** `login.py` — headful OTP login capture via the
   owner's own Chrome (`channel="chrome"`, chromium fallback, 5-min window);

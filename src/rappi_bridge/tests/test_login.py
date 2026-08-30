@@ -1,7 +1,9 @@
 """Config Rappi login flow: capture, custody, masked labels, endpoints."""
 
 import json
+import pathlib
 
+import pytest
 from fastapi.testclient import TestClient
 from src.rappi_bridge.app import create_app
 from src.rappi_bridge.config import BridgeConfig
@@ -21,7 +23,7 @@ def fake_launcher() -> dict:
 
 
 def fake_prober(token: str) -> dict:
-    assert token == "ft.gAAAA-captured"
+    assert token.startswith("ft.")
     return {
         "account_label": "Fabian F. •••••@gmail.com",
         "address_label": "Casa (Cl. 40B)",
@@ -120,3 +122,50 @@ def test_cors_allows_platform_front(tmp_path) -> None:
         "/healthz", headers={"Origin": "http://localhost:3000"}
     )
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+def test_manual_connect_with_pasted_token(tmp_path) -> None:
+    config = make_config(tmp_path)
+    flow = LoginFlow(config, prober=fake_prober)
+    status = flow.connect_with_token(" ft.gAAAA-manual ", device_id="dev-9")
+    assert status["state"] == "captured"
+    assert status["account_label"] == "Fabian F. •••••@gmail.com"
+    data = json.loads(config.session_file.read_text())
+    assert data["token"] == "ft.gAAAA-manual"
+    assert data["deviceId"] == "dev-9"
+
+
+def test_manual_connect_rejects_non_ft_token(tmp_path) -> None:
+    from src.rappi_bridge.errors import BridgeError
+
+    config = make_config(tmp_path)
+    flow = LoginFlow(config, prober=fake_prober)
+    with pytest.raises(BridgeError):
+        flow.connect_with_token("Bearer eyJhbGciOi")
+    assert flow.status()["state"] == "error"
+    assert not config.session_file.exists()
+
+
+def test_manual_endpoint_over_http(tmp_path) -> None:
+    config = make_config(tmp_path)
+    app = create_app(
+        config,
+        service=object(),
+        login_flow=LoginFlow(config, prober=fake_prober),
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/rappi/session/manual", json={"token": "ft.gAAAA-manual"}
+    )
+    assert response.status_code == 200
+    assert response.json()["state"] == "captured"
+    bad = client.post("/v1/rappi/session/manual", json={"token": "nope"})
+    assert bad.status_code == 409
+    assert bad.json()["reason"] == "BRIDGE_ERROR"
+
+
+def test_login_profile_dir_is_created(tmp_path) -> None:
+    config = make_config(tmp_path)
+    assert config.login_profile_dir == pathlib.Path(
+        "var/rappi-bridge/login-profile"
+    )

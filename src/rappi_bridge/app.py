@@ -78,6 +78,19 @@ def create_app(
         _guard_token(authorization)
         return login_flow.start()
 
+    @app.post("/v1/rappi/session/manual")
+    def session_manual(
+        body: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        """Plan B: paste the ft. token by hand (DevTools → Authorization)."""
+        _guard_token(authorization)
+        token = str(body.get("token", ""))
+        device_id = body.get("device_id")
+        return login_flow.connect_with_token(
+            token, device_id=str(device_id) if device_id else None
+        )
+
     @app.delete("/v1/rappi/session")
     def session_disconnect(
         authorization: str | None = Header(default=None),

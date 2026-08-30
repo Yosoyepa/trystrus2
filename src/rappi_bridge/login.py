@@ -19,14 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from .config import BridgeConfig
+from .errors import BridgeError
 
 AUTH_MARKER = "/ms/application-user/auth"
 LOGIN_URL = "https://www.rappi.com.co/login"
-MOBILE_UA = (
-    "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile "
-    "Safari/537.36"
-)
 LOGIN_TIMEOUT_S = 300
 DEFAULT_COORDS = ("4.7110", "-74.0721")  # Bogotá
 
@@ -112,6 +108,54 @@ class LoginFlow:
     def launches(self) -> int:
         return self._launches
 
+    def connect_with_token(self, token: str, *, device_id: str | None = None) -> dict[str, Any]:
+        """Plan B: paste a token by hand (DevTools → services.grability…
+        request → Authorization header). Synchronous; raises on failure."""
+        token = token.strip()
+        with self._lock:
+            self._status = {
+                "state": "waiting_login",
+                "has_token": self._config.session_file.exists(),
+                "account_label": None,
+                "address_label": None,
+                "error": None,
+                "started_at": datetime.now(UTC).isoformat(),
+            }
+        try:
+            if not token.startswith("ft."):
+                raise BridgeError(
+                    "the token must start with 'ft.' (Authorization header of "
+                    "services.grability.rappi.com)"
+                )
+            account = self._prober(token)
+            self._write_session(
+                token=token,
+                device_id=device_id or uuid.uuid4().hex,
+                lat=str(account.get("lat") or DEFAULT_COORDS[0]),
+                lng=str(account.get("lng") or DEFAULT_COORDS[1]),
+            )
+            with self._lock:
+                self._status = {
+                    "state": "captured",
+                    "has_token": True,
+                    "account_label": account.get("account_label"),
+                    "address_label": account.get("address_label"),
+                    "error": None,
+                    "started_at": self._status["started_at"],
+                }
+            return dict(self._status)
+        except Exception as exc:
+            with self._lock:
+                self._status = {
+                    "state": "error",
+                    "has_token": self._config.session_file.exists(),
+                    "account_label": None,
+                    "address_label": None,
+                    "error": str(exc)[:300],
+                    "started_at": self._status["started_at"],
+                }
+            raise
+
     # -- internals -----------------------------------------------------------
 
     def _run(self) -> None:
@@ -186,7 +230,14 @@ class LoginFlow:
         }
 
     def _launch_browser(self) -> dict[str, Any]:
-        """Headful capture; the OWNER performs the OTP login, we only listen."""
+        """Headful capture; the OWNER performs the OTP login, we only listen.
+
+        No user-agent spoofing: Rappi's antifraud rejects the login with
+        400 "looks_bad" when the client hints (real desktop Chrome) mismatch
+        a claimed mobile UA. The persistent profile keeps the device
+        fingerprint stable so trust accumulates across attempts. This is a
+        dedicated profile — the owner's personal Chrome profile is untouched.
+        """
         from playwright.sync_api import sync_playwright
 
         captured: dict[str, Any] = {}
@@ -200,25 +251,26 @@ class LoginFlow:
                 captured["token"] = auth.removeprefix("Bearer ")
                 captured["device_id"] = request.headers.get("deviceid", "")
 
+        profile = self._config.login_profile_dir
+        profile.mkdir(parents=True, exist_ok=True)
+        window = ["--window-size=460,900"]
         with sync_playwright() as p:
-            browser = None
+            context = None
             if self._config.login_browser:
                 try:
-                    browser = p.chromium.launch(
+                    context = p.chromium.launch_persistent_context(
+                        str(profile),
                         headless=False,
                         channel=self._config.login_browser,
-                        args=["--window-size=420,800"],
+                        args=window,
                     )
                 except Exception:
-                    browser = None  # channel unavailable: fall back below
-            if browser is None:
-                browser = p.chromium.launch(
-                    headless=False, args=["--window-size=420,800"]
+                    context = None  # channel unavailable: fall back below
+            if context is None:
+                context = p.chromium.launch_persistent_context(
+                    str(profile), headless=False, args=window
                 )
             try:
-                context = browser.new_context(
-                    viewport={"width": 420, "height": 800}, user_agent=MOBILE_UA
-                )
                 page = context.new_page()
                 page.on("response", on_response)
                 page.goto(LOGIN_URL)
@@ -228,5 +280,5 @@ class LoginFlow:
                         raise TimeoutError("login OTP window timed out (5 min)")
                     page.wait_for_timeout(1500)
             finally:
-                browser.close()
+                context.close()
         return captured

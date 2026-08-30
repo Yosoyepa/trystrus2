@@ -40,6 +40,10 @@ class BridgeConfig(BaseSettings):
     # OTP login capture ("Config Rappi"): "chrome" uses the owner's installed
     # Google Chrome (falls back to Playwright's chromium); "" forces chromium.
     login_browser: str = "chrome"
+    # Persistent browser profile: the device accumulates trust with Rappi's
+    # antifraud across attempts (a live run got 400 "looks_bad" on a fresh,
+    # UA-spoofed context — real fingerprint + stable profile fixes it).
+    login_profile_dir: Path = Path("var/rappi-bridge/login-profile")
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     @property
