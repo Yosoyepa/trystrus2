@@ -7,6 +7,39 @@ evidence. Scope and day plan: [`../PLAN-PARALELO.md`](../PLAN-PARALELO.md)
 
 ---
 
+## 2026-08-30 — The chat can reach the real local Rappi bridge from compose
+
+- **Incident:** `/agent/dispatch` selected `rappi_comprador` and returned 200,
+  but the run found zero offers. Direct host search returned 286 live Rappi
+  products; from `aval-kernel`, the configured `169.254.1.2:8010` refused the
+  connection because the credential bridge correctly bound host loopback.
+- **Built:** `rappi_bridge` is now a compose service on the private
+  `aval-network`, with only `127.0.0.1:8010` published for the configuration
+  console. The kernel uses `http://rappi_bridge:8010`, waits for its health,
+  and Rappi registration itself checks `/healthz` instead of claiming an
+  untested connection. The local launcher also starts the bridge explicitly.
+  `DRY_RUN=true` and the hard COP cap remain the defaults; the session file
+  stays a chmod-600 bind mount on the credential machine. In compose, the
+  bridge receives only its explicit `AVAL_BRIDGE_*` settings; it does not
+  inherit database or model credentials from the repository `.env`. The local
+  launcher waits for bridge health before starting the kernel, so registration
+  cannot lose a startup race.
+- **Chat correctness:** explicit search language (`busca`, `muéstrame`,
+  `opciones`) now stops after the real read-only proposal; purchase language
+  still wins when both appear. Finished runs are returned to the UI with the
+  merchant title, price and CDN images instead of disappearing as `run:null`.
+  A Rappi-only search sends the original query directly to its catalogue and
+  ranks the returned offers deterministically. Obvious grocery keywords also
+  route without a model, removing the irrelevant model waits that could exceed
+  the web BFF's 25-second timeout.
+  Rappi cart hashes also normalise equivalent integer/float/string numbers,
+  fixing the live quote's JCS rejection without introducing float arithmetic.
+- **Verification:** compose topology tests cover both compose files. Runtime
+  verification exercises bridge health from the kernel, live catalogue search,
+  and the chat dispatcher without a paying click. The cluster smoke test now
+  covers bridge health and the web-to-agent mandate route alongside the
+  existing kernel, Yuno and merchant routes.
+
 ## 2026-08-30 — Schema alignment corrected: fresh DB follows schema.sql (agent shape), not the old alembic shapes
 - **What broke live:** after the volume wipe, kernel and merchant went into
   crash loops. Root cause of the confusion: TWO different database shapes

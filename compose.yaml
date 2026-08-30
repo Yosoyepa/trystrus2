@@ -3,6 +3,7 @@
 #
 # Services:
 #   - db: PostgreSQL 16 Alpine + full schema & seed fixtures
+#   - rappi_bridge: local credential-bound Rappi bridge (:8010, loopback only)
 #   - kernel: FastAPI trust layer, SD-JWT mandates, policy gate & ledger (:8001)
 #   - yuno_sim: FastAPI Yuno-style AP2 simulated settlement rail (:8002)
 #   - merchant: FastAPI VuelaYa catalog & AP2 checkout (:8003)
@@ -33,6 +34,48 @@ services:
     networks:
       - aval-net
 
+  rappi_bridge:
+    image: aval-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aval-rappi-bridge
+    restart: unless-stopped
+    security_opt:
+      - label=disable
+    # Rootless Podman maps the host user to the image's non-root appuser so
+    # the bridge can read the chmod-600 Rappi session without weakening it.
+    userns_mode: "keep-id:uid=999,gid=999"
+    command:
+      ["uvicorn", "--factory", "src.rappi_bridge.app:create_app", "--host", "0.0.0.0", "--port", "8010"]
+    environment:
+      PORT: "8010"
+      AVAL_BRIDGE_BIND: "0.0.0.0"
+      AVAL_BRIDGE_PORT: "8010"
+      AVAL_BRIDGE_SESSION_FILE: /app/secrets/rappi-config.json
+      AVAL_BRIDGE_STATE_DB_PATH: /app/var/rappi-bridge/state.sqlite3
+      AVAL_BRIDGE_KERNEL_JWKS_URL: http://kernel:8001/.well-known/jwks.json
+      AVAL_BRIDGE_DRY_RUN: ${AVAL_BRIDGE_DRY_RUN:-true}
+      AVAL_BRIDGE_ENABLED: ${AVAL_BRIDGE_ENABLED:-true}
+      AVAL_BRIDGE_MAX_ORDER_COP: ${AVAL_BRIDGE_MAX_ORDER_COP:-50000.00}
+      AVAL_BRIDGE_PAYMENT_METHOD_ID: ${AVAL_BRIDGE_PAYMENT_METHOD_ID:-}
+      AVAL_BRIDGE_ALLOW_CASH: ${AVAL_BRIDGE_ALLOW_CASH:-false}
+      AVAL_BRIDGE_CORS_ORIGINS: ${AVAL_BRIDGE_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      PYTHONPATH: /app/src:/app
+    ports:
+      - "127.0.0.1:8010:8010"
+    volumes:
+      - ./secrets:/app/secrets
+      - ./var/rappi-bridge:/app/var/rappi-bridge
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8010/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+    networks:
+      - aval-net
+
   kernel:
     image: aval-backend:latest
     build:
@@ -55,7 +98,7 @@ services:
       AVAL_RP_ORIGIN: http://localhost:3000
       AVAL_RP_ID: localhost
       AVAL_ISSUER: http://localhost:8001
-      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://169.254.1.2:8010}
+      TT_RAPPI_BRIDGE_URL: ${TT_RAPPI_BRIDGE_URL:-http://rappi_bridge:8010}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -73,6 +116,8 @@ services:
       - ./var/podman-var:/app/var
     depends_on:
       db:
+        condition: service_healthy
+      rappi_bridge:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]

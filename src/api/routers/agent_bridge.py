@@ -348,3 +348,40 @@ async def list_configured_agents() -> list[dict[str, Any]]:
         return service.list_agents(conn)
     except Exception as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/purchases")
+async def list_purchases(
+    mandate_jti: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    """Transactions, newest first, each with the size of its mandate chain."""
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.purchases(conn, mandate_jti=mandate_jti, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/purchases/{purchase_id}/trace")
+async def trace_purchase(purchase_id: str) -> dict[str, Any]:
+    """Every mandate this transaction was transacted against, child first.
+
+    A sticky approval issues a child mandate over its parent, and settlement
+    walks the whole ancestry -- so a transaction generally debits more than one
+    mandate, and showing only the one named on the intent would hide the limit
+    that actually constrained it.
+    """
+    conn = _conn()
+
+    from src.agent import service
+
+    try:
+        return service.purchase_trace(conn, purchase_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

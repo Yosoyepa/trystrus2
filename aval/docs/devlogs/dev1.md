@@ -7,6 +7,42 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 
 ---
 
+## 2026-08-30 — every mandate a transaction was transacted against
+
+- **Why:** asked for a view showing, per transaction, every mandate involved.
+  The honest answer is a list rather than one row: a sticky approval issues a
+  one-shot child mandate carrying `parent_jti`, and `reserve_chain`/`settle`/
+  `release` walk the whole ancestry (H6/K1), so a purchase generally debits more
+  than one mandate. Showing only the mandate named on the intent would hide the
+  limit that actually constrained the purchase.
+- **Built (additive only, no existing behaviour changed):**
+  - `service.purchases()` — transactions newest first, each carrying
+    `mandate_depth`, so a chain of more than one is visible in the list.
+  - `service.purchase_trace()` — the ancestry child first, each entry with the
+    limits in force, what this purchase debited from it, and the resulting
+    `spent_total`/`txn_count`; plus the signed intent and the chain events. It
+    reconstructs from the rows the gate wrote and never recomputes a decision —
+    a verdict recomputed later is not evidence of what was decided then.
+  - `GET /agent/purchases` and `GET /agent/purchases/{id}/trace` on the bridge.
+  - `web/` Transactions view: the ancestry as a ladder, and an amber callout
+    where a mandate's `debited` exceeds its own `max_per_txn` — the ancestor
+    case, which is the guarantee working rather than an error.
+- **Tests:** unchanged from baseline — agent 42/42, Python 380 passed / 1 failed
+  / 2 skipped (the pre-existing hardcoded-DSN test), web build clean. Endpoints
+  exercised over HTTP: 200 on both, 404 on an unknown purchase.
+- **Found and fixed:** the first cut matched chain events on `purchase_id` only,
+  which silently dropped the gate's own verdict — `purchase.gated`,
+  `purchase.verified` and `purchase.refused` carry `intent_jti` instead. A
+  rejected transaction now shows `requested -> gated REJECTED -> rejected
+  BUDGET_EXCEEDED` rather than two bookend events.
+- **Open questions:** `src/api/deps.py` still wires the decision and ledger
+  services to in-memory stores, so `/audit/events`, `/purchases/{id}` and the
+  evidence pack read an empty world rather than Postgres. This view routes
+  around that through the agent bridge; wiring `deps.py` to the Postgres
+  repositories is the real fix and is untouched here.
+
+---
+
 ## 2026-08-30 — Partial demo seed no longer leaves the dispatcher without authority
 
 - **Why:** a local volume could retain `flights_marta`/`rappi_comprador` while
@@ -46,6 +82,8 @@ outside the gate, resilient to prompt injection. Scope and day plan:
 ---
 
 
+
+## 2026-08-30 — one schema, and the console stops inventing evidence
 
 - **Why:** the database had four descriptions that disagreed, and the console
   fell back to a 990-line mock engine on any backend failure — including on the

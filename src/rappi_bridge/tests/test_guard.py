@@ -57,3 +57,18 @@ def test_cart_hash_is_stable_and_sensitive() -> None:
     other_price = dict(store, total="18301.00")
     assert compute_cart_hash("restaurant", store) == compute_cart_hash("restaurant", store)
     assert compute_cart_hash("restaurant", store) != compute_cart_hash("restaurant", other_price)
+
+
+def test_cart_hash_normalises_rappi_float_numbers() -> None:
+    numeric = {
+        "id": STORE_ID,
+        "total": 1725.0,
+        "products": [{"product_id": 1, "units": 1.0, "total": 1725.0}],
+    }
+    strings = {
+        "id": STORE_ID,
+        "total": "1725",
+        "products": [{"product_id": "1", "units": "1", "total": "1725"}],
+    }
+
+    assert compute_cart_hash("restaurant", numeric) == compute_cart_hash("restaurant", strings)

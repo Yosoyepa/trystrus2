@@ -142,13 +142,6 @@ def score_candidates(
 
 def select_agent(conn, text: str) -> dict[str, Any] | None:
     """Pick the best active (agent, mandate) pair for `text`, or None."""
-    criteria = dict(llm.parse_request(text))
-    keyword_category = inferred_category(text)
-    if keyword_category:
-        # Buyer words beat the model: "botella de agua" is groceries even if
-        # the parser still thinks in flights (it used to only know those two).
-        criteria["category"] = keyword_category
-    category = criteria.get("category")
     rows = conn.execute(
         "SELECT a.id AS agent_id, a.name AS agent_name, m.jti AS mandate_jti,"
         " m.claims AS claims, m.created_at AS created_at"
@@ -170,9 +163,13 @@ def select_agent(conn, text: str) -> dict[str, Any] | None:
         )
     if not candidates:
         return None
-    # There is no reason to spend an LLM call (or wait for its timeout) when
-    # no active mandate can possibly be selected.
-    criteria = llm.parse_request(text)
+    keyword_category = inferred_category(text)
+    if keyword_category:
+        # Buyer words beat the model and avoid a variable network wait for
+        # obvious requests such as "botella de agua" or "vuelo a Córdoba".
+        criteria = {"category": keyword_category}
+    else:
+        criteria = dict(llm.parse_request(text))
     category = criteria.get("category")
     ranked = score_candidates(candidates, criteria, text)
     best = ranked[0]
