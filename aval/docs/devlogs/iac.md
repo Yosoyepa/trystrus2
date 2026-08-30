@@ -27,7 +27,9 @@ Scheduler jobs, tracing. Protocol: newest first, every PR.
 - **Plan ergonomics:** `infra-plan` acepta `dev|prod` al despacharse
   manualmente y mantiene el resumen redactado; los pushes puramente de IaC o
   documentación ya no reconstruyen/despliegan la app dev. Push y PR se
-  serializan por ambiente para no competir por el mismo lock de estado GCS.
+  serializan por ambiente para no competir por el mismo lock de estado GCS;
+  un fallo publica solo el `diagnostic.summary` estructurado, nunca detalle ni
+  valores del plan.
 - **Prod state ownership fixed:** el primer plan prod reveló que dos estados
   del mismo proyecto querían crear APIs, Artifact Registry y secretos con los
   mismos nombres. Por [decisión 0031](../decisions/0031-single-project-iac-ownership.md),

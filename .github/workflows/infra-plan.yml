@@ -71,13 +71,20 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
-          if ! tofu plan \
+          if ! tofu plan -json \
               -var-file="environments/${TARGET_ENV}.tfvars" \
               -var="project_id=${{ vars.GCP_PROJECT }}" \
               -input=false \
               -out=plan.out \
-              >/tmp/tofu-plan.log 2>&1; then
+              >/tmp/tofu-plan.jsonl 2>&1; then
             echo "OpenTofu plan failed. Detailed values are withheld from public logs."
+            jq -Rr '
+              fromjson?
+              | select(.type == "diagnostic")
+              | .diagnostic.summary
+              | select(type == "string")
+              | "OpenTofu diagnostic: \(.)"
+            ' /tmp/tofu-plan.jsonl | sort -u
             exit 1
           fi
           tofu show -json plan.out | jq -r '
