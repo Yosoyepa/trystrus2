@@ -1,4 +1,4 @@
-# CONTRATOS DE DATOS E INTERFACES — Aval v1.0 (M0)
+# CONTRATOS DE DATOS E INTERFACES — Aval v1.1 (M2)
 
 > **Fuente única de verdad para los 4 workstreams.** Congelado en M0 (Día 0). Cambios: PR aditivo `v1.x` (actualizando mock + trustlib en el mismo commit); cambios rompibles solo antes de M2. Compañero de [api.yaml](api.yaml) (transporte REST) — este archivo define lo que viaja DENTRO.
 
@@ -86,7 +86,7 @@ class SpendView(BaseModel):                 # proyección del ledger para evalua
     txn_count_period: int
     mandate_status: MandateStatus           # active | suspended | revoked | …
 
-# [Dev 3] PaymentRail — adaptador PayPal; revocación y checkout la usan (ambos Dev 3; Dev 2 no toca el rail)
+# [Dev 3] PaymentRail — adaptador del rail Yuno-style simulado; revocación y checkout la usan (ambos Dev 3; Dev 2 no toca el rail)
 class PaymentRail(Protocol):
     def create_setup_token(self, mandate_id: str) -> SetupToken:        # → approve_url
     def exchange_payment_token(self, setup_token_id: str) -> str:       # → payment_token_id
@@ -130,6 +130,7 @@ Envelope único: `{event_id, type, aggregate_id, payload, created_at}` (+ `seq` 
 | `escalation.resolved` | 3 | escalation_id, decision, receipt_sig | 2 (resume saga), SSE |
 | `escalation.expired` | 3 | escalation_id (timeout fail-closed) | 2 (compensa), 1 |
 | `dispute.opened` / `dispute.resolved` | 4 | capture_id, dispute_id, outcome | 2 (evidence bundle), SSE |
+| `payment.captured` / `payment.refused` | 3 (Yuno-style simulado) | receipt / reason_code | merchant, 2 (evidence bundle) |
 | `root.checkpoint` | 2 | root_hash, root_sig, seq_range | GCS witness |
 
 ## 5. Semántica de "escalation resume" (contrato 3↔2↔1 — el más delicado)
@@ -165,6 +166,15 @@ CREATE TABLE escalations (
   diff JSONB, timeout_at TIMESTAMPTZ NOT NULL,
   decision TEXT, approver TEXT, channel TEXT, receipt_sig TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- [3] passkeys (decision 0021): the same mandate hash may be used once for
+-- activation and once for revocation, so the purpose is part of the key.
+CREATE TABLE webauthn_challenges (
+  challenge TEXT NOT NULL, user_id TEXT NOT NULL, mandate_id TEXT,
+  purpose TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (challenge, purpose)
 );
 
 -- [2] decisión + evidencia (fraude, contratos, idempotencia)
@@ -208,13 +218,25 @@ CREATE TABLE agent_runs (
 -- [3] comercio & rail
 CREATE TABLE payment_instruments (
   token_ref TEXT PRIMARY KEY, mandate_jti TEXT NOT NULL,
-  rail TEXT NOT NULL DEFAULT 'paypal', status TEXT NOT NULL DEFAULT 'active',
+  rail TEXT NOT NULL DEFAULT 'yuno_sim', status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE offers (
   id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, category TEXT NOT NULL,
   title TEXT NOT NULL, amount NUMERIC(12,2) NOT NULL, currency TEXT NOT NULL,
+  origin TEXT, destination TEXT, travel_date DATE,
   description TEXT, active BOOLEAN NOT NULL DEFAULT true
+);
+
+-- [3] VuelaYa commits to a cart before the agent signs the payment intent.
+-- `checkout_jwt` is the exact ES256 artefact whose SHA-256 hash is carried
+-- by `PurchaseIntent.checkout_hash`; it is never reconstructed after charge.
+CREATE TABLE merchant_orders (
+  id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, amount NUMERIC(12,2) NOT NULL,
+  currency TEXT NOT NULL, checkout_jwt TEXT UNIQUE NOT NULL,
+  checkout_hash TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'quoted',
+  purchase_id TEXT UNIQUE, receipt JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -231,7 +253,7 @@ Convención de escritura cruzada: `verify` [2] es el ÚNICO escritor de `mandate
 | `INVALID_SIGNATURE` / `INVALID_PROOF_OF_POSSESSION` | Cripto: intent o KB inválidos → posible impersonación | verify |
 | `DUPLICATE_JTI` / `NONCE_REUSED` | Replay | verify |
 | `ESCALATION_TIMEOUT_DENIED` | Timeout 120 s fail-closed | A |
-| `RAIL_ERROR` / `RAIL_TOKEN_DELETED` | PayPal falla / token borrado (revocación a nivel rail) | PaymentRail |
+| `RAIL_ERROR` / `RAIL_TOKEN_DELETED` | rail Yuno-style simulado falla / token borrado (revocación a nivel rail) | PaymentRail |
 
 ## 8. Estrategia de mocks (la que habilita el paralelismo)
 
@@ -265,4 +287,19 @@ Reglas de la frontera:
 2. **`request_purchase` no acepta `amount`.** El monto sale de la offer referenciada; el invariante `intent.amount == offer.amount` se verifica en el kernel (§2). El agente no puede proponer un precio distinto del catálogo.
 3. **No existe tool de pago.** Ninguna tool toca `PaymentRail`; la única ruta al dinero sigue siendo gate → verify → checkout.
 4. El watcher (1) NO usa MCP: sondea el REST `GET /catalog/offers` (api.yaml) — MCP es para el agente interactivo, el polling es para el job.
+
+## 11. Checkout y webhooks del merchant (aditivo v1.1)
+
+`PurchaseIntent` es un JWS **detached**, por lo que `POST /checkout/charge`
+transporta tanto `intent` (el payload canónico) como `intent_jwt` (la firma).
+También transporta `checkout_jwt`, emitido antes por `POST /checkout/quote`.
+El merchant rechaza la carga si el payload no verifica con `cnf.jwk`, si el
+precio de la oferta actual no coincide, o si
+`intent.checkout_hash != sha256(checkout_jwt)`.
+
+El orquestador activo es `yuno_sim`, siempre rotulado como simulado. Sus
+webhooks se envían como un `EventEnvelope` JCS firmado con JWS detached
+Ed25519 en `X-Yuno-Signature`; el merchant obtiene la clave pública en
+`/.well-known/jwks.json` del orquestador. Una firma inválida es un 401 y no
+produce efectos.
 - [ ] DDL aplicado en Cloud SQL staging + docker-compose local.

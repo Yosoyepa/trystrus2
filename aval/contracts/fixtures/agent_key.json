@@ -1,0 +1,11 @@
+{
+  "agent_id": "agt_flights",
+  "alg": "EdDSA",
+  "private_pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIPOZIoYs2wFKqetwRb69s2lG9p9FxEXuN/B+ERy7O57+\n-----END PRIVATE KEY-----\n",
+  "public_jwk": {
+    "crv": "Ed25519",
+    "kty": "OKP",
+    "x": "sZk4kpArRM-vvQsOq4_Vi7WD1ozkALQ11yUaKOIQNjg"
+  },
+  "note": "Dev 1 signs purchase intents with this (schemas.md \u00a72)."
+}

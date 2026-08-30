@@ -1,6 +1,18 @@
 /.venv/
 .env
-# TryTrust local state — Ed25519 keys, database, witnessed roots
-var/
+
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local key material. Issuer/merchant PEMs live in Secret Manager in GCP and
+# in this directory in dev — never in git (decision #15).
+/secrets/
+*.pem
+
+# Agent-lane local state: Ed25519 keys, the dev database, witnessed roots.
+var/
+
+.DS_Store

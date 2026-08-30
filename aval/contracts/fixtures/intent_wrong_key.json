@@ -1,0 +1,21 @@
+{
+  "intent": {
+    "typ": "purchase_intent_v1",
+    "mandate_jti": "mdt_fixture_vuelaya",
+    "agent": "agt_flights",
+    "merchant_id": "vuelaya",
+    "offer_id": "ofr_COR_130",
+    "amount": "130.00",
+    "currency": "USD",
+    "nonce": "non_01M17XSVHJY06MSMSBA0GV9WRD",
+    "jti": "int_01M17XSVHJY06MSMSBA0GV9WRE",
+    "iat": 1788046274,
+    "exp": 1788046394
+  },
+  "intent_jwt": "eyJhbGciOiAiRWREU0EifQ..CSPDTaw3JvABLCka2hBFjUXTx7_TKv1fAdejAXwuL3xELD4QloP-zLKR-T6IwMnmnVZZvbJTtRyIihdAOn10Cg",
+  "expect": {
+    "decision": "REJECTED",
+    "reason_code": "INVALID_PROOF_OF_POSSESSION"
+  },
+  "note": "Signed by a key the mandate does not bind: the impersonation case."
+}

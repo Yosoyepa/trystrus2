@@ -1,0 +1,83 @@
+{
+  "claims": {
+    "iss": "https://api.aval.example",
+    "iat": 1787959874,
+    "nbf": 1787959874,
+    "exp": 1790638274,
+    "jti": "mdt_fixture_vuelaya",
+    "type": "purchase_mandate_v1",
+    "sub": "usr_marta",
+    "agent": "agt_flights",
+    "cnf": {
+      "jwk": {
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "sZk4kpArRM-vvQsOq4_Vi7WD1ozkALQ11yUaKOIQNjg"
+      }
+    },
+    "payment_method_ref": "ynt_test_instrument",
+    "currency": "USD",
+    "scope": {
+      "categories": [
+        "flights"
+      ],
+      "merchants": [
+        "vuelaya"
+      ]
+    },
+    "conditions": {
+      "<": [
+        {
+          "var": "offer.price"
+        },
+        150
+      ]
+    },
+    "limits": {
+      "max_per_txn": "150",
+      "total_budget": "400",
+      "max_txn": {
+        "count": 3,
+        "period": "month"
+      }
+    },
+    "validity": {
+      "not_before": "2026-08-28T23:31:14.095959Z",
+      "expires_at": "2026-09-28T23:31:14.095959Z"
+    },
+    "vct": "mandate.payment.open.1",
+    "constraints": [
+      {
+        "type": "payment.amount_range",
+        "currency": "USD",
+        "min": 0,
+        "max": 15000
+      },
+      {
+        "type": "payment.budget",
+        "currency": "USD",
+        "max": 40000
+      },
+      {
+        "type": "payment.allowed_payees",
+        "allowed": [
+          {
+            "id": "vuelaya"
+          }
+        ]
+      },
+      {
+        "type": "payment.agent_recurrence",
+        "frequency": "MONTHLY",
+        "max_occurrences": 3
+      },
+      {
+        "type": "payment.execution_date",
+        "not_before": "2026-08-28T23:31:14.095959+00:00",
+        "not_after": "2026-09-28T23:31:14.095959+00:00"
+      }
+    ]
+  },
+  "sd_jwt": "eyJhbGciOiAiRWREU0EiLCAia2lkIjogInYxIiwgInR5cCI6ICJzZCtqd3QifQ.eyJfc2QiOlsiQ2ZQMElUMG1wZDJ2cjAtVkIzdUQ2dXJOQWxwVDVHM19VRFFZay1lTk1ETSIsIk4zVEJCTnotT00zY2NWUmZqNnc1YXc4c0JIZjVIdFJXX3JZclN3a2JkYjAiXSwiX3NkX2FsZyI6InNoYS0yNTYiLCJhZ2VudCI6ImFndF9mbGlnaHRzIiwiY25mIjp7Imp3ayI6eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6InNaazRrcEFyUk0tdnZRc09xNF9WaTdXRDFvemtBTFExMXlVYUtPSVFOamcifX0sImNvbmRpdGlvbnMiOnsiPCI6W3sidmFyIjoib2ZmZXIucHJpY2UifSwxNTBdfSwiY29uc3RyYWludHMiOlt7ImN1cnJlbmN5IjoiVVNEIiwibWF4IjoxNTAwMCwibWluIjowLCJ0eXBlIjoicGF5bWVudC5hbW91bnRfcmFuZ2UifSx7ImN1cnJlbmN5IjoiVVNEIiwibWF4Ijo0MDAwMCwidHlwZSI6InBheW1lbnQuYnVkZ2V0In0seyJhbGxvd2VkIjpbeyJpZCI6InZ1ZWxheWEifV0sInR5cGUiOiJwYXltZW50LmFsbG93ZWRfcGF5ZWVzIn0seyJmcmVxdWVuY3kiOiJNT05USExZIiwibWF4X29jY3VycmVuY2VzIjozLCJ0eXBlIjoicGF5bWVudC5hZ2VudF9yZWN1cnJlbmNlIn0seyJub3RfYWZ0ZXIiOiIyMDI2LTA5LTI4VDIzOjMxOjE0LjA5NTk1OSswMDowMCIsIm5vdF9iZWZvcmUiOiIyMDI2LTA4LTI4VDIzOjMxOjE0LjA5NTk1OSswMDowMCIsInR5cGUiOiJwYXltZW50LmV4ZWN1dGlvbl9kYXRlIn1dLCJjdXJyZW5jeSI6IlVTRCIsImV4cCI6MTc5MDYzODI3NCwiaWF0IjoxNzg3OTU5ODc0LCJpc3MiOiJodHRwczovL2FwaS5hdmFsLmV4YW1wbGUiLCJqdGkiOiJtZHRfZml4dHVyZV92dWVsYXlhIiwibGltaXRzIjp7Im1heF9wZXJfdHhuIjoiMTUwIiwibWF4X3R4biI6eyJjb3VudCI6MywicGVyaW9kIjoibW9udGgifSwidG90YWxfYnVkZ2V0IjoiNDAwIn0sIm5iZiI6MTc4Nzk1OTg3NCwicGF5bWVudF9tZXRob2RfcmVmIjoieW50X3Rlc3RfaW5zdHJ1bWVudCIsInNjb3BlIjp7ImNhdGVnb3JpZXMiOlsiZmxpZ2h0cyJdLCJtZXJjaGFudHMiOlsidnVlbGF5YSJdfSwic3ViIjoidXNyX21hcnRhIiwidHlwZSI6InB1cmNoYXNlX21hbmRhdGVfdjEiLCJ2YWxpZGl0eSI6eyJleHBpcmVzX2F0IjoiMjAyNi0wOS0yOFQyMzozMToxNC4wOTU5NTlaIiwibm90X2JlZm9yZSI6IjIwMjYtMDgtMjhUMjM6MzE6MTQuMDk1OTU5WiJ9LCJ2Y3QiOiJtYW5kYXRlLnBheW1lbnQub3Blbi4xIn0.9PTIVgVkHaQ-dsIfhTMf3d84g9lVpSW7XvkqEAE1fk9o_SwU0zdD-OVAF8orKDIogQN3pgHh1xSKDxk3UwJrBQ~WyJJdTBxWmR0UFFYN0o4MjN0bW45UWNnIiwiZW1haWwiLCJtYXJ0YUBleGFtcGxlLmNvbSJd~WyI0ME1DRTdsempKcVI0cFhVc3B5SlVRIiwic2hpcHBpbmdfYWRkcmVzcyIsIkJvZ290YSwgQ08iXQ~",
+  "note": "Marta lets agt_flights buy flights from vuelaya: <$150 per txn, 3 per month, USD 400 total."
+}

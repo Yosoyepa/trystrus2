@@ -1,22 +1,48 @@
 [project]
-name = "hackthon-yuno-nauta"
+name = "aval"
 version = "0.1.0"
-description = "TryTrust — a trust layer for purchases made by AI agents"
+description = "TryTrust — a trust layer for purchases made by AI agents (NextWave 2026, Yuno x Nauta)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    # identity, merchant and the simulated rail (async stack)
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "cbor2>=6.1.4",
+    "fastapi>=0.141.1",
+    "google-cloud-secret-manager>=2.30.0",
+    "jwcrypto>=1.5.9",
+    "pydantic-settings>=2.15.0",
+    "python-ulid>=4.0.1",
+    "rfc8785>=0.1.4",
+    "sd-jwt>=0.10.4",
+    "sqlalchemy[asyncio]>=2.0.52",
+    "uvicorn[standard]>=0.52.4",
+    "webauthn>=3.0.0",
+    # agent lane (sync psycopg; the graph and the CLI are not async)
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
-    "alembic>=1.14",
-    "sqlalchemy>=2.0",
     "cryptography>=44.0",
     "pyyaml>=6.0",
-    "httpx>=0.28",
-    "mcp>=1.2",
+    # shared
+    "httpx>=0.28.1",
+    "mcp>=2.1.1",
 ]
 
-[project.optional-dependencies]
-api = ["fastapi>=0.115", "uvicorn[standard]>=0.34"]
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.3",
+]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+# `src` on the path so the deployables import as `api.*`, `merchant.*`,
+# `trustlib.*`, `yuno_sim.*` — the agent lane imports as `src.agent.*` and is
+# unaffected.
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
