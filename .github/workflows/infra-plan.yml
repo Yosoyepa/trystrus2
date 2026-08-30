@@ -24,7 +24,9 @@ on:
         default: dev
 
 concurrency:
-  group: infra-plan-${{ github.repository }}-${{ github.ref }}
+  # push + pull_request for the same branch can target the same GCS state.
+  # Serialize by environment, not ref, so OpenTofu never races its own lock.
+  group: infra-plan-${{ github.repository }}-${{ inputs.environment || 'dev' }}
   cancel-in-progress: true
 
 permissions:
