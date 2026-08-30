@@ -4,12 +4,15 @@ import { TamperMutationInjector } from './TamperMutationInjector';
 import { EscalationsQueue } from './EscalationsQueue';
 import { TelemetryDashboard } from './TelemetryDashboard';
 import { EvidencePackViewer } from './EvidencePackViewer';
+import { TransactionsView } from './TransactionsView';
 import { RedAlertBanner } from '../RedAlertBanner';
-import { Layers, Bug, Clock, Activity, FileCheck } from 'lucide-react';
+import { Layers, Bug, Clock, Activity, FileCheck, Receipt } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export const AuditorTower: React.FC = () => {
-  const [subTab, setSubTab] = useState<'ledger' | 'tamper' | 'escalations' | 'telemetry' | 'evidence'>('ledger');
+  const [subTab, setSubTab] = useState<
+    'ledger' | 'tamper' | 'escalations' | 'telemetry' | 'evidence' | 'transactions'
+  >('ledger');
 
   const subTabs = [
     { id: 'ledger' as const, label: 'Hash-Chained Ledger', icon: Layers },
@@ -17,6 +20,7 @@ export const AuditorTower: React.FC = () => {
     { id: 'escalations' as const, label: 'Escalations Queue', icon: Clock },
     { id: 'telemetry' as const, label: 'Telemetry & Concurrency', icon: Activity },
     { id: 'evidence' as const, label: 'Evidence Proof Pack', icon: FileCheck },
+    { id: 'transactions' as const, label: 'Transactions', icon: Receipt },
   ];
 
   return (
@@ -53,6 +57,7 @@ export const AuditorTower: React.FC = () => {
       {subTab === 'escalations' && <EscalationsQueue />}
       {subTab === 'telemetry' && <TelemetryDashboard />}
       {subTab === 'evidence' && <EvidencePackViewer />}
+      {subTab === 'transactions' && <TransactionsView />}
     </div>
   );
 };

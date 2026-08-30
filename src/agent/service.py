@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import audit, auth, chat, escalation, graph, limits, memory, registry, relay, watcher
+from . import audit, auth, chat, escalation, graph, kernel, limits, memory, registry, relay, watcher
 from . import mandate as mandate_mod
 from .config import LLM_MODEL, PRODUCT_DOMAIN, PRODUCT_NAME
 from .ports.base import MERCHANTS, TOOLS
@@ -324,3 +324,152 @@ def tick(conn) -> dict[str, Any]:
 
 def guardrails(conn) -> dict[str, Any]:
     return limits.snapshot(conn)
+
+
+# ── traceability: which mandates paid for a transaction ──────────────────────
+def _claims_summary(claims: dict[str, Any]) -> dict[str, Any]:
+    """The part of a mandate a person reads when asking 'was this allowed?'."""
+    limits_ = claims.get("limits") or {}
+    return {
+        "max_per_txn": limits_.get("max_per_txn"),
+        "total_budget": limits_.get("total_budget"),
+        "max_txn": limits_.get("max_txn"),
+        "currency": claims.get("currency"),
+        "scope": claims.get("scope") or {},
+        "signed_with": claims.get("signed_with"),
+    }
+
+
+def purchases(
+    conn, *, mandate_jti: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Transactions, newest first.
+
+    `mandate_jti` filters to the mandate NAMED on the intent. A purchase debits
+    that mandate's whole ancestry, so filtering by an ancestor deliberately does
+    not match here -- use `purchase_trace` to see the full set a given
+    transaction touched.
+    """
+    sql = "SELECT * FROM purchases"
+    args: list[Any] = []
+    if mandate_jti:
+        sql += " WHERE mandate_jti = ?"
+        args.append(mandate_jti)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, tuple(args)).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        mandate = conn.execute(
+            "SELECT claims FROM mandates WHERE jti=?", (row["mandate_jti"],)
+        ).fetchone()
+        claims = json.loads(mandate["claims"]) if mandate else {}
+        out.append(
+            {
+                "purchase_id": row["id"],
+                "status": row["status"],
+                "reason_code": row["reason_code"],
+                "amount": row["amount"],
+                "currency": claims.get("currency"),
+                "mandate_jti": row["mandate_jti"],
+                "intent_jti": row["intent_jti"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "mandate_depth": len(kernel.chain(conn, row["mandate_jti"])),
+                "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
+            }
+        )
+    return out
+
+
+def purchase_trace(conn, purchase_id: str) -> dict[str, Any]:
+    """One transaction and every mandate it was transacted against.
+
+    A purchase does not debit a single mandate. A sticky approval issues a child
+    mandate carrying `parent_jti` (H6), and `kernel.reserve_chain`, `settle` and
+    `release` all walk the whole ancestry -- a child can never spend what its
+    parent cannot. So the honest answer to "which mandate paid for this?" is a
+    list, child first, and every entry carries the limits that were in force and
+    the amount this transaction took out of it.
+
+    Read-only. It reconstructs from the same rows the gate wrote; it never
+    recomputes a decision, because a decision recomputed later is not evidence
+    of what was decided then.
+    """
+    row = conn.execute("SELECT * FROM purchases WHERE id=?", (purchase_id,)).fetchone()
+    if row is None:
+        raise KeyError(f"no such purchase: {purchase_id}")
+
+    amount = row["amount"]
+    ancestry = kernel.chain(conn, row["mandate_jti"])
+    mandates: list[dict[str, Any]] = []
+    for depth, jti in enumerate(ancestry):
+        m = conn.execute("SELECT * FROM mandates WHERE jti=?", (jti,)).fetchone()
+        if m is None:
+            # An ancestor named by parent_jti that no longer exists is worth
+            # showing as a hole rather than skipping: a gap in the ancestry
+            # changes what the numbers below it mean.
+            mandates.append({"jti": jti, "depth": depth, "missing": True})
+            continue
+        claims = json.loads(m["claims"])
+        mandates.append(
+            {
+                "jti": jti,
+                "depth": depth,
+                "role": "authorising" if depth == 0 else "ancestor",
+                "status": m["status"],
+                "parent_jti": m["parent_jti"],
+                "user_id": m["user_id"],
+                "agent_id": m["agent_id"],
+                "limits": _claims_summary(claims),
+                "debited": amount,
+                "spent_total": m["spent_total"],
+                "reserved_amount": m["reserved_amount"],
+                "txn_count": m["txn_count"],
+            }
+        )
+
+    intent_row = conn.execute(
+        "SELECT * FROM purchase_intents WHERE jti=?", (row["intent_jti"],)
+    ).fetchone()
+    intent = None
+    if intent_row is not None:
+        intent = {
+            "jti": intent_row["jti"],
+            "agent_id": intent_row["agent_id"],
+            "nonce": intent_row["nonce"],
+            "status": intent_row["status"],
+            "signature": intent_row["signature"],
+            "intent": json.loads(intent_row["intent"]) if intent_row["intent"] else None,
+        }
+
+    # The chain events for this purchase. Neither id lives in a column, so this
+    # matches on the payload text -- narrowed by the ancestry first, so it scans
+    # one mandate's chain rather than the whole log. Both ids are needed: the
+    # saga events carry `purchase_id`, but the gate's own verdict
+    # (`purchase.gated`, `purchase.verified`, `purchase.refused`) carries only
+    # `intent_jti`, and the verdict is the half a person actually came to read.
+    placeholders = ",".join("?" for _ in ancestry) or "''"
+    events = [
+        {**dict(e), "payload": json.loads(e["payload"])}
+        for e in conn.execute(
+            f"SELECT * FROM audit_events WHERE mandate_jti IN ({placeholders}) "
+            "AND (payload LIKE ? OR payload LIKE ?) ORDER BY seq",
+            (*ancestry, f"%{purchase_id}%", f"%{row['intent_jti']}%"),
+        ).fetchall()
+    ]
+
+    return {
+        "purchase_id": row["id"],
+        "status": row["status"],
+        "reason_code": row["reason_code"],
+        "amount": amount,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "reservation_id": row["reservation_id"],
+        "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
+        "mandates": mandates,
+        "intent": intent,
+        "events": events,
+    }

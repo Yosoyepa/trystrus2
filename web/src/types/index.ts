@@ -359,6 +359,114 @@ export interface ToastMessage {
   timestamp: number;
 }
 
+// --- AGENT PURCHASES / MANDATE TRACE (Transactions view) ---
+// Mirrors GET /agent/purchases and GET /agent/purchases/{id}/trace exactly
+// (src/api/routers/agent.py). Amounts are decimal strings on the wire — never parse
+// them into JS numbers for display, only for comparisons where precision loss is safe.
+export type AgentPurchaseStatus =
+  | 'captured'
+  | 'rejected'
+  | 'compensated'
+  | 'awaiting_escalation'
+  | 'pending'
+  | 'charging';
+
+export interface AgentPurchaseReceipt {
+  receipt_id: string;
+  merchant_id: string;
+  offer_id: string;
+  title: string;
+  amount: string;
+  currency: string;
+  capture_id: string;
+  at: string;
+}
+
+export interface AgentPurchase {
+  purchase_id: string;
+  status: AgentPurchaseStatus;
+  reason_code: ReasonCode | null;
+  amount: string;
+  currency: string;
+  mandate_jti: string;
+  intent_jti: string;
+  created_at: string;
+  updated_at: string;
+  mandate_depth: number;
+  receipt: AgentPurchaseReceipt | null;
+}
+
+export interface TraceMandateLimits {
+  max_per_txn: string;
+  total_budget: string;
+  max_txn: {
+    count: number;
+    period: string;
+  };
+  currency?: string;
+  scope?: {
+    categories: string[];
+    merchants: string[];
+  };
+  signed_with?: string;
+}
+
+export interface TraceMandate {
+  jti: string;
+  depth: number;
+  missing?: boolean;
+  role?: 'authorising' | 'ancestor';
+  status?: MandateStatus;
+  parent_jti?: string | null;
+  user_id?: string;
+  agent_id?: string;
+  limits?: TraceMandateLimits;
+  debited?: string;
+  spent_total?: string;
+  reserved_amount?: string;
+  txn_count?: number;
+}
+
+export interface TraceIntent {
+  jti: string;
+  agent_id: string;
+  nonce: string;
+  status: string;
+  signature: string;
+  intent: Record<string, unknown>;
+}
+
+export interface TraceEvent {
+  seq: number;
+  chain_key: string;
+  chain_seq: number;
+  event_id: string;
+  type: string;
+  actor: string | null;
+  agent_id: string | null;
+  run_id: string | null;
+  mandate_jti: string;
+  payload: Record<string, unknown>;
+  prev_hash: string;
+  hash: string;
+  root_sig: string | null;
+  created_at: string;
+}
+
+export interface PurchaseTrace {
+  purchase_id: string;
+  status: AgentPurchaseStatus;
+  reason_code: ReasonCode | null;
+  amount: string;
+  created_at: string;
+  updated_at: string;
+  reservation_id: string | null;
+  receipt: AgentPurchaseReceipt | null;
+  mandates: TraceMandate[];
+  intent: TraceIntent | null;
+  events: TraceEvent[];
+}
+
 export type PipelineStepStatus = 'pending' | 'running' | 'passed' | 'failed';
 
 export interface PipelineStep {

@@ -20,6 +20,8 @@ import {
   VerifyResponse,
   PipelineStep,
   EvidencePack,
+  AgentPurchase,
+  PurchaseTrace,
 } from '../types';
 
 // Thrown by evidence-critical calls (audit events, chain verification) when the real
@@ -199,6 +201,44 @@ class ApiClient {
     if (!res.ok) {
       throw new BackendUnavailableError(
         `Evidence backend responded with HTTP ${res.status}. Refusing to show a fabricated proof envelope — start the stack with \`docker compose up\` and retry.`
+      );
+    }
+    return await res.json();
+  }
+
+  // Agent purchases list + per-purchase mandate trace (evidence-critical: never fall
+  // back to the mock engine). A purchase can debit more than one mandate — a sticky
+  // over-limit approval issues a one-shot child mandate that walks its whole ancestry
+  // on settlement — so this is real ledger data, not something safe to simulate.
+  public async getAgentPurchases(opts?: { limit?: number; mandateJti?: string }): Promise<AgentPurchase[]> {
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', String(opts?.limit ?? 50));
+      if (opts?.mandateJti) params.set('mandate_jti', opts.mandateJti);
+      const res = await fetch(`/api/agent/purchases?${params.toString()}`);
+      if (res.ok) return await res.json();
+      throw new BackendUnavailableError(
+        `Purchases backend responded with HTTP ${res.status}. Refusing to show fabricated transactions — start the stack with \`docker compose up\` and retry.`
+      );
+    } catch (err) {
+      if (err instanceof BackendUnavailableError) throw err;
+      console.error('[api] getAgentPurchases: backend unreachable, refusing to fabricate transactions', err);
+      throw new BackendUnavailableError();
+    }
+  }
+
+  public async getPurchaseTrace(purchaseId: string): Promise<PurchaseTrace | null> {
+    let res: Response;
+    try {
+      res = await fetch(`/api/agent/purchases/${encodeURIComponent(purchaseId)}/trace`);
+    } catch (err) {
+      console.error('[api] getPurchaseTrace: backend unreachable, refusing to fabricate a mandate trace', err);
+      throw new BackendUnavailableError();
+    }
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new BackendUnavailableError(
+        `Trace backend responded with HTTP ${res.status}. Refusing to show a fabricated mandate chain — start the stack with \`docker compose up\` and retry.`
       );
     }
     return await res.json();
