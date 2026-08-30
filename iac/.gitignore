@@ -1,0 +1,5 @@
+# Provider binaries (downloaded by tofu init). The lock file IS committed.
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan

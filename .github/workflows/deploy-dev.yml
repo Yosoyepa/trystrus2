@@ -1,0 +1,123 @@
+name: deploy-dev
+
+# Deploys dev on every push to main. Gated on WIF bootstrap: while the GitHub
+# repo vars (WIF_PROVIDER/DEPLOY_SA/GCP_PROJECT/GCP_REGION) are not set, this
+# job skips so merging this branch cannot fire a broken deploy.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: vars.WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    environment: dev
+
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION }}
+      REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/aval
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build and push backend image
+        uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REPO }}/backend:${{ github.sha }}
+            ${{ env.REPO }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: true
+          tags: |
+            ${{ env.REPO }}/web:${{ github.sha }}
+            ${{ env.REPO }}/web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run migrations (Cloud Run Job)
+        run: |
+          gcloud run jobs deploy aval-migrations \
+            --image "$REPO/backend:${{ github.sha }}" \
+            --region "$REGION" \
+            --service-account "${{ vars.GCP_PROJECT }}-dev-jobs@${{ vars.GCP_PROJECT }}.iam.gserviceaccount.com" \
+            --set-secrets "DATABASE_URL=aval-dev-db-url:latest" \
+            --set-cloudsql-instances "${{ vars.GCP_PROJECT }}:${GCP_REGION}:aval-dev-db" \
+            --quiet
+          gcloud run jobs execute aval-migrations \
+            --region "$REGION" --wait
+
+      - name: Resolve service URLs (for kernel env wiring)
+        id: urls
+        run: |
+          YUNO_URL=$(gcloud run services describe aval-dev-yuno-sim --region "$REGION" --format 'value(status.url)' 2>/dev/null || true)
+          echo "yuno_url=$YUNO_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy kernel
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: aval-dev-kernel
+          region: ${{ env.REGION }}
+          image: ${{ env.REPO }}/backend:${{ github.sha }}
+          env_vars: |-
+            APP_MODULE=src.api.main:app
+            AVAL_GCP_PROJECT=${{ vars.GCP_PROJECT }}
+            AVAL_YUNO_SIM_URL=${{ steps.urls.outputs.yuno_url }}
+            LLM_PROVIDER=gemini
+            LLM_MODEL=gemini-2.5-flash
+          secrets: |-
+            DATABASE_URL=aval-dev-db-url:latest
+            AVAL_DATABASE_URL=aval-dev-db-url:latest
+            AVAL_IDEM_SECRET=aval-dev-idem-secret:latest
+            GEMINI_API_KEY=aval-dev-llm-gemini-key:latest
+            OPENAI_API_KEY=aval-dev-llm-openai-key:latest
+          cloudsql_instances: ${{ vars.GCP_PROJECT }}:${{ env.REGION }}:aval-dev-db
+          flags: >-
+            --min-instances=0
+            --max-instances=2
+            --cpu=1
+            --memory=512Mi
+            --concurrency=20
+
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe aval-dev-kernel --region "$REGION" --format 'value(status.url)')
+          curl -fsS "$URL/healthz" | grep -q ok
+
+      - name: Tick relay + sweeper once (jobs are Scheduler-driven)
+        run: |
+          gcloud run jobs execute aval-dev-outbox-relay --region "$REGION" --wait || true
+          gcloud run jobs execute aval-dev-sweeper --region "$REGION" --wait || true

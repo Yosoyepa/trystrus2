@@ -1,0 +1,81 @@
+name: infra-plan
+
+# PRs touching iac/**: tofu fmt + validate + plan (dev) with the plan
+# commented on the PR. Requires WIF vars; skips otherwise.
+
+on:
+  pull_request:
+    paths:
+      - "iac/**"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  plan:
+    if: vars.WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: iac
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.11.5"
+
+      - name: Tofu fmt
+        run: tofu fmt -check -recursive
+
+      - name: Tofu init
+        run: tofu init -backend-config=environments/dev.backend.hcl -input=false
+
+      - name: Tofu validate
+        run: tofu validate
+
+      - name: Tofu plan (dev)
+        id: plan
+        run: tofu plan -var-file=environments/dev.tfvars -input=false -no-color -out=plan.out
+
+      - name: Comment plan on the PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            let body = '### `tofu plan` (dev)\n```\n';
+            try {
+              body += execSync('tofu show -no-color plan.out', { cwd: 'iac' }).toString();
+            } catch (e) {
+              body += 'plan show failed: ' + e.message;
+            }
+            body += '\n```';
+            if (body.length > 60000) body = body.slice(0, 60000) + '\n… (truncated)';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const marker = '### `tofu plan` (dev)';
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }

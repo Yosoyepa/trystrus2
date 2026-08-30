@@ -1,0 +1,80 @@
+name: ci
+
+# PRs and pushes to main: lint + tests (with a Postgres service) + image build.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aval
+          POSTGRES_PASSWORD: aval
+          POSTGRES_DB: aval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aval"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check
+
+      - name: Tests (Postgres service for db-marked tests)
+        env:
+          DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
+          AVAL_DATABASE_URL: postgresql+asyncpg://aval:aval@localhost:5432/aval
+          YUNO_DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
+          MERCHANT_DATABASE_URL: postgresql://aval:aval@localhost:5432/aval
+        run: uv run pytest -m "not gcp" -q
+
+  build-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build web image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
