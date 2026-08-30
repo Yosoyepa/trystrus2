@@ -137,6 +137,34 @@ rechaza). Todas las adiciones son fail-closed.
   MERCHANT_NOT_ALLOWED, no excepción).
 - Test de doble compra concurrente (T5 en memoria con hilos).
 
+## Tarjeta 8 (D-01/D-06, post-auditoría del run, 4 h) — fraud.alert muerto y orden del replay
+
+Hallazgos de la auditoría de 5 agentes sobre HEAD `9d18ce5` (post-run C1–C5).
+
+- **D-01 (ALTA): `fraud.alert` por flood es código muerto.**
+  `evaluate_burst` produce `auto_suspend=True` como campo de `BurstDecision`
+  (`policy.py:623`), pero `PolicyGate.evaluate` lo convierte a
+  `Decision(diff=burst.diff)` perdiendo el flag; `_rejected` en el servicio
+  solo emite `fraud.alert` si `decision.diff.get("auto_suspend")`
+  (`service.py:691-698`). Verificado empíricamente: 6 escalaciones/hora →
+  REJECTED `MANDATE_SUSPENDED`, **0 fraud.alerts**, mandato sigue `active`.
+  - **Fix:** que el gate preserve `auto_suspend` en el `diff` de la decisión
+    (o como campo de `Decision`), y que `_rejected` lo consuma. Añadir además
+    la suspensión durable si Q-10 lo ratifica.
+  - **Test:** `test_service_escalation_flood_auto_suspends_and_emits_fraud_alert`
+    (6+ escalaciones en 1h → siguiente intent rechazado + `fraud.alert` en
+    outbox). También cubre el hueco (v) de la auditoría de tests.
+- **D-06 (MEDIA): orden pending-claim > compra-existente.** El check
+  `not owns_idempotency_claim → RAIL_ERROR` (`service.py:923-928`) corre
+  ANTES de leer la compra (`:941`). Ventana de crash (negocio commiteado,
+  respuesta no guardada): todo retry del mismo jti recibe `RAIL_ERROR`
+  durante 45 días en vez del estado real; además `RAIL_ERROR` significa
+  "fallo del rail" en el contrato §7 — semántica equivocada.
+  - **Fix:** leer la compra existente ANTES del check de claim pendiente y
+    devolver su estado real; reservar `RAIL_ERROR` para fallos del rail.
+  - **Test:** simular crash entre commit y `save_response` → el retry
+    devuelve el estado de la compra, no `RAIL_ERROR`.
+
 ---
 
 **DoD de la continuación:** commits atómicos C1–C5 primero (brief original),
