@@ -86,6 +86,8 @@ resource "google_project_iam_member" "deploy" {
     "roles/iam.serviceAccountUser",
     "roles/monitoring.alertPolicyEditor",
     "roles/logging.configWriter",
+    "roles/resourcemanager.projectIamAdmin",
+    "roles/serviceusage.serviceUsageAdmin",
   ])
 
   project = var.project_id
